@@ -134,7 +134,8 @@ def run_section(
 
 def parse_vitest_counts(output: str) -> str:
     """Return ``(app: N passed, M failed)`` from Vitest's ``Tests`` summary line."""
-    line = next((ln for ln in output.splitlines() if ln.strip().startswith("Tests ")), "")
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", output)  # drop colour codes (FORCE_COLOR, CI)
+    line = next((ln for ln in plain.splitlines() if ln.strip().startswith("Tests ")), "")
     passed = re.search(r"(\d+) passed", line)
     failed = re.search(r"(\d+) failed", line)
     return f"(app: {passed.group(1) if passed else 0} passed, {failed.group(1) if failed else 0} failed)"
@@ -167,8 +168,6 @@ def run_app_checks(runner: Runner) -> list[SectionResult]:
 
 def merge_sections(name: str, parts: Sequence[SectionResult]) -> SectionResult:
     """Combine one summary line from several areas: any FAIL fails, any PASS passes."""
-    if not parts:
-        return SectionResult(name, "SKIP", "(no check for this area)")
     statuses = {p.status for p in parts}
     status = "FAIL" if "FAIL" in statuses else "PASS" if "PASS" in statuses else "SKIP"
     shown = [p for p in parts if p.status != "SKIP"] or list(parts)
@@ -188,6 +187,7 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
     if not groups:
         reason = "; ".join(not_set_up_notes(areas))
         return [SectionResult(name, "SKIP", f"({reason})") for name in SUMMARY_ORDER]
+    groups.append(later_sections())
     return [
         merge_sections(name, [r for group in groups for r in group if r.name == name])
         for name in SUMMARY_ORDER
@@ -209,7 +209,6 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
             runner,
         ),
         run_section("types", [tool("pyright", *paths)], runner),
-        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
     ]
 
     test_paths = [p for p in paths if p.endswith("tests")] + [
@@ -225,8 +224,15 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
     else:
         status = "FAIL" if result.returncode != 0 else "PASS"
         results.append(SectionResult("tests", status, parse_pytest_counts(output), output))
-    results += [SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS]
     return results
+
+
+def later_sections() -> list[SectionResult]:
+    """SKIP lines for checks whose tooling arrives in a later step."""
+    return [
+        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
+        *(SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS),
+    ]
 
 
 def not_set_up_notes(areas: Sequence[str]) -> list[str]:

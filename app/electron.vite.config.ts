@@ -21,6 +21,8 @@ export default defineConfig({
     },
     plugins: [react(), tailwindcss()],
     build: {
+      // Ship every asset (fonts included) as a file: the CSP allows `font-src 'self'`, not data: URIs.
+      assetsInlineLimit: 0,
       rollupOptions: {
         input: { index: resolve(import.meta.dirname, "renderer/index.html") },
       },

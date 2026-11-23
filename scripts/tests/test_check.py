@@ -125,6 +125,10 @@ def test_area_not_set_up_skips_everything_without_running_tools(
     [
         (" Test Files  1 passed (1)\n      Tests  2 passed (2)\n", "(app: 2 passed, 0 failed)"),
         ("      Tests  1 failed | 4 passed (5)\n", "(app: 4 passed, 1 failed)"),
+        (
+            "\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[31m1 failed\x1b[39m (1)",
+            "(app: 0 passed, 1 failed)",
+        ),
         ("No test files found", "(app: 0 passed, 0 failed)"),
     ],
 )
@@ -143,7 +147,8 @@ def test_only_app_runs_the_three_pnpm_scripts(capsys: pytest.CaptureFixture[str]
     out = capsys.readouterr().out
     assert "format/lint ........ PASS" in out
     assert "tests .............. PASS  (app: 0 passed, 0 failed)" in out
-    assert "boundaries ......... SKIP  (no check for this area)" in out
+    assert "boundaries ......... SKIP  (import-linter arrives in T0.07)" in out
+    assert "coverage ........... SKIP  (arrives in T0.07)" in out
 
 
 def test_full_run_merges_python_and_app_results(capsys: pytest.CaptureFixture[str]) -> None:
