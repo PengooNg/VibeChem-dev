@@ -1,9 +1,6 @@
 # CLAUDE.md — rules for working on VibeChem
 
-> Place this file at the repository root. Claude Code reads it automatically at the start of every session.
 > v0.8 · 2026-11-22 · Part A (how to think and work) is adapted from the four principles in `multica-ai/andrej-karpathy-skills` (MIT), based on Andrej Karpathy's observations of common LLM coding mistakes. Part B (§1–§15) holds VibeChem's own rules; other docs cite these as "CLAUDE.md §N". When Part B is more specific, Part B wins.
-> v0.9: UI steps get a visual check with Playwright CLI and design review (Impeccable critique/audit, break-ui); Humanizer for human-facing prose; GitHub and Playwright MCP servers removed to save tokens (§13).
-> v0.8: **phase mode** (§3, §14): `/phase N` runs a whole phase step by step; steps auto-merge into a `phase-N` branch; plans proceed unless a stop condition fires (§14.3); `docs/PROGRESS.md` log; K deferred until demo v0 (§15); two-machine rules (§8.4).
 
 ---
 
@@ -99,69 +96,7 @@ A step runs either inside `/phase N` (normal) or alone via `/step <ID>`. In phas
 - Never merge a step marked 👤 — prepare it and stop (§14.3 `HUMAN_STEP`).
 
 ## 5. Block template and comment style
-Every block is one file. Header docstring, typed parameters, numbered `# Step N:` comments that match `docs/METHODS.md`, so a reviewer can check each line against the paper. When a block wraps an external library, the `# Step` comments describe what the library call does and the header names the library (the `Implementation:` line). Keep blocks as simple as the method allows (A2).
-
-```python
-# SPDX-License-Identifier: GPL-3.0-or-later
-# packages/core/src/vibechem_core/blocks/preprocess/snv.py
-"""
-Block:          Standard Normal Variate (SNV)
-Class:          preprocess
-Ports:          in  -> spectra : Spectra
-                out -> spectra : Spectra
-Reference:      Barnes, Dhanoa & Lister (1989), Appl. Spectrosc. 43(5), 772-777
-METHODS:        docs/METHODS.md#snv
-Implementation: own NumPy code (simpler than wrapping; see TECH_STACK.md §11)
-Fitted:         No (row-wise transform; safe inside CV without refitting)
-Reviewers:      algorithm -> Quan | structure -> K
-"""
-from dataclasses import dataclass
-
-import numpy as np
-
-from vibechem_core.block import Block, Param, port
-from vibechem_core.data import SpectralDataset
-from vibechem_core.errors import BlockInputError
-
-
-@dataclass(frozen=True)
-class SNVParams:
-    ddof: int = Param(1, choices=(0, 1), tooltip_key="blocks.preprocess.snv.params.ddof.tip")
-
-
-class SNV(Block):
-    block_id = "preprocess.snv"
-    version = "1.0.0"
-    icon = "glyph-snv"
-    references = ("barnes1989snv",)
-    fitted = False
-    inputs = (port("spectra", "Spectra"),)
-    outputs = (port("spectra", "Spectra"),)
-    params_type = SNVParams
-
-    def apply(self, spectra: SpectralDataset, params: SNVParams) -> SpectralDataset:
-        X = spectra.X
-
-        # Step 1: Mean of each spectrum over all wavelengths (one value per row)
-        row_mean = X.mean(axis=1, keepdims=True)
-
-        # Step 2: Standard deviation of each spectrum
-        row_std = X.std(axis=1, ddof=params.ddof, keepdims=True)
-
-        # Step 3: Reject flat spectra (std = 0 would divide by zero)
-        flat_rows = np.flatnonzero(row_std.ravel() == 0)
-        if flat_rows.size > 0:
-            raise BlockInputError(
-                code="BLOCK_CONSTANT_SPECTRA",
-                params={"rows": flat_rows.tolist()},
-            )
-
-        # Step 4: Centre and scale each spectrum individually
-        X_snv = (X - row_mean) / row_std
-
-        return spectra.with_X(X_snv, history=f"SNV(ddof={params.ddof})")
-```
-Other conventions (typing, docstrings, C++, TypeScript, SPDX headers): `docs/TECH_STACK.md` §4–6.
+Every block is one file with a header docstring, typed parameters and numbered `# Step N:` comments matching `docs/METHODS.md`. **Before writing, changing or reviewing any block, load the `block-template` skill** (`.claude/skills/block-template/SKILL.md`) — it holds the full template and example.
 
 ## 6. Quality duties before merging a step (QA.md §7)
 1. Every new or changed function has tests in the mirrored test file: unit tests, plus reference or property tests for algorithms (including wrapped libraries). Bugs get a regression test.
@@ -232,7 +167,7 @@ Read CLAUDE.md, the step in TASKS.md and the handoff note; check out the branch;
 - If an open step PR is labelled `in-progress` (not `paused`) when a session starts, it may be running on the other machine or was cut off: ask Quan before touching it.
 
 ### 8.5 Status request (`/status`, or "where are we?")
-Run `gh pr list --state open` and read `docs/TASKS.md` and `docs/PROGRESS.md` on the current phase branch. Answer with: current phase and branch · steps done this phase · step in progress (PR, checkpoint, machine) · paused/stopped steps and what Quan must do · open `needs-quan` items · open S1/S2 issues · phase PR link.
+Follow `.claude/skills/status/SKILL.md` (read-only; change nothing).
 
 ## 9. Commands
 | Command | Use |

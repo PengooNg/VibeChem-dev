@@ -1,6 +1,6 @@
 ---
 description: Run exactly one VibeChem TASKS.md step (outside the phase loop). Use when Quan types /step <ID>, optionally adding "wait" to approve the plan first.
-argument-hint: [step-id] [wait]
+argument-hint: "[step-id] [wait]"
 disable-model-invocation: true
 ---
 
