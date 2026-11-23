@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
 # VibeChem app (`app/`)
 
 **Status:** stub. The pnpm workspace is set up in T0.04.
 
 **Purpose:** the desktop app.
+
 - `main/`: Electron main process and preload (TypeScript). It starts and stops the engine and holds no business logic.
 - `renderer/src/`: React + TypeScript UI (canvas, inspector, plots, jobs, library, state, ui, i18n `en`/`ja`/`vi`).
 - `e2e/`: Playwright end-to-end tests.

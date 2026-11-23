@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["electron.vite.config.ts", "main/**/*.ts"]
+  "include": ["electron.vite.config.ts", "vitest.config.ts", "main/**/*.ts"]
 }
