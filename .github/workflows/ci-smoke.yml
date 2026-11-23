@@ -1,7 +1,9 @@
 name: ci-smoke
 on:
   push:
+    branches: [main, "phase-*"]
   pull_request:
+    branches: [main, "phase-*"]
   workflow_dispatch:
 jobs:
   hello:
