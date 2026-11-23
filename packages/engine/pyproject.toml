@@ -6,7 +6,13 @@ description = "VibeChem pipeline engine: graph, compiler, executor, API, CLI"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.12"
-dependencies = ["vibechem-core"]
+dependencies = [
+    "fastapi>=0.149,<0.150",
+    "pyarrow>=26.0.1",
+    "pydantic>=2.13,<2.14",
+    "uvicorn>=0.54.0",
+    "vibechem-core",
+]
 
 [tool.uv.sources]
 vibechem-core = { workspace = true }

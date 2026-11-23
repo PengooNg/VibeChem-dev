@@ -8,6 +8,7 @@ members = ["packages/core", "packages/engine", "packages/native"]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0,<2.16.1",
     "hypothesis",
     "import-linter",
     "pre-commit",
