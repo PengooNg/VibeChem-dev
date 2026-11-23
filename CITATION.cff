@@ -5,8 +5,7 @@ type: software
 authors:
   - family-names: Nguyen
     given-names: Minh Quan
-    # TODO (Quan): add `orcid: "https://orcid.org/<your ORCID>"`
-  # - add K (name + ORCID) once authorship is agreed
+    orcid: https://orcid.org/0000-0001-7171-1633
 version: "0.0.0"
 # TODO (after the first release): add `doi:` with the Zenodo concept DOI
 license: "GPL-3.0-or-later"
