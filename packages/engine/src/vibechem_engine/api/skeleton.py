@@ -39,6 +39,9 @@ class SkeletonRunRequest(BaseModel):
 def snv(spectra: NDArray[np.float64]) -> NDArray[np.float64]:
     """Standard normal variate: centre and scale each spectrum (row) by its own statistics.
 
+    No zero-variance guard: the two reference datasets have no constant spectra. The
+    real block (T1.07) raises ``BLOCK_CONSTANT_SPECTRA``.
+
     Barnes, Dhanoa & Lister (1989), Appl. Spectrosc. 43, 772; sample standard
     deviation (``ddof=1``).
     """
@@ -55,8 +58,9 @@ def decimate_minmax(
 
     Points are split into ``width // 2`` buckets; each bucket becomes two points at
     its first and last ``x``, holding the spectrum's minimum and maximum in the order
-    they occur. All spectra share one ``x`` column. No change when
-    ``n_points <= width``.
+    they occur. All spectra share one ``x`` column, so an extremum is drawn at its
+    bucket's edge: it moves by less than one bucket (about two pixels at ``width``).
+    No change when ``n_points <= width``.
     """
     n_points = x.size
     if n_points <= width:

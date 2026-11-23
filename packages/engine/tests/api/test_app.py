@@ -40,5 +40,11 @@ def test_blocks_lists_only_snv(client: TestClient, auth: dict[str, str]) -> None
     }
 
 
+def test_no_swagger_pages_but_openapi_schema(client: TestClient, auth: dict[str, str]) -> None:
+    assert client.get("/docs", headers=auth).status_code == 404
+    assert client.get("/redoc", headers=auth).status_code == 404
+    assert "/api/v1/skeleton/run" in client.get("/openapi.json", headers=auth).json()["paths"]
+
+
 def test_endpoints_live_under_api_v1(client: TestClient, auth: dict[str, str]) -> None:
     assert client.get("/health", headers=auth).status_code == 404

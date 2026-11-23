@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 __all__ = [
     "APP_ORIGIN",
@@ -47,20 +48,29 @@ def new_session_token() -> str:
 
 
 def problem(status: int, code: str, title: str) -> JSONResponse:
-    """RFC 9457 problem details for an engine API error (DATA_MODEL.md §1 "Error body")."""
+    """RFC 9457 problem details for an engine API error (DATA_MODEL.md §1 "Error body").
+
+    ``message_key`` follows the §1 example: the code's first word is the namespace
+    (``AUTH_TOKEN_INVALID`` → ``errors.auth.token_invalid``).
+    """
+    namespace, _, rest = code.lower().partition("_")
     body: dict[str, Any] = {
         "type": f"https://vibechem.org/errors/{code.lower().replace('_', '-')}",
         "title": title,
         "status": status,
         "code": code,
-        "message_key": f"errors.api.{code.lower()}",
+        "message_key": f"errors.{namespace}.{rest}",
         "params": {},
     }
     return JSONResponse(body, status_code=status, media_type="application/problem+json")
 
 
 class _OriginCheck:
-    """Reject HTTP requests whose Origin header is present and not allowed (403)."""
+    """Reject HTTP requests and WebSocket handshakes from a present, not allowed Origin.
+
+    HTTP gets ``403 ORIGIN_FORBIDDEN``; a WebSocket handshake is closed before accept
+    (the server answers it with 403).
+    """
 
     def __init__(self, app: ASGIApp, allowed: frozenset[str], allowed_regex: str | None) -> None:
         self.app = app
@@ -73,24 +83,35 @@ class _OriginCheck:
         return self.allowed_regex is not None and self.allowed_regex.fullmatch(origin) is not None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and not self.is_allowed(Headers(scope=scope).get("origin")):
-            response = problem(403, "ORIGIN_FORBIDDEN", "Request not from the app")
-            await response(scope, receive, send)
+        if scope["type"] in {"http", "websocket"} and not self.is_allowed(
+            Headers(scope=scope).get("origin")
+        ):
+            if scope["type"] == "websocket":
+                await WebSocketClose(code=1008)(scope, receive, send)  # policy violation
+            else:
+                response = problem(403, "ORIGIN_FORBIDDEN", "Request not from the app")
+                await response(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
 
 class _TokenCheck:
-    """Reject HTTP requests without the session bearer token (401)."""
+    """Reject HTTP requests without the session bearer token (401).
+
+    The scheme ``Bearer`` is case-insensitive (RFC 9110 §11.1). WebSockets authenticate
+    with their first message (DATA_MODEL.md §3), not here.
+    """
 
     def __init__(self, app: ASGIApp, token: str) -> None:
         self.app = app
-        self.expected = f"Bearer {token}".encode()
+        self.expected = token.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
-            given = Headers(scope=scope).get("authorization", "").encode()
-            if not secrets.compare_digest(given, self.expected):
+            scheme, _, given = Headers(scope=scope).get("authorization", "").partition(" ")
+            if scheme.lower() != "bearer" or not secrets.compare_digest(
+                given.encode(), self.expected
+            ):
                 response = problem(401, "AUTH_TOKEN_INVALID", "Missing or wrong session token")
                 await response(scope, receive, send)
                 return

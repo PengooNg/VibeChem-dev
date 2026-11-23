@@ -174,7 +174,7 @@ pengoo is **not** stored in this repository. When a step ports pengoo code, Quan
 | Package | May import | Must never import |
 |---|---|---|
 | `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, `vibechem_native` (optional) | `vibechem_engine`, fastapi, anything UI |
-| `vibechem_engine` | `vibechem_core`, loky, fastapi, pyarrow | renderer code |
+| `vibechem_engine` | `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow | renderer code |
 | `vibechem_native` (Python wrapper) | numpy, `vibechem_core` reference functions (for fallback) | `vibechem_engine` |
 | `app/renderer` | engine **only via HTTP/WS API** | Node.js APIs (sandboxed) |
 | `app/main` | Electron, child-process control of engine | business logic |

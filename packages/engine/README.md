@@ -11,7 +11,7 @@
 
 Later: the Python API and CLI (T2.11) and the rest of the HTTP/WS API in `docs/DATA_MODEL.md`.
 
-**Allowed dependencies** (TECH_STACK.md §3.1): `vibechem_core`, loky, fastapi, pyarrow (plus uvicorn as the ASGI server and pydantic for API models, TECH_STACK §1.2). pyarrow has no type information; it is imported only in `api/arrow.py`, which turns off pyright's unknown-type checks for that file.
+**Allowed dependencies** (TECH_STACK.md §3.1): `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow. pyarrow has no type information; it is imported only in `api/arrow.py`, which turns off pyright's unknown-type checks for that file.
 **Never imports:** renderer code.
 
 **Tests:** `packages/engine/tests/`, which mirrors `src/vibechem_engine/`.

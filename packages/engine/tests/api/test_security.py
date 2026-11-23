@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from vibechem_engine.api.security import APP_ORIGIN, new_session_token
 
@@ -18,13 +19,14 @@ DEV_ORIGIN = "http://localhost:5173"
 def assert_problem(body: dict[str, Any], status: int, code: str) -> None:
     assert body["status"] == status
     assert body["code"] == code
-    assert body["message_key"] == f"errors.api.{code.lower()}"
+    namespace, _, rest = code.lower().partition("_")
+    assert body["message_key"] == f"errors.{namespace}.{rest}"
     assert body["params"] == {}
 
 
 @pytest.mark.parametrize(
     "authorization",
-    [None, "Bearer wrong", "{token}", "Basic {token}", "Bearer {token}x", "bearer {token}"],
+    [None, "Bearer wrong", "{token}", "Basic {token}", "Bearer {token}x", "", "Bearer", "Bearer "],
 )
 def test_missing_or_wrong_token_is_401(
     client: TestClient, token: str, authorization: str | None
@@ -42,6 +44,20 @@ def test_missing_or_wrong_token_is_401(
 )
 def test_token_checked_on_every_path(client: TestClient, method: str, path: str) -> None:
     assert client.request(method, path, json={}).status_code == 401
+
+
+@pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER"])
+def test_bearer_scheme_is_case_insensitive(client: TestClient, token: str, scheme: str) -> None:
+    assert client.get(HEALTH, headers={"Authorization": f"{scheme} {token}"}).status_code == 200
+
+
+def test_foreign_origin_websocket_handshake_is_refused(client: TestClient) -> None:
+    with (
+        pytest.raises(WebSocketDisconnect) as exc,
+        client.websocket_connect("/api/v1/events", headers={"Origin": "http://evil.example"}),
+    ):
+        pass
+    assert exc.value.code == 1008
 
 
 def test_correct_token_without_origin_is_allowed(client: TestClient, auth: dict[str, str]) -> None:

@@ -50,7 +50,9 @@ def create_app(token: str, *, testdata_dir: Path, dev: bool = False) -> FastAPI:
         Dev mode (``VIBECHEM_DEV=1``): also allow the Vite dev server origin.
     """
     started = time.monotonic()
-    app = FastAPI(title="VibeChem engine", version=__version__)
+    # No Swagger/ReDoc pages: they load assets from a CDN (no network calls, CLAUDE.md §4).
+    # /openapi.json stays (token-protected) for the generated UI client (T0.10).
+    app = FastAPI(title="VibeChem engine", version=__version__, docs_url=None, redoc_url=None)
     install_security(app, token, dev=dev)
 
     router = APIRouter()
