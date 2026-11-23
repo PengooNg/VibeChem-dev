@@ -12,10 +12,11 @@ import unittest
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import merge_step  # noqa: E402
+import merge_step
 
 TASKS_MD = """\
 ## Status overview
@@ -29,6 +30,11 @@ TASKS_MD = """\
 ### T0.06 · Full CI and rulesets 👤 · K · Size M
 ### T1.07 · SNV, MSC, detrend, cut · Q · Size M
 ### T1.09 · Scaling blocks 👤 · Q · Size S
+### T1.10 · KS, SPXY, random split · Q · Size S
+- **Done when:** tests pass. 👤 Quan merges.
+
+### T1.11 · CV fold generators · Q · Size S
+- **Done when:** tests pass.
 """
 
 GREEN = [{"name": "ci (ubuntu)", "bucket": "pass"}, {"name": "ci (windows)", "bucket": "pass"}]
@@ -48,6 +54,7 @@ class FakeGh:
             "number": 12,
             "title": "[T0.03] Python workspace and check.py",
             "baseRefName": "phase-0",
+            "headRefName": "t0-03-workspace",
             "headRefOid": "abc123",
             "isDraft": False,
             "state": "OPEN",
@@ -68,7 +75,13 @@ class FakeGh:
             return json.dumps(self.pr)
         if command == "pr checks":
             return json.dumps(self.checks)
+        if args[:3] == ["api", "-X", "DELETE"]:
+            if self.fail_on == "api DELETE":
+                raise merge_step.GhError("gh api DELETE failed (1): boom")
+            return ""
         if args[0] == "api":
+            if self.fail_on == "api TASKS":
+                raise merge_step.GhError("gh api failed (1): Not Found")
             return self.tasks_md
         if command == "pr merge":
             return ""
@@ -76,6 +89,12 @@ class FakeGh:
 
     def merge_calls(self) -> list[list[str]]:
         return [c for c in self.calls if c[:2] == ["pr", "merge"]]
+
+    def tasks_calls(self) -> list[list[str]]:
+        return [c for c in self.calls if c[0] == "api" and c[-1].startswith("repos/{owner}/{repo}/contents/")]
+
+    def delete_calls(self) -> list[list[str]]:
+        return [c for c in self.calls if c[:3] == ["api", "-X", "DELETE"]]
 
 
 def run_main(fake: FakeGh, pr_number: str = "12") -> tuple[int, str]:
@@ -94,17 +113,31 @@ class MergeTests(unittest.TestCase):
             fake.merge_calls(),
             [
                 [
-                    "pr", "merge", "12", "--squash", "--delete-branch",
-                    "--subject", "[T0.03] Python workspace and check.py (#12)",
+                    "pr", "merge", "12", "--squash",
+                    "--subject", "[T0.03] Python workspace and check.py",
                     "--match-head-commit", "abc123",
                 ]
             ],
         )
 
+    def test_remote_step_branch_is_deleted_after_the_merge(self) -> None:
+        fake = FakeGh()
+        run_main(fake)
+        self.assertEqual(
+            fake.delete_calls(),
+            [["api", "-X", "DELETE", "repos/{owner}/{repo}/git/refs/heads/t0-03-workspace"]],
+        )
+        self.assertLess(fake.calls.index(fake.merge_calls()[0]), fake.calls.index(fake.delete_calls()[0]))
+
+    def test_failed_branch_delete_still_reports_the_merge(self) -> None:
+        code, err = run_main(FakeGh(fail_on="api DELETE"))
+        self.assertEqual(code, 0)
+        self.assertIn("not deleted", err)
+
     def test_tasks_md_is_read_from_the_base_branch(self) -> None:
         fake = FakeGh(pr={"baseRefName": "phase-1", "title": "[T1.07] SNV, MSC"})
         run_main(fake)
-        api_calls = [c for c in fake.calls if c[0] == "api"]
+        api_calls = fake.tasks_calls()
         self.assertEqual(len(api_calls), 1)
         self.assertTrue(api_calls[0][-1].endswith("docs/TASKS.md?ref=phase-1"))
 
@@ -114,7 +147,7 @@ class MergeTests(unittest.TestCase):
                 fake = FakeGh(pr={"title": title})
                 code, _ = run_main(fake)
                 self.assertEqual(code, 0)
-                self.assertFalse(any(c[0] == "api" for c in fake.calls))
+                self.assertEqual(fake.tasks_calls(), [])
                 self.assertEqual(len(fake.merge_calls()), 1)
 
     def test_skipped_checks_count_as_green(self) -> None:
@@ -164,6 +197,19 @@ class RefusalTests(unittest.TestCase):
     def test_human_step_marked_only_in_status_row_is_refused(self) -> None:
         self.assert_refused(FakeGh(pr={"title": "[T0.01] CI smoke"}), "T0.01 is a 👤 step")
 
+    def test_human_step_marked_only_in_body_is_refused(self) -> None:
+        self.assert_refused(FakeGh(pr={"title": "[T1.10] KS split"}), "T1.10 is a 👤 step")
+
+    def test_body_of_next_step_is_not_mixed_in(self) -> None:
+        self.assertEqual(run_main(FakeGh(pr={"title": "[T1.11] CV folds"}))[0], 0)
+
+    def test_unreadable_tasks_md_is_a_refusal_with_all_reasons(self) -> None:
+        fake = FakeGh(pr={"baseRefName": "main"}, fail_on="api TASKS")
+        code, err = run_main(fake)
+        self.assertEqual(code, 1)
+        self.assertIn("could not read docs/TASKS.md on 'main'", err)
+        self.assertIn("base branch is 'main'", err)
+
     def test_unknown_step_is_refused(self) -> None:
         self.assert_refused(FakeGh(pr={"title": "[T9.99] Nope"}), "T9.99 is not in docs/TASKS.md")
 
@@ -194,7 +240,16 @@ class GhFailureTests(unittest.TestCase):
         self.assertEqual(fake.merge_calls(), [])
 
     def test_gh_failure_on_merge_exits_2(self) -> None:
-        self.assertEqual(run_main(FakeGh(fail_on="pr merge"))[0], 2)
+        fake = FakeGh(fail_on="pr merge")
+        self.assertEqual(run_main(fake)[0], 2)
+        self.assertEqual(fake.delete_calls(), [])
+
+    def test_missing_gh_executable_is_a_gh_error(self) -> None:
+        with (
+            mock.patch.object(merge_step.subprocess, "run", side_effect=FileNotFoundError("gh")),
+            self.assertRaises(merge_step.GhError),
+        ):
+            merge_step.run_gh(["--version"])
 
 
 class FindStepTests(unittest.TestCase):
@@ -202,6 +257,8 @@ class FindStepTests(unittest.TestCase):
         self.assertIs(merge_step.find_step(TASKS_MD, "T0.03"), False)
         self.assertIs(merge_step.find_step(TASKS_MD, "T0.06"), True)
         self.assertIs(merge_step.find_step(TASKS_MD, "T1.07a"), False)
+        self.assertIs(merge_step.find_step(TASKS_MD, "T1.10"), True)
+        self.assertIs(merge_step.find_step(TASKS_MD, "T1.11"), False)
         self.assertIsNone(merge_step.find_step(TASKS_MD, "T0.02"))
 
     def test_real_tasks_md_marks_this_step_as_human(self) -> None:

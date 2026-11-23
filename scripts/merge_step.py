@@ -10,11 +10,15 @@ The script refuses (exit code 1) unless all of these hold:
 2. its base branch is ``phase-<N>``;
 3. its title starts with ``[T<step>]``, ``[BUG`` or ``[SYNC]``;
 4. for a ``[T<step>]`` title, the step exists in ``docs/TASKS.md`` **on the base
-   branch** and is not marked 👤 (human step);
+   branch** and is not marked 👤 (human step) in its heading, its body or its
+   status-overview cell;
 5. CI reported at least one check, and every check passed (or was skipped).
 
-Then it squash-merges with ``gh pr merge --squash --delete-branch``, using the
-PR title as the commit subject and pinning the head commit that was checked.
+Then it squash-merges with ``gh pr merge --squash``, using the PR title as the
+commit subject and pinning the head commit that was checked, and deletes the
+remote step branch. It deletes only the remote branch, never a local one, because
+local branches may be checked out in other worktrees (``gh pr merge
+--delete-branch`` would fail there after the merge).
 
 Standard library only; all GitHub access goes through the ``gh`` CLI.
 Exit codes: 0 merged · 1 refused · 2 ``gh`` failed.
@@ -36,20 +40,23 @@ TITLE_PREFIXES = ("[T", "[BUG", "[SYNC]")
 STEP_TITLE = re.compile(r"^\[(T\d+\.\d+[a-z]?)\]")
 PHASE_BRANCH = re.compile(r"^phase-\d+$")
 OK_CHECK_BUCKETS = frozenset({"pass", "skipping"})
-PR_FIELDS = "number,title,baseRefName,headRefOid,isDraft,state"
+PR_FIELDS = "number,title,baseRefName,headRefName,headRefOid,isDraft,state"
 
 Runner = Callable[[Sequence[str]], str]
 
 
 class GhError(RuntimeError):
-    """A ``gh`` command exited with a non-zero status."""
+    """A ``gh`` command could not run or exited with a non-zero status."""
 
 
 def run_gh(args: Sequence[str]) -> str:
     """Run ``gh`` with ``args`` and return its standard output."""
-    proc = subprocess.run(
-        ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
-    )
+    try:
+        proc = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False
+        )
+    except OSError as err:
+        raise GhError(f"cannot run gh (is the GitHub CLI installed and on PATH?): {err}") from err
     if proc.returncode != 0:
         raise GhError(f"gh {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout
@@ -59,16 +66,20 @@ def find_step(tasks_md: str, step_id: str) -> bool | None:
     """Look up ``step_id`` in TASKS.md.
 
     Returns ``None`` if the step is not listed, otherwise whether it is marked 👤
-    in its ``### <id> ·`` heading or its status-overview cell.
+    in its ``### <id> ·`` heading, the body below that heading (up to the next
+    heading), or its status-overview cell.
     """
     sid = re.escape(step_id)
     heading = re.compile(rf"^###\s+{sid}\s+·")
     status_cell = re.compile(rf"\[[ xX]\]\s+{sid}\s([^|]*)")
     found = False
     human = False
+    in_step = False
     for line in tasks_md.splitlines():
-        if heading.match(line):
-            found = True
+        if line.startswith("#"):
+            in_step = heading.match(line) is not None
+            found = found or in_step
+        if in_step:
             human = human or HUMAN_MARK in line
         for match in status_cell.finditer(line):
             found = True
@@ -103,19 +114,23 @@ def refusal_reasons(pr_number: int, pr: dict[str, Any], run: Runner) -> list[str
             reasons.append(f"cannot read a step ID like [T1.07] from the title: {title!r}")
         else:
             step_id = step_match.group(1)
-            tasks_md = run(
-                [
-                    "api",
-                    "-H",
-                    "Accept: application/vnd.github.raw+json",
-                    f"repos/{{owner}}/{{repo}}/contents/docs/TASKS.md?ref={base}",
-                ]
-            )
-            human = find_step(tasks_md, step_id)
-            if human is None:
-                reasons.append(f"step {step_id} is not in docs/TASKS.md on '{base}'")
-            elif human:
-                reasons.append(f"step {step_id} is a {HUMAN_MARK} step; Quan merges it")
+            try:
+                tasks_md = run(
+                    [
+                        "api",
+                        "-H",
+                        "Accept: application/vnd.github.raw+json",
+                        f"repos/{{owner}}/{{repo}}/contents/docs/TASKS.md?ref={base}",
+                    ]
+                )
+            except GhError as err:
+                reasons.append(f"could not read docs/TASKS.md on '{base}': {err}")
+            else:
+                human = find_step(tasks_md, step_id)
+                if human is None:
+                    reasons.append(f"step {step_id} is not in docs/TASKS.md on '{base}'")
+                elif human:
+                    reasons.append(f"step {step_id} is a {HUMAN_MARK} step; Quan merges it")
 
     # Check 5: CI checks all green
     try:
@@ -154,14 +169,13 @@ def main(argv: Sequence[str] | None = None, run: Runner = run_gh) -> int:
                 print(f"  - {reason}", file=sys.stderr)
             return 1
 
-        subject = f"{pr['title']} (#{pr_number})"
+        subject = str(pr["title"])
         run(
             [
                 "pr",
                 "merge",
                 str(pr_number),
                 "--squash",
-                "--delete-branch",
                 "--subject",
                 subject,
                 "--match-head-commit",
@@ -173,6 +187,15 @@ def main(argv: Sequence[str] | None = None, run: Runner = run_gh) -> int:
         return 2
 
     print(f"merge_step: merged PR #{pr_number} into {pr['baseRefName']}: {subject}")
+
+    # The merge is done; failing to delete the branch only warrants a warning.
+    head = str(pr["headRefName"])
+    try:
+        run(["api", "-X", "DELETE", f"repos/{{owner}}/{{repo}}/git/refs/heads/{head}"])
+    except GhError as err:
+        print(f"merge_step: warning: remote branch '{head}' not deleted: {err}", file=sys.stderr)
+    else:
+        print(f"merge_step: deleted remote branch '{head}'")
     return 0
 
 
