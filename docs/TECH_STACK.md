@@ -69,9 +69,10 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | TypeScript | **6.0.x** | Last JavaScript-based compiler; all tooling compatible. Re-evaluate TypeScript 7 at v1.1 |
 | React | 19.2.x | UI |
 | Vite | 7.x | Dev server + build |
+| electron-vite | 5.x | Runs Vite for the renderer and builds the Electron main process (`app/electron.vite.config.ts`); chosen in T0.04 over electron-forge, which brings its own packaging next to electron-builder |
 | @vitejs/plugin-react | matching Vite 7 | |
 | Tailwind CSS | 4.x | Styling (UI_GUIDE.md tokens) |
-| shadcn/ui | CLI latest (copies components into repo) | Component primitives (Radix) |
+| shadcn/ui | CLI latest (copies components into repo) | Component primitives (Radix); `app/components.json`, `cn` helper from `clsx` 2.x + `tailwind-merge` 3.x |
 | @xyflow/react | 12.x (not 13 pre-release) | Pipeline canvas (keep its attribution; MIT) |
 | uPlot | 1.6.x | Fast line plots for spectra; density mode drawn on canvas |
 | zustand | 5.x | UI state |
@@ -80,14 +81,14 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | apache-arrow (JS) | latest, matching pyarrow format | Binary previews |
 | openapi-typescript | latest | Generate TS types from the engine's OpenAPI |
 | lucide-react | latest | Base icons (custom glyphs in `app/renderer/src/ui/glyphs`) |
-Fonts Inter, JetBrains Mono, Noto Sans JP: SIL Open Font Licence, bundled locally (no web fonts).
+Fonts Inter, JetBrains Mono, Noto Sans JP: SIL Open Font Licence, bundled locally (no web fonts) through the `@fontsource-variable/*` 5.x npm packages; Vite copies the font files into the build.
 
 ### 1.6 Frontend dev tools
 | Tool | Purpose |
 |---|---|
-| ESLint 9 (flat config) + typescript-eslint | Lint |
+| ESLint 9 (flat config) + typescript-eslint, eslint-plugin-react-hooks, eslint-plugin-react-refresh | Lint |
 | Prettier 3 | Format |
-| Vitest + Testing Library | Component/unit tests |
+| Vitest 4 + Testing Library + jsdom | Component/unit tests |
 | `@playwright/test` (Electron mode) | End-to-end tests of the desktop app |
 | `@playwright/cli` | Agent browser control for visual checks (token-efficient; replaces Playwright MCP) |
 
@@ -97,7 +98,7 @@ GitHub Actions standard runners (`ubuntu-latest`, `windows-latest`, `macos-lates
 ## 2. Developer setup (Windows first; macOS/Linux equivalents in brackets)
 1. Install **Git for Windows** (Claude Code on Windows uses its Bash), **GitHub CLI** (`winget install GitHub.cli`, then `gh auth login`), **Visual Studio 2022 Build Tools** with "Desktop development with C++" [macOS: `xcode-select --install`; Linux: `build-essential`].
 2. Install **uv**: `winget install astral-sh.uv` [macOS/Linux: official install script].
-3. Install **Node 24 LTS** (`winget install OpenJS.NodeJS.LTS` or fnm/nvm) and run `corepack enable`.
+3. Install **Node 24 LTS** (`winget install OpenJS.NodeJS.LTS` or fnm/nvm) and run `corepack enable`, then `corepack install -g pnpm@10.34.9` (the version in `app/package.json`; without it, `pnpm --dir app …` run from the repo root picks Corepack's default pnpm and refuses to run).
 4. Install **Claude Code** (official installer) and sign in.
 5. Clone the repo, then from the repo root (after T0.04 also `pnpm --dir app exec playwright install chromium`):
    - `uv python install 3.14`
@@ -248,7 +249,7 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 |---|---|---|---|---|
 | Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | approved (T0.03: cookie's ruff/pytest settings adopted in root `pyproject.toml`; `uv_build` src layout as from `uv init --lib`; the full copier template was not used — no nox/docs/CI) |
 | C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | candidate |
-| Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | candidate |
+| Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | approved (T0.04: electron-vite 5 with the layout of its react-ts template; shadcn config written by hand from its manual-install guide because `shadcn init` does not detect electron-vite; electron-forge rejected: its packaging overlaps electron-builder) |
 | Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |
 | Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | candidate |
 | Preprocessing: MSC, SG derivatives, scaling, smoothing, some baselines (T1.07–T1.09, Phase 6) | `chemotools` (scikit-learn-style transformers) | MIT | Large part of P0 preprocessing | candidate |
