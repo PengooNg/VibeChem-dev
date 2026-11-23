@@ -755,6 +755,12 @@ wheels = [
 name = "vibechem-core"
 version = "0.0.0"
 source = { editable = "packages/core" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.5" }]
 
 [[package]]
 name = "vibechem-engine"
