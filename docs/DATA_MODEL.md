@@ -472,9 +472,9 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 ### 2.12 Temporary skeleton endpoint (Phase 0 walking skeleton only)
 **`POST /skeleton/run`** → `200` Arrow IPC (same format as §2.8 preview, `view=spectra`)
 ```json
-{ "dataset": "reference_nir", "apply_snv": true, "width": 1200 }
+{ "dataset": "gasoline_nir", "apply_snv": true, "width": 1200 }
 ```
-- `dataset`: name of a bundled reference dataset from `testdata/datasets/`.
+- `dataset`: name of a bundled reference dataset from `testdata/datasets/` (`gasoline_nir` or `olive_oil_ftir`, see `PROVENANCE.md` there).
 - Returns raw spectra when `apply_snv` is false, SNV spectra when true.
 - Removed in T4.01 when the real run/preview endpoints exist; a test asserts it is absent from production builds after that.
 

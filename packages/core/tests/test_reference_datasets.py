@@ -81,6 +81,13 @@ def test_unknown_name_lists_available_datasets() -> None:
         rd.load_reference_dataset("tecator")
 
 
+def test_unknown_expected_name_lists_available_files() -> None:
+    with pytest.raises(
+        KeyError, match="available: gasoline_nir_pls, olive_oil_ftir_classification"
+    ):
+        rd.load_expected("gasoline_pls")
+
+
 def test_find_testdata_dir_fails_outside_the_repository(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Pass testdata_dir"):
         rd.find_testdata_dir(tmp_path)
@@ -101,7 +108,11 @@ def _rewrite(path: Path, edit: str) -> None:
         lines[5] = lines[5].rsplit(",", 1)[0]
     elif edit == "missing_row":
         del lines[-1]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    elif edit == "trailing_blank_lines":
+        lines += ["", ""]
+    elif edit == "empty":
+        lines = []
+    path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -110,9 +121,16 @@ def _rewrite(path: Path, edit: str) -> None:
         ("header", "metadata columns"),
         ("short_row", "line 6 has a different number of fields"),
         ("missing_row", r"shape \(59, 401\) != documented \(60, 401\)"),
+        ("empty", "file is empty"),
     ],
 )
 def test_corrupted_file_is_rejected(testdata_copy: Path, edit: str, message: str) -> None:
     _rewrite(testdata_copy / "datasets" / "gasoline_nir.csv", edit)
     with pytest.raises(ValueError, match=message):
         rd.load_reference_dataset("gasoline_nir", testdata_dir=testdata_copy)
+
+
+def test_trailing_blank_lines_are_ignored(testdata_copy: Path) -> None:
+    _rewrite(testdata_copy / "datasets" / "gasoline_nir.csv", "trailing_blank_lines")
+    ds = rd.load_reference_dataset("gasoline_nir", testdata_dir=testdata_copy)
+    assert ds.spectra.shape == (60, 401)

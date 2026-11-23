@@ -147,7 +147,11 @@ def load_reference_dataset(name: str, *, testdata_dir: Path | None = None) -> Re
 
     # Step 1: read the CSV as text; check the metadata header.
     with path.open(newline="", encoding="utf-8") as f:
-        header, *rows = list(csv.reader(f))
+        lines = [row for row in csv.reader(f) if row]  # skip blank lines
+    if not lines:
+        msg = f"{path.name}: file is empty"
+        raise ValueError(msg)
+    header, *rows = lines
     n_meta = len(spec.metadata)
     if tuple(header[:n_meta]) != spec.metadata:
         msg = f"{path.name}: metadata columns {header[:n_meta]} != {list(spec.metadata)}"
@@ -188,8 +192,19 @@ def load_reference_dataset(name: str, *, testdata_dir: Path | None = None) -> Re
 
 
 def load_expected(name: str, *, testdata_dir: Path | None = None) -> dict[str, Any]:
-    """Load ``testdata/expected/<name>.json`` (published values for a reference test)."""
-    path = (testdata_dir or find_testdata_dir()) / "expected" / f"{name}.json"
+    """Load ``testdata/expected/<name>.json`` (published values for a reference test).
+
+    Raises
+    ------
+    KeyError
+        If there is no such file; the message lists the available names.
+    """
+    expected_dir = (testdata_dir or find_testdata_dir()) / "expected"
+    available = sorted(p.stem for p in expected_dir.glob("*.json"))
+    if name not in available:
+        msg = f"unknown expected-values file {name!r}; available: {', '.join(available)}"
+        raise KeyError(msg)
+    path = expected_dir / f"{name}.json"
     with path.open(encoding="utf-8") as f:
         expected: dict[str, Any] = json.load(f)
     return expected

@@ -10,7 +10,7 @@
   "tolerance": {
     "check": "cv_accuracy >= cv_accuracy_min",
     "status": "proposed, Quan to confirm",
-    "note": "Loose check because the protocol is not known in detail."
+    "note": "Loose check because the protocol is not known in detail. Sanity check (PROVENANCE.md): leave-one-oil-out PLS-LDA gave 0.88-0.93 for 5-15 components, so the 0.90 floor holds only for some component counts under grouped CV; Quan to confirm the floor and the protocol it applies to."
   },
   "values": {
     "cv_accuracy_published": 0.96,
