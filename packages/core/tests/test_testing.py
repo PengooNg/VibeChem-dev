@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from pytest_regressions.data_regression import DataRegressionFixture
 
 from vibechem_core import testing
 
@@ -123,3 +124,50 @@ def test_load_hypothesis_profile(
     assert settings().derandomize is (expected == "ci")
     monkeypatch.undo()
     testing.load_hypothesis_profile()  # restore the session's profile
+
+
+def test_node_hash_ignores_last_bits_signed_zero_and_nan_payload() -> None:
+    x = np.array([[1.0, -0.0, np.nan], [1e300, 3.5e-12, -7.25]])
+    wobble = x * (1 + 2.0**-50)
+    payload_nan = np.frombuffer(np.uint64(0x7FF8000000000001).tobytes(), dtype=np.float64)
+    wobble[0, 1], wobble[0, 2] = 0.0, payload_nan[0]
+    assert testing.node_hash(x) == testing.node_hash(wobble)
+    assert len(testing.node_hash(x)) == 16
+    assert testing.node_hash([1, 2, 3]) == testing.node_hash([1.0, 2.0, 3.0])
+
+
+def test_node_hash_sees_real_changes_and_shape() -> None:
+    x = np.linspace(0.0, 1.0, 12)
+    changed = x.copy()
+    changed[5] *= 1 + 1e-9
+    assert testing.node_hash(x) != testing.node_hash(changed)
+    assert testing.node_hash(x) != testing.node_hash(x.reshape(3, 4))
+    coarse = {"significant_bits": 10}
+    assert testing.node_hash(x, **coarse) == testing.node_hash(changed, **coarse)
+
+
+@pytest.mark.parametrize("bits", [0, 53])
+def test_node_hash_rejects_bad_bits(bits: int) -> None:
+    with pytest.raises(ValueError, match="significant_bits"):
+        testing.node_hash([1.0], significant_bits=bits)
+
+
+def test_check_golden_names_first_changed_node(
+    data_regression: DataRegressionFixture, tmp_path: Path
+) -> None:
+    golden = tmp_path / "expected" / "golden_nodes.yml"
+    hashes = {"dataset": "aaaa", "snv": "bbbb", "pls": "cccc"}
+    with pytest.raises(pytest.fail.Exception, match="File not found"):
+        testing.check_golden(data_regression, hashes, golden)  # first run creates the file
+    text = golden.read_text(encoding="utf-8")
+    assert text.index("dataset") < text.index("snv") < text.index("pls")  # pipeline order kept
+    testing.check_golden(data_regression, hashes, golden)
+
+    changed = {"dataset": "aaaa", "snv": "dddd", "pls": "eeee"}
+    first = r"first node whose output changed: snv \(expected bbbb, got dddd\)"
+    with pytest.raises(AssertionError, match=first):
+        testing.check_golden(data_regression, changed, golden)
+    with pytest.raises(AssertionError, match=r"changed: pls \(missing from this run\)"):
+        testing.check_golden(data_regression, {"dataset": "aaaa", "snv": "bbbb"}, golden)
+    with pytest.raises(AssertionError, match=r"changed: msc \(expected no entry, got ffff\)"):
+        testing.check_golden(data_regression, {**hashes, "msc": "ffff"}, golden)

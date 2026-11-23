@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -38,6 +40,8 @@ def tmp_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     log = tmp_path / "reports" / "check.log"
     monkeypatch.setattr(check, "LOG_PATH", log)
     monkeypatch.setattr(check, "ROOT", tmp_path)
+    # check.main sets this for its pytest child; restore it after each test.
+    monkeypatch.setenv(check.REFERENCE_LOG_ENV, "")
     monkeypatch.setattr(
         check, "app_setup_problem", lambda: None
     )  # pretend pnpm + node_modules exist
@@ -204,3 +208,64 @@ def test_no_tests_collected_is_skip_not_fail(capsys: pytest.CaptureFixture[str])
 
     assert check.main(["--fast", "--only", "core"], runner=runner) == 0
     assert "tests .............. SKIP  (no tests collected)" in capsys.readouterr().out
+
+
+def _row(method: str, actual: float, *, passed: bool) -> dict[str, object]:
+    return {
+        "method": method,
+        "dataset": "hand calculation",
+        "expected": 2.0,
+        "actual": actual,
+        "difference": actual - 2.0,
+        "rtol": 0.0,
+        "atol": 1e-9,
+        "source": "worked example",
+        "passed": passed,
+    }
+
+
+def _reference_runner(rows: Sequence[dict[str, object]]) -> FakeRunner:
+    """A fake runner whose pytest call writes ``rows`` like ``assert_reference`` does."""
+
+    class Runner(FakeRunner):
+        def __call__(self, args: Sequence[str]) -> check.CommandResult:
+            if "pytest" in args:
+                log = Path(os.environ[check.REFERENCE_LOG_ENV])
+                log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            return super().__call__(args)
+
+    return Runner()
+
+
+def test_reference_report_lists_rows_sorted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("MSC", 2.0, passed=True)])
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 0
+    assert "reference report ... PASS  (2/2 within tolerance)" in capsys.readouterr().out
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert "Areas checked: core." in report
+    assert report.index("| MSC |") < report.index("| SNV |")
+    assert (
+        "| SNV | hand calculation | 2 | 2 | 0 | rtol=0, atol=1e-09 | worked example | PASS |"
+        in report
+    )
+
+
+def test_reference_value_outside_tolerance_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("PLS", 2.5, passed=False)])
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "reference report ... FAIL  (1/2 within tolerance)" in out
+    assert "outside tolerance: PLS on hand calculation: VibeChem 2.5, expected 2.0" in out
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert "| PLS | hand calculation | 2 | 2.5 | 0.5 |" in report
+    assert report.index("| PLS |") < report.index("| SNV |")
+
+
+def test_no_reference_rows_writes_placeholder_report(tmp_path: Path) -> None:
+    assert check.main(["--fast", "--only", "engine"], runner=FakeRunner()) == 0
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert report.endswith("No reference tests yet.\n")

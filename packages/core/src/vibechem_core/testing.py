@@ -8,28 +8,39 @@ Like ``numpy.testing``, this module ships with the package but is meant for test
   element failed and by how much.
 - :func:`assert_reference` does the same for one reference value and records the
   result for ``reports/reference_report.md`` (written by ``scripts/check.py``).
+- :func:`node_hash` and :func:`check_golden` keep one hash per pipeline node in a
+  golden file and name the first node whose output changed (QA.md §5); storage and
+  ``--force-regen`` come from pytest-regressions' ``data_regression`` fixture.
 - :func:`load_hypothesis_profile` selects the hypothesis settings profile (``ci`` on CI).
 
-Only numpy is imported at module level; hypothesis is imported inside the function
-that needs it, so the shipped package has no test-tool dependencies.
+Only numpy is imported at module level; hypothesis and PyYAML are imported inside the
+functions that need them, so the shipped package has no test-tool dependencies.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
+
+if TYPE_CHECKING:
+    from pytest_regressions.data_regression import DataRegressionFixture
 
 __all__ = [
     "HYPOTHESIS_PROFILE_ENV",
     "REFERENCE_LOG_ENV",
     "assert_close",
     "assert_reference",
+    "check_golden",
     "load_hypothesis_profile",
+    "node_hash",
 ]
 
 REFERENCE_LOG_ENV = "VIBECHEM_REFERENCE_LOG"
@@ -166,3 +177,89 @@ def load_hypothesis_profile() -> str:
     name = os.environ.get(HYPOTHESIS_PROFILE_ENV) or ("ci" if os.environ.get("CI") else "dev")
     settings.load_profile(name)
     return name
+
+
+def node_hash(values: ArrayLike, *, significant_bits: int = 40) -> str:
+    """Short, platform-independent hash of one node output for golden files.
+
+    Values are converted to float64 and each mantissa is rounded to
+    ``significant_bits`` bits (40 bits ~ 12 significant digits) with exact
+    power-of-two arithmetic (``frexp``/``ldexp``), so last-bit differences between
+    BLAS builds or operating systems usually give the same hash. ``-0.0`` and every
+    NaN are canonicalised. A value lying on a rounding boundary can still flip the
+    hash; the golden test then names that node and the metric checks decide.
+
+    Parameters
+    ----------
+    values : array_like
+        Node output (real or integer); its shape is part of the hash.
+    significant_bits : int, default 40
+        Mantissa bits kept, 1 to 52.
+
+    Returns
+    -------
+    str
+        First 16 hex digits of a SHA-256 over shape and rounded values.
+
+    Raises
+    ------
+    ValueError
+        If ``significant_bits`` is outside 1..52.
+    """
+    if not 1 <= significant_bits <= 52:
+        raise ValueError(f"significant_bits must be in 1..52, got {significant_bits}")
+    a = np.asarray(values, dtype=np.float64)
+    mantissa, exponent = np.frexp(a)  # a == mantissa * 2**exponent exactly
+    scaled = np.rint(np.ldexp(mantissa, significant_bits))
+    rounded = np.ldexp(scaled, exponent - significant_bits)
+    canonical = np.where(np.isnan(rounded), np.nan, rounded + 0.0)  # + 0.0 turns -0.0 into 0.0
+    digest = hashlib.sha256(repr(a.shape).encode())
+    digest.update(np.ascontiguousarray(canonical, dtype="<f8").tobytes())
+    return digest.hexdigest()[:16]
+
+
+def check_golden(
+    data_regression: DataRegressionFixture, node_hashes: Mapping[str, str], path: Path
+) -> None:
+    """Compare node hashes (in pipeline order) with the golden file at ``path``.
+
+    The YAML file (under ``testdata/expected/``) stores ``nodes: [{node, hash}, ...]``
+    in the given order. A missing file is created and the test fails once, as usual
+    for pytest-regressions; ``pytest --force-regen`` rewrites it (regenerating golden
+    files is a red flag in a PR, QA.md §4).
+
+    Parameters
+    ----------
+    data_regression : DataRegressionFixture
+        The pytest-regressions fixture of the calling test.
+    node_hashes : Mapping[str, str]
+        ``node_id -> node_hash(...)`` in pipeline (topological) order.
+    path : Path
+        Golden file.
+
+    Raises
+    ------
+    AssertionError
+        If any hash differs; the message starts with the first changed node.
+    """
+    nodes = [{"node": node, "hash": h} for node, h in node_hashes.items()]
+    try:
+        data_regression.check({"nodes": nodes}, fullpath=path)
+    except AssertionError as exc:
+        first = _first_changed_node(path, node_hashes)
+        if first is None:  # the file matches now (e.g. it was just regenerated)
+            raise
+        raise AssertionError(f"golden: first node whose output changed: {first}\n{exc}") from None
+
+
+def _first_changed_node(path: Path, node_hashes: Mapping[str, str]) -> str | None:
+    """First node, in the current order, whose hash differs from the golden file."""
+    import yaml  # noqa: PLC0415  (test-only dependency, comes with pytest-regressions)
+
+    stored: dict[str, list[dict[str, str]]] = yaml.safe_load(path.read_text(encoding="utf-8"))
+    expected = {n["node"]: n["hash"] for n in stored["nodes"]}
+    for node, h in node_hashes.items():
+        if expected.get(node) != h:
+            return f"{node} (expected {expected.get(node, 'no entry')}, got {h})"
+    removed = [n for n in expected if n not in node_hashes]
+    return f"{removed[0]} (missing from this run)" if removed else None
