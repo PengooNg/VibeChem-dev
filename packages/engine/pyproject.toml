@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[project]
+name = "vibechem-engine"
+version = "0.0.0"
+description = "VibeChem pipeline engine: graph, compiler, executor, API, CLI"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = ["vibechem-core"]
+
+[tool.uv.sources]
+vibechem-core = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.13.9,<0.14"]
+build-backend = "uv_build"

@@ -44,7 +44,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | Tool | Purpose |
 |---|---|
 | ruff | Lint + format |
-| pyright (strict) | Type checking |
+| pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
 | pytest, pytest-cov, pytest-xdist | Tests, coverage, parallel tests |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
@@ -246,7 +246,7 @@ Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` 
 Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **approved** (in §1) · **rejected** (reason recorded).
 | Area / step | Candidate | Licence | What it could save | Status |
 |---|---|---|---|---|
-| Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | candidate |
+| Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | approved (T0.03: cookie's ruff/pytest settings adopted in root `pyproject.toml`; `uv_build` src layout as from `uv init --lib`; the full copier template was not used — no nox/docs/CI) |
 | C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | candidate |
 | Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | candidate |
 | Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |

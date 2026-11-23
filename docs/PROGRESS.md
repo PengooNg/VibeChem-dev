@@ -6,7 +6,7 @@
 ## Now
 | Phase | Branch | Phase PR | Last merged step | Next step | Updated | Machine |
 |---|---|---|---|---|---|---|
-| 0 | `phase-0` | #6 | T0.02 (awaiting Quan's merge, #7) | T0.03 | 2026-11-23 | laptop |
+| 0 | `phase-0` | #8 | T0.03 | T0.04 | 2026-11-23 | laptop |
 
 ## Needs you
 <!-- One line per open item: date · step · stop code · exact action · PR. Remove the line when resolved (move it to Stops with "resolved"). -->
@@ -15,6 +15,7 @@
 ## Step log
 | Date | Step | Result | PR | Size est → actual (cp) | Reuse decision | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-23 | T0.03 | uv workspace (core, engine; Python 3.14.10), ruff, pyright strict, pytest, pre-commit (local ruff hooks); `scripts/check.py` with health summary; fresh clone on Windows passes | #9 | M → 3 | reuse — scientific-python/cookie settings + `uv_build` layout; build — `check.py` (stdlib, required by TASKS) | `scripts/tests/test_merge_step.py` reformatted by ruff (format only) and unittest-style rules PT009/PT027 ignored for `scripts/tests`; ruff excludes vendored `.claude/`; boundaries/reference/coverage lines SKIP until T0.07; CI does not run check.py until T0.06 |
 | 2026-11-23 | T0.02 | skeleton tree, legal/community files, PR template, issue forms, 10 labels, `merge_step.py` (28 unit tests); HUMAN_STEP (Quan merges) | #7 | M → 4 | reuse — GPL-3.0 text already in repo (verbatim FSF), Keep-a-Changelog 1.1.0; build — `merge_step.py` (stdlib + `gh`, required by TASKS) | check.py not yet available (T0.03): tests run with `uv run --no-project python -m unittest discover -s scripts/tests`; CI smoke does not run them yet; CITATION.cff lacks ORCID and DOI (TODOs for Quan); ui-ux-pro-max vendored commit not recorded in THIRD_PARTY.md |
 | 2026-11-23 | T0.01 | ci-smoke green on 3 OS; HUMAN_STEP (Quan merges) | #4 | S → 2 | reuse — existing `ci-smoke.yml` from PR #1 (actions/checkout, actions/setup-python) | PR #1 went straight to `main`; triggers narrowed to PRs/pushes on `main` and `phase-*`; check.py not yet available (T0.03); labels not yet created (T0.02) |
 
@@ -28,5 +29,6 @@
 ## K review backlog (until demo v0 = Beta)
 | Step | PR | Area | What K should check | Done |
 |---|---|---|---|---|
+| T0.03 | #9 | build / dependency | Root `pyproject.toml` (virtual uv workspace, ruff rule set, pyright strict scope incl. `scripts/`, pytest `--import-mode=importlib`, `filterwarnings=error`); `uv_build` backend pin `>=0.13.9,<0.14`; dev group (ruff, pyright[nodejs], pytest, pre-commit) and `uv.lock`; `.pre-commit-config.yaml` local hooks; `scripts/check.py` structure (areas, SKIP semantics, exit codes, log) | [ ] |
 | T0.02 | #7 | CI / repo tooling | `scripts/merge_step.py` guards (base `phase-*`, not draft, checks `pass`/`skipping` and ≥ 1 check, title prefix, 👤 read from TASKS.md on the base branch, `--match-head-commit`, remote-only branch delete via `gh api` instead of `--delete-branch`); `.gitattributes` LF policy and binary list; `.gitignore`; `.github/CODEOWNERS`; package README stubs vs §3.1 boundaries | [ ] |
 | T0.01 | #4 | CI | `ci-smoke.yml` triggers (`main`, `phase-*`), action versions (checkout@v5, setup-python@v5, Python 3.14); workflow to be deleted in T0.06 | [ ] |

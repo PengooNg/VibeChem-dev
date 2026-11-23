@@ -91,7 +91,11 @@ class FakeGh:
         return [c for c in self.calls if c[:2] == ["pr", "merge"]]
 
     def tasks_calls(self) -> list[list[str]]:
-        return [c for c in self.calls if c[0] == "api" and c[-1].startswith("repos/{owner}/{repo}/contents/")]
+        return [
+            c
+            for c in self.calls
+            if c[0] == "api" and c[-1].startswith("repos/{owner}/{repo}/contents/")
+        ]
 
     def delete_calls(self) -> list[list[str]]:
         return [c for c in self.calls if c[:3] == ["api", "-X", "DELETE"]]
@@ -113,9 +117,14 @@ class MergeTests(unittest.TestCase):
             fake.merge_calls(),
             [
                 [
-                    "pr", "merge", "12", "--squash",
-                    "--subject", "[T0.03] Python workspace and check.py",
-                    "--match-head-commit", "abc123",
+                    "pr",
+                    "merge",
+                    "12",
+                    "--squash",
+                    "--subject",
+                    "[T0.03] Python workspace and check.py",
+                    "--match-head-commit",
+                    "abc123",
                 ]
             ],
         )
@@ -127,7 +136,9 @@ class MergeTests(unittest.TestCase):
             fake.delete_calls(),
             [["api", "-X", "DELETE", "repos/{owner}/{repo}/git/refs/heads/t0-03-workspace"]],
         )
-        self.assertLess(fake.calls.index(fake.merge_calls()[0]), fake.calls.index(fake.delete_calls()[0]))
+        self.assertLess(
+            fake.calls.index(fake.merge_calls()[0]), fake.calls.index(fake.delete_calls()[0])
+        )
 
     def test_failed_branch_delete_still_reports_the_merge(self) -> None:
         code, err = run_main(FakeGh(fail_on="api DELETE"))
@@ -156,7 +167,9 @@ class MergeTests(unittest.TestCase):
 
     def test_sub_step_is_not_confused_with_its_parent(self) -> None:
         tasks = TASKS_MD.replace("T1.07 SNV, MSC, detrend, cut", "T1.07 SNV, MSC 👤")
-        fake = FakeGh(pr={"title": "[T1.07a] Split part a", "baseRefName": "phase-1"}, tasks_md=tasks)
+        fake = FakeGh(
+            pr={"title": "[T1.07a] Split part a", "baseRefName": "phase-1"}, tasks_md=tasks
+        )
         self.assertEqual(run_main(fake)[0], 0)
 
 

@@ -10,3 +10,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Repository skeleton: package folders, legal and citation files, contribution guide, PR template and issue forms.
 - `scripts/merge_step.py`, the guarded merge of step PRs into their phase branch.
+- Python uv workspace (`vibechem-core`, `vibechem-engine`) on Python 3.14 with ruff, pyright (strict), pytest and pre-commit.
+- `scripts/check.py`, the local quality check that prints the health summary (`--fast`, `--only`, `--verbose`; full log in `reports/check.log`).
