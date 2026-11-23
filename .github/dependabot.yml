@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dependabot (TECH_STACK.md §9): one grouped PR per ecosystem per month, against `main`.
+# Quan merges it when CI is green; it reaches the phase branch through a [SYNC] PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    target-branch: main
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm # reads app/pnpm-lock.yaml
+    directory: /app
+    target-branch: main
+    schedule:
+      interval: monthly
+    groups:
+      app:
+        patterns: ["*"]
