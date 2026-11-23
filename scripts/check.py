@@ -29,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOG_PATH = ROOT / "reports" / "check.log"
 FAILURE_TAIL_LINES = 40
+PYTEST_NO_TESTS_COLLECTED = 5  # pytest exit code: nothing collected or everything deselected
 
 # Python source and test folders per area. Areas without folders are not set up yet.
 PYTHON_AREAS: dict[str, tuple[str, ...]] = {
@@ -145,10 +146,13 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
     pytest_args = tool("pytest", "-q", *test_paths)
     if fast:
         pytest_args += ["-m", "not slow"]
-    tests = run_section("tests", [pytest_args], runner)
-    results.append(
-        SectionResult(tests.name, tests.status, parse_pytest_counts(tests.output), tests.output)
-    )
+    result = runner(pytest_args)
+    output = f"$ {' '.join(pytest_args)}\n{result.output}"
+    if result.returncode == PYTEST_NO_TESTS_COLLECTED:
+        results.append(SectionResult("tests", "SKIP", "(no tests collected)", output))
+    else:
+        status = "FAIL" if result.returncode != 0 else "PASS"
+        results.append(SectionResult("tests", status, parse_pytest_counts(output), output))
     results += [SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS]
     return results
 

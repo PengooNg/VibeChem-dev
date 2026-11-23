@@ -113,3 +113,12 @@ def test_area_not_set_up_skips_everything_without_running_tools(
     assert runner.calls == []
     out = capsys.readouterr().out
     assert "tests .............. SKIP  (app not set up yet, arrives in T0.04)" in out
+
+
+def test_no_tests_collected_is_skip_not_fail(capsys: pytest.CaptureFixture[str]) -> None:
+    def runner(args: Sequence[str]) -> check.CommandResult:
+        code = check.PYTEST_NO_TESTS_COLLECTED if "pytest" in args else 0
+        return check.CommandResult(code, "1 deselected in 0.01s")
+
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 0
+    assert "tests .............. SKIP  (no tests collected)" in capsys.readouterr().out
