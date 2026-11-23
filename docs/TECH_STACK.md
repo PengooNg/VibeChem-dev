@@ -54,11 +54,11 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 ### 1.4 Native (C++)
 | Package | Version line | Purpose |
 |---|---|---|
-| nanobind | 2.x latest | C++ ↔ Python bindings |
-| scikit-build-core | 1.1.x | Build backend (CMake → wheel) |
+| nanobind | 2.x latest (T0.05: 2.9.2, pinned in `packages/native/pyproject.toml`) | C++ ↔ Python bindings |
+| scikit-build-core | 1.1.x (T0.05: 1.1.2, pinned in `packages/native/pyproject.toml`) | Build backend (CMake → wheel) |
 | cibuildwheel | latest | Wheels for Windows/macOS/Linux in CI |
 | Eigen | 3.4.x | Linear algebra in kernels (K may evaluate Eigen 5.x) |
-| Catch2 | 3.x | C++ unit tests (Python equivalence tests stay in pytest) |
+| Catch2 | 3.x (T0.05: v3.16.1 via CMake FetchContent in `packages/native/tests/cpp/`) | C++ unit tests (Python equivalence tests stay in pytest) |
 | clang-format, clang-tidy | latest | Formatting, static analysis |
 
 ### 1.5 Frontend and desktop
@@ -248,7 +248,7 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | Area / step | Candidate | Licence | What it could save | Status |
 |---|---|---|---|---|
 | Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | approved (T0.03: cookie's ruff/pytest settings adopted in root `pyproject.toml`; `uv_build` src layout as from `uv init --lib`; the full copier template was not used — no nox/docs/CI) |
-| C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | candidate |
+| C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | approved (T0.05: nanobind_example / nanobind packaging-guide configuration — stable ABI `cp312`, `build-dir`, `wheel.packages`; `uv init --build-backend=scikit` rejected: pybind11 scaffold) |
 | Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | approved (T0.04: electron-vite 5 with the layout of its react-ts template; shadcn config written by hand from its manual-install guide because `shadcn init` does not detect electron-vite; electron-forge rejected: its packaging overlaps electron-builder) |
 | Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |
 | Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | candidate |
