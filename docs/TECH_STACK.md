@@ -46,6 +46,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | ruff | Lint + format |
 | pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
 | pytest, pytest-cov, pytest-xdist | Tests, coverage (per-package thresholds in `check.py`), parallel tests |
+| httpx2 | HTTP client required by FastAPI's `TestClient` (engine API tests, T0.09) |
 | pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
