@@ -8,9 +8,13 @@ members = ["packages/core", "packages/engine", "packages/native"]
 
 [dependency-groups]
 dev = [
+    "hypothesis",
+    "import-linter",
     "pre-commit",
     "pyright[nodejs]",
     "pytest",
+    "pytest-cov",
+    "pytest-regressions",
     "ruff",
 ]
 
@@ -71,3 +75,23 @@ filterwarnings = ["error"]
 log_level = "INFO"
 testpaths = ["packages/core/tests", "packages/engine/tests", "packages/native/tests", "scripts/tests"]
 markers = ["slow: long-running test, skipped by `check.py --fast`"]
+
+# Package boundaries (TECH_STACK.md §3.1), checked by `check.py` (summary line "boundaries").
+# Only Python packages appear here; app/renderer and app/main are TypeScript.
+[tool.importlinter]
+root_packages = ["vibechem_core", "vibechem_engine", "vibechem_native"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "core"
+name = "vibechem_core never imports vibechem_engine or fastapi (TECH_STACK.md 3.1)"
+type = "forbidden"
+source_modules = ["vibechem_core"]
+forbidden_modules = ["vibechem_engine", "fastapi"]
+
+[[tool.importlinter.contracts]]
+id = "native"
+name = "vibechem_native never imports vibechem_engine (TECH_STACK.md 3.1)"
+type = "forbidden"
+source_modules = ["vibechem_native"]
+forbidden_modules = ["vibechem_engine"]

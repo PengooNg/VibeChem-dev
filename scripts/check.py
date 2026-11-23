@@ -19,6 +19,9 @@ the Python checks. Missing ``pnpm`` or ``app/node_modules`` is a FAIL with a hin
 The ``native`` area checks the Python wrapper and tests of ``packages/native``; its
 C++ extension is built by ``uv sync`` (the Catch2 tests run via CMake, see its README).
 
+``boundaries`` runs import-linter with the contracts in ``pyproject.toml``
+(TECH_STACK.md §3.1) whenever a Python area is checked; it always covers all packages.
+
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 """
@@ -53,6 +56,14 @@ APP_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("tests", "test"),
 )
 SCRIPTS_PATHS = ("scripts",)
+# import-linter with the contracts in pyproject.toml (TECH_STACK.md §3.1); it has no
+# `python -m` entry point, so its CLI function is called directly.
+LINT_IMPORTS = (
+    sys.executable,
+    "-c",
+    "from importlinter.cli import lint_imports_command; lint_imports_command()",
+    "--no-cache",
+)
 
 # Summary lines after "tests" whose tooling arrives in a later step.
 LATER_CHECKS: tuple[tuple[str, str], ...] = (
@@ -209,6 +220,7 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
             runner,
         ),
         run_section("types", [tool("pyright", *paths)], runner),
+        run_section("boundaries", [LINT_IMPORTS], runner),
     ]
 
     test_paths = [p for p in paths if p.endswith("tests")] + [
@@ -230,7 +242,6 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
 def later_sections() -> list[SectionResult]:
     """SKIP lines for checks whose tooling arrives in a later step."""
     return [
-        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
         *(SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS),
     ]
 

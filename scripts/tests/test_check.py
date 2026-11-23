@@ -69,7 +69,7 @@ def test_all_pass_prints_summary_only_and_writes_log(
     out = capsys.readouterr().out
     assert out.startswith("VibeChem health summary\nformat/lint ........ PASS\n")
     assert "tests .............. PASS  (3 passed, 0 failed)" in out
-    assert "boundaries ......... SKIP" in out
+    assert "boundaries ......... PASS" in out
     assert "----" not in out  # no command output on success
     assert "ruff" in tmp_log.read_text(encoding="utf-8")
 
@@ -99,6 +99,16 @@ def test_fast_deselects_slow_tests_and_only_limits_paths() -> None:
     assert pytest_call[-2:] == ["-m", "not slow"]
     assert "packages/core/tests" in pytest_call
     assert not any("engine" in arg or "scripts" in arg for c in runner.calls for arg in c)
+
+
+def test_boundary_violation_fails_with_import_linter_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert check.main(["--fast", "--only", "core"], runner=FakeRunner(fail_on="--no-cache")) == 1
+    out = capsys.readouterr().out
+    assert "---- boundaries: FAIL ----" in out
+    assert "boom from --no-cache" in out
+    assert "boundaries ......... FAIL" in out
 
 
 def test_full_run_includes_scripts_tests_and_keeps_slow_tests() -> None:
@@ -145,7 +155,7 @@ def test_only_app_runs_the_three_pnpm_scripts(capsys: pytest.CaptureFixture[str]
     out = capsys.readouterr().out
     assert "format/lint ........ PASS" in out
     assert "tests .............. PASS  (app: 0 passed, 0 failed)" in out
-    assert "boundaries ......... SKIP  (import-linter arrives in T0.07)" in out
+    assert "boundaries ......... SKIP\n" in out  # import-linter checks Python packages only
     assert "coverage ........... SKIP  (arrives in T0.07)" in out
 
 
