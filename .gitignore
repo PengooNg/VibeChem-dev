@@ -1,0 +1,30 @@
+# Secrets and local settings (never committed)
+.env
+.env.*
+.claude/settings.local.json
+# Agent worktrees
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node / Electron
+node_modules/
+out/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

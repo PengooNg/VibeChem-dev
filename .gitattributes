@@ -1,0 +1,24 @@
+# Normalise all text files to LF in the repository and in working copies.
+* text=auto eol=lf
+
+# Binary files: no line-ending conversion, no text diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.xlsx binary
+*.xls binary
+*.spc binary
+*.parquet binary
+*.arrow binary
+*.npy binary
+*.npz binary
+*.zip binary
+*.gz binary
