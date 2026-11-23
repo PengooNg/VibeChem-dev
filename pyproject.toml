@@ -18,7 +18,7 @@ dev = [
 target-version = "py312"
 line-length = 100
 extend-exclude = [".claude"]  # vendored skills (THIRD_PARTY.md)
-src = ["packages/core/src", "packages/engine/src", "scripts"]
+src = ["packages/core/src", "packages/engine/src", "packages/native/python", "scripts"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -54,7 +54,12 @@ allowed-confusables = ["–"]  # en dash in method names (Savitzky–Golay, Kenn
 "scripts/tests/**" = ["T20", "PT009", "PT027"]  # unittest-style tests (stdlib only)
 
 [tool.pyright]
-include = ["packages/core/src", "packages/core/tests", "packages/engine/src", "packages/engine/tests", "scripts"]
+include = [
+    "packages/core/src", "packages/core/tests",
+    "packages/engine/src", "packages/engine/tests",
+    "packages/native/python", "packages/native/tests",
+    "scripts",
+]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 
@@ -64,5 +69,5 @@ addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "--impo
 xfail_strict = true
 filterwarnings = ["error"]
 log_level = "INFO"
-testpaths = ["packages/core/tests", "packages/engine/tests", "scripts/tests"]
+testpaths = ["packages/core/tests", "packages/engine/tests", "packages/native/tests", "scripts/tests"]
 markers = ["slow: long-running test, skipped by `check.py --fast`"]
