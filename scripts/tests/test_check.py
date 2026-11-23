@@ -160,7 +160,7 @@ def test_only_app_runs_the_three_pnpm_scripts(capsys: pytest.CaptureFixture[str]
     assert "format/lint ........ PASS" in out
     assert "tests .............. PASS  (app: 0 passed, 0 failed)" in out
     assert "boundaries ......... SKIP\n" in out  # import-linter checks Python packages only
-    assert "coverage ........... SKIP  (arrives in T0.07)" in out
+    assert "coverage ........... SKIP\n" in out
 
 
 def test_full_run_merges_python_and_app_results(capsys: pytest.CaptureFixture[str]) -> None:
@@ -263,6 +263,58 @@ def test_reference_value_outside_tolerance_fails(
     report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
     assert "| PLS | hand calculation | 2 | 2.5 | 0.5 |" in report
     assert report.index("| PLS |") < report.index("| SNV |")
+
+
+def _coverage_runner(tmp_path: Path, lines: dict[str, tuple[int, int]]) -> FakeRunner:
+    """A fake runner whose pytest call writes a pytest-cov JSON report."""
+    files = {
+        name: {"summary": {"covered_lines": c, "num_statements": n}}
+        for name, (c, n) in lines.items()
+    }
+
+    class Runner(FakeRunner):
+        def __call__(self, args: Sequence[str]) -> check.CommandResult:
+            if "pytest" in args:
+                path = tmp_path / check.COVERAGE_JSON
+                path.write_text(json.dumps({"files": files}), encoding="utf-8")
+            return super().__call__(args)
+
+    return Runner()
+
+
+def test_coverage_per_package_with_thresholds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _coverage_runner(
+        tmp_path,
+        {
+            "packages\\core\\src\\vibechem_core\\a.py": (9, 10),
+            "packages/core/src/vibechem_core/b.py": (10, 10),
+            "packages/engine/src/vibechem_engine/__init__.py": (2, 2),
+            "packages/native/python/vibechem_native/__init__.py": (1, 3),
+        },
+    )
+    assert check.main(["--fast"], runner=runner) == 0
+    assert (
+        "coverage ........... PASS  core 95% | engine 100% | native 33%" in capsys.readouterr().out
+    )
+    pytest_call = next(c for c in runner.calls if "pytest" in c)
+    assert "--cov=vibechem_core" in pytest_call
+    assert "--cov-report=json:reports/coverage.json" in pytest_call
+
+
+def test_coverage_below_threshold_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # 179/200 = 89.5 % is floored to 89 % (< 90 %), never rounded up to 90 %.
+    runner = _coverage_runner(tmp_path, {"packages/core/src/vibechem_core/a.py": (179, 200)})
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "coverage ........... FAIL  core 89%" in out
+    assert "core 89% is below the 90% threshold" in out
+
+
+def test_coverage_without_data_is_skip(capsys: pytest.CaptureFixture[str]) -> None:
+    assert check.main(["--fast", "--only", "engine"], runner=FakeRunner()) == 0
+    assert "coverage ........... SKIP  (no coverage data" in capsys.readouterr().out
 
 
 def test_no_reference_rows_writes_placeholder_report(tmp_path: Path) -> None:

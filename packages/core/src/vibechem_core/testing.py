@@ -93,13 +93,14 @@ def assert_close(
         return
     with np.errstate(invalid="ignore"):  # inf - inf
         diff = np.abs(a - e)
-    allowed = atol + rtol * np.abs(e)
-    # Worst element: largest excess over its allowed difference (NaN/inf mismatches first).
-    excess = np.where(ok, -np.inf, np.nan_to_num(diff - allowed, nan=np.inf, posinf=np.inf))
+        allowed = atol + rtol * np.abs(e)
+        # Worst element: largest excess over its allowed difference (NaN/inf mismatches first).
+        excess = np.where(ok, -np.inf, np.nan_to_num(diff - allowed, nan=np.inf, posinf=np.inf))
     worst = np.unravel_index(int(np.argmax(excess)), a.shape)
+    where = f"worst at index {tuple(int(i) for i in worst)}" if a.ndim else "value"
     raise AssertionError(
         f"{name}: {int((~ok).sum())} of {a.size} elements outside tolerance "
-        f"(rtol={rtol:g}, atol={atol:g}); worst at index {tuple(int(i) for i in worst)}: "
+        f"(rtol={rtol:g}, atol={atol:g}); {where}: "
         f"actual {float(a[worst])!r}, expected {float(e[worst])!r}, "
         f"|diff| {diff[worst]:.3g} > allowed {allowed[worst]:.3g}"
     )

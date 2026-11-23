@@ -37,6 +37,12 @@ def test_assert_close_reports_nan_and_inf_mismatches_first() -> None:
         testing.assert_close([1.0, 5.0, np.nan], [1.0, 5.0, 3.0], rtol=0.0, atol=1e-9)
     with pytest.raises(AssertionError, match=r"2 of 3 .* index \(1,\): actual inf"):
         testing.assert_close([1.0, np.inf, 9.0], [1.0, 2.0, 3.0], rtol=0.0, atol=1e-9)
+    with pytest.raises(AssertionError, match=r"1 of 2 .* index \(1,\): actual 1.0"):
+        testing.assert_close([np.inf, 1.0], [np.inf, 2.0], rtol=1e-9, atol=0.0)  # inf - inf
+    with pytest.raises(
+        AssertionError, match=r"elements outside tolerance \(rtol=0, atol=0\); value:"
+    ):
+        testing.assert_close(1.0, 2.0, rtol=0.0, atol=0.0)
 
 
 def test_assert_close_rejects_shape_mismatch_without_broadcasting() -> None:

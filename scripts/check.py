@@ -21,6 +21,10 @@ C++ extension is built by ``uv sync`` (the Catch2 tests run via CMake, see its R
 
 ``boundaries`` runs import-linter with the contracts in ``pyproject.toml``
 (TECH_STACK.md §3.1) whenever a Python area is checked; it always covers all packages.
+``reference report`` renders ``reports/reference_report.md`` from the values recorded
+by ``vibechem_core.testing.assert_reference`` during the pytest run and fails if any is
+outside its tolerance. ``coverage`` is line coverage per package (pytest-cov JSON in
+``reports/coverage.json``) and fails below the QA.md §3 thresholds.
 
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
@@ -72,7 +76,6 @@ LINT_IMPORTS = (
 LATER_CHECKS: tuple[tuple[str, str], ...] = (
     ("leakage suite", "T2.05"),
     ("golden pipeline", "T2.13"),
-    ("coverage", "T0.07"),
 )
 SUMMARY_ORDER = (
     "format/lint",
@@ -90,6 +93,15 @@ SUMMARY_ORDER = (
 REFERENCE_LOG_ENV = "VIBECHEM_REFERENCE_LOG"
 REFERENCE_LOG = Path("reports") / "reference_results.jsonl"
 REFERENCE_REPORT = Path("reports") / "reference_report.md"
+
+# Line coverage per area: (package, source folder, minimum percent or None = report only).
+# Thresholds from QA.md §3; app (renderer) coverage is not measured yet.
+COVERAGE: dict[str, tuple[str, str, int | None]] = {
+    "core": ("vibechem_core", "packages/core/src", 90),
+    "engine": ("vibechem_engine", "packages/engine/src", 85),
+    "native": ("vibechem_native", "packages/native/python", None),
+}
+COVERAGE_JSON = Path("reports") / "coverage.json"
 
 
 @dataclass(frozen=True)
@@ -243,7 +255,13 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
     test_paths = [p for p in paths if p.endswith("tests")] + [
         f"{p}/tests" for p in paths if p in SCRIPTS_PATHS
     ]
+    coverage_json = ROOT / COVERAGE_JSON
+    coverage_json.unlink(missing_ok=True)
+    measured = [a for a in COVERAGE if a in areas]
     pytest_args = tool("pytest", "-q", *test_paths)
+    pytest_args += [f"--cov={COVERAGE[a][0]}" for a in measured]
+    if measured:
+        pytest_args += [f"--cov-report=json:{COVERAGE_JSON.as_posix()}", "--cov-report="]
     if fast:
         pytest_args += ["-m", "not slow"]
     reference_log = ROOT / REFERENCE_LOG
@@ -258,7 +276,32 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
         status = "FAIL" if result.returncode != 0 else "PASS"
         results.append(SectionResult("tests", status, parse_pytest_counts(output), output))
     results.append(reference_section(read_reference_rows(reference_log), areas))
+    if measured:
+        results.append(coverage_section(coverage_json, measured))
     return results
+
+
+def coverage_section(path: Path, areas: Sequence[str]) -> SectionResult:
+    """Line coverage per package from pytest-cov's JSON report, checked against thresholds."""
+    if not path.is_file():
+        return SectionResult("coverage", "SKIP", "(no coverage data: see tests)")
+    files: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    parts: list[str] = []
+    below: list[str] = []
+    for area in areas:
+        _, src, threshold = COVERAGE[area]
+        summaries = [
+            f["summary"] for name, f in files.items() if Path(name).as_posix().startswith(src)
+        ]
+        statements = sum(s["num_statements"] for s in summaries)
+        covered = sum(s["covered_lines"] for s in summaries)
+        percent = 100 * covered // statements if statements else 100  # floor: never round up
+        parts.append(f"{area} {percent}%")
+        if threshold is not None and percent < threshold:
+            below.append(f"{area} {percent}% is below the {threshold}% threshold (QA.md §3)")
+    return SectionResult(
+        "coverage", "FAIL" if below else "PASS", " | ".join(parts), "\n".join(below)
+    )
 
 
 def read_reference_rows(path: Path) -> list[dict[str, Any]]:
