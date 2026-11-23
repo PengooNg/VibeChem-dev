@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # vibechem-core (`vibechem_core`)
 
-**Status:** stub. The package is set up in T0.03; the first code arrives in Phase 1.
+**Status:** stub. The package is set up (T0.03: `pyproject.toml`, `__version__`, one smoke test); the first code arrives in Phase 1.
 
 **Purpose:** the science library. It holds the spectral data model, file readers and writers, blocks (one file per block), the block registry, metrics and error codes. No pipeline execution, no API, no UI.
 

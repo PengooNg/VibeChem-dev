@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # vibechem-engine (`vibechem_engine`)
 
-**Status:** stub. The package is set up in T0.03; the first code arrives in T0.09 (walking skeleton) and Phase 2.
+**Status:** stub. The package is set up (T0.03: `pyproject.toml`, `__version__`, one smoke test); the first code arrives in T0.09 (walking skeleton) and Phase 2.
 
 **Purpose:** runs pipelines. It covers port types, the pipeline graph and file format, the compiler, cache, executor, scheduler, runners, projects, the local HTTP/WebSocket API and the CLI.
 
