@@ -1,0 +1,4 @@
+# pnpm 10 runs dependency install scripts only for packages listed here.
+# Electron 45 has no install script; the root `postinstall` downloads its binary (electron-vite needs it).
+onlyBuiltDependencies:
+  - esbuild

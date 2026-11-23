@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import check
 
+REAL_APP_SETUP_PROBLEM = check.app_setup_problem
+
 
 class FakeRunner:
     """Records commands; fails those containing ``fail_on`` and prints ``pytest_output``."""
@@ -36,6 +38,9 @@ def tmp_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     log = tmp_path / "reports" / "check.log"
     monkeypatch.setattr(check, "LOG_PATH", log)
     monkeypatch.setattr(check, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        check, "app_setup_problem", lambda: None
+    )  # pretend pnpm + node_modules exist
     return log
 
 
@@ -109,10 +114,79 @@ def test_area_not_set_up_skips_everything_without_running_tools(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     runner = FakeRunner()
-    assert check.main(["--only", "app"], runner=runner) == 0
+    assert check.main(["--only", "native"], runner=runner) == 0
     assert runner.calls == []
     out = capsys.readouterr().out
-    assert "tests .............. SKIP  (app not set up yet, arrives in T0.04)" in out
+    assert "tests .............. SKIP  (native not set up yet, arrives in T0.05)" in out
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (" Test Files  1 passed (1)\n      Tests  2 passed (2)\n", "(app: 2 passed, 0 failed)"),
+        ("      Tests  1 failed | 4 passed (5)\n", "(app: 4 passed, 1 failed)"),
+        (
+            "\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[31m1 failed\x1b[39m (1)",
+            "(app: 0 passed, 1 failed)",
+        ),
+        ("No test files found", "(app: 0 passed, 0 failed)"),
+    ],
+)
+def test_parse_vitest_counts(output: str, expected: str) -> None:
+    assert check.parse_vitest_counts(output) == expected
+
+
+def test_only_app_runs_the_three_pnpm_scripts(capsys: pytest.CaptureFixture[str]) -> None:
+    runner = FakeRunner()
+    assert check.main(["--fast", "--only", "app"], runner=runner) == 0
+    assert [c[1:] for c in runner.calls] == [
+        ["--dir", "app", "lint"],
+        ["--dir", "app", "typecheck"],
+        ["--dir", "app", "test"],
+    ]
+    out = capsys.readouterr().out
+    assert "format/lint ........ PASS" in out
+    assert "tests .............. PASS  (app: 0 passed, 0 failed)" in out
+    assert "boundaries ......... SKIP  (import-linter arrives in T0.07)" in out
+    assert "coverage ........... SKIP  (arrives in T0.07)" in out
+
+
+def test_full_run_merges_python_and_app_results(capsys: pytest.CaptureFixture[str]) -> None:
+    assert check.main(["--fast"], runner=FakeRunner(fail_on="typecheck")) == 1
+    out = capsys.readouterr().out
+    assert "types .............. FAIL" in out
+    assert "tests .............. PASS  (3 passed, 0 failed) (app: 0 passed, 0 failed)" in out
+
+
+def test_app_without_dependencies_fails_with_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(check, "app_setup_problem", lambda: "run `pnpm --dir app install`")
+    runner = FakeRunner()
+    assert check.main(["--only", "app"], runner=runner) == 1
+    assert runner.calls == []
+    assert "tests .............. FAIL  (run `pnpm --dir app install`)" in capsys.readouterr().out
+
+
+def _which_found(name: str) -> str:
+    return name
+
+
+def _which_missing(_name: str) -> None:
+    return None
+
+
+def test_app_setup_problem_detects_missing_node_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(check.shutil, "which", _which_found)
+    problem = REAL_APP_SETUP_PROBLEM()
+    assert problem is not None
+    assert "pnpm --dir app install" in problem
+    (tmp_path / "app" / "node_modules").mkdir(parents=True)
+    assert REAL_APP_SETUP_PROBLEM() is None
+    monkeypatch.setattr(check.shutil, "which", _which_missing)
+    assert "corepack enable" in (REAL_APP_SETUP_PROBLEM() or "")
 
 
 def test_no_tests_collected_is_skip_not_fail(capsys: pytest.CaptureFixture[str]) -> None:

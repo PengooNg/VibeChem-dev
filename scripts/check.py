@@ -12,6 +12,10 @@ tests of ``scripts/``. By default only the health summary (QA.md §4) and the
 output of failed checks are printed; ``--verbose`` prints every command's output.
 The full log is always written to ``reports/check.log``.
 
+The ``app`` area runs the pnpm scripts ``lint`` (ESLint + Prettier), ``typecheck``
+and ``test`` (Vitest) in ``app/``; their results join the same summary lines as
+the Python checks. Missing ``pnpm`` or ``app/node_modules`` is a FAIL with a hint.
+
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 """
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -36,8 +41,14 @@ PYTHON_AREAS: dict[str, tuple[str, ...]] = {
     "core": ("packages/core/src", "packages/core/tests"),
     "engine": ("packages/engine/src", "packages/engine/tests"),
 }
-NOT_SET_UP: dict[str, str] = {"native": "T0.05", "app": "T0.04"}
-AREAS = (*PYTHON_AREAS, *NOT_SET_UP)
+NOT_SET_UP: dict[str, str] = {"native": "T0.05"}
+AREAS = (*PYTHON_AREAS, "app", *NOT_SET_UP)
+# Summary line -> pnpm script in app/package.json.
+APP_SCRIPTS: tuple[tuple[str, str], ...] = (
+    ("format/lint", "lint"),
+    ("types", "typecheck"),
+    ("tests", "test"),
+)
 SCRIPTS_PATHS = ("scripts",)
 
 # Summary lines after "tests" whose tooling arrives in a later step.
@@ -121,14 +132,75 @@ def run_section(
     return SectionResult(name, "FAIL" if failed else "PASS", detail, "\n".join(outputs))
 
 
+def parse_vitest_counts(output: str) -> str:
+    """Return ``(app: N passed, M failed)`` from Vitest's ``Tests`` summary line."""
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", output)  # drop colour codes (FORCE_COLOR, CI)
+    line = next((ln for ln in plain.splitlines() if ln.strip().startswith("Tests ")), "")
+    passed = re.search(r"(\d+) passed", line)
+    failed = re.search(r"(\d+) failed", line)
+    return f"(app: {passed.group(1) if passed else 0} passed, {failed.group(1) if failed else 0} failed)"
+
+
+def app_setup_problem() -> str | None:
+    """Why the app checks cannot run on this machine, or ``None`` when they can."""
+    if shutil.which("pnpm") is None:
+        return "pnpm not found: install Node 24 LTS and run `corepack enable`"
+    if not (ROOT / "app" / "node_modules").is_dir():
+        return "app dependencies missing: run `pnpm --dir app install`"
+    return None
+
+
+def run_app_checks(runner: Runner) -> list[SectionResult]:
+    """Lint (ESLint + Prettier), type check and Vitest for ``app/`` via its pnpm scripts."""
+    problem = app_setup_problem()
+    if problem is not None:
+        return [SectionResult(name, "FAIL", f"({problem})") for name, _ in APP_SCRIPTS]
+    pnpm = shutil.which("pnpm") or "pnpm"
+    results = [
+        run_section(name, [[pnpm, "--dir", "app", script]], runner) for name, script in APP_SCRIPTS
+    ]
+    tests = results[-1]
+    results[-1] = SectionResult(
+        tests.name, tests.status, parse_vitest_counts(tests.output), tests.output
+    )
+    return results
+
+
+def merge_sections(name: str, parts: Sequence[SectionResult]) -> SectionResult:
+    """Combine one summary line from several areas: any FAIL fails, any PASS passes."""
+    statuses = {p.status for p in parts}
+    status = "FAIL" if "FAIL" in statuses else "PASS" if "PASS" in statuses else "SKIP"
+    shown = [p for p in parts if p.status != "SKIP"] or list(parts)
+    detail = " ".join(dict.fromkeys(p.detail for p in shown if p.detail))
+    output = "\n".join(p.output for p in parts if p.output)
+    return SectionResult(name, status, detail, output)
+
+
 def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[SectionResult]:
     """Run every summary section for ``areas`` (``scripts`` is a pseudo-area)."""
+    groups: list[list[SectionResult]] = []
+    python = run_python_checks(areas, fast=fast, runner=runner)
+    if python:
+        groups.append(python)
+    if "app" in areas:
+        groups.append(run_app_checks(runner))
+    if not groups:
+        reason = "; ".join(not_set_up_notes(areas))
+        return [SectionResult(name, "SKIP", f"({reason})") for name in SUMMARY_ORDER]
+    groups.append(later_sections())
+    return [
+        merge_sections(name, [r for group in groups for r in group if r.name == name])
+        for name in SUMMARY_ORDER
+    ]
+
+
+def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[SectionResult]:
+    """Ruff, pyright and pytest for the Python folders of ``areas``; empty if there are none."""
     paths = [p for a in areas for p in PYTHON_AREAS.get(a, ())]
     if "scripts" in areas:
         paths += SCRIPTS_PATHS
     if not paths:
-        reason = "; ".join(not_set_up_notes(areas))
-        return [SectionResult(name, "SKIP", f"({reason})") for name in SUMMARY_ORDER]
+        return []
 
     results = [
         run_section(
@@ -137,7 +209,6 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
             runner,
         ),
         run_section("types", [tool("pyright", *paths)], runner),
-        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
     ]
 
     test_paths = [p for p in paths if p.endswith("tests")] + [
@@ -153,8 +224,15 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
     else:
         status = "FAIL" if result.returncode != 0 else "PASS"
         results.append(SectionResult("tests", status, parse_pytest_counts(output), output))
-    results += [SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS]
     return results
+
+
+def later_sections() -> list[SectionResult]:
+    """SKIP lines for checks whose tooling arrives in a later step."""
+    return [
+        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
+        *(SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS),
+    ]
 
 
 def not_set_up_notes(areas: Sequence[str]) -> list[str]:

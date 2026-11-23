@@ -23,6 +23,8 @@ htmlcov/
 # Node / Electron
 node_modules/
 out/
+# Playwright CLI sessions, snapshots and screenshots (attach to PRs, never commit)
+.playwright-cli/
 
 # Editors and OS
 .vscode/
