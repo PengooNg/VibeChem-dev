@@ -4,7 +4,7 @@
 # adapted to TECH_STACK.md §1.3 and §4.
 
 [tool.uv.workspace]
-members = ["packages/core", "packages/engine"]
+members = ["packages/core", "packages/engine", "packages/native"]
 
 [dependency-groups]
 dev = [
