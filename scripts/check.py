@@ -16,6 +16,9 @@ The ``app`` area runs the pnpm scripts ``lint`` (ESLint + Prettier), ``typecheck
 and ``test`` (Vitest) in ``app/``; their results join the same summary lines as
 the Python checks. Missing ``pnpm`` or ``app/node_modules`` is a FAIL with a hint.
 
+The ``native`` area checks the Python wrapper and tests of ``packages/native``; its
+C++ extension is built by ``uv sync`` (the Catch2 tests run via CMake, see its README).
+
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 """
@@ -36,13 +39,13 @@ LOG_PATH = ROOT / "reports" / "check.log"
 FAILURE_TAIL_LINES = 40
 PYTEST_NO_TESTS_COLLECTED = 5  # pytest exit code: nothing collected or everything deselected
 
-# Python source and test folders per area. Areas without folders are not set up yet.
+# Python source and test folders per area.
 PYTHON_AREAS: dict[str, tuple[str, ...]] = {
     "core": ("packages/core/src", "packages/core/tests"),
     "engine": ("packages/engine/src", "packages/engine/tests"),
+    "native": ("packages/native/python", "packages/native/tests"),
 }
-NOT_SET_UP: dict[str, str] = {"native": "T0.05"}
-AREAS = (*PYTHON_AREAS, "app", *NOT_SET_UP)
+AREAS = (*PYTHON_AREAS, "app")
 # Summary line -> pnpm script in app/package.json.
 APP_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("format/lint", "lint"),
@@ -184,9 +187,6 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
         groups.append(python)
     if "app" in areas:
         groups.append(run_app_checks(runner))
-    if not groups:
-        reason = "; ".join(not_set_up_notes(areas))
-        return [SectionResult(name, "SKIP", f"({reason})") for name in SUMMARY_ORDER]
     groups.append(later_sections())
     return [
         merge_sections(name, [r for group in groups for r in group if r.name == name])
@@ -235,11 +235,6 @@ def later_sections() -> list[SectionResult]:
     ]
 
 
-def not_set_up_notes(areas: Sequence[str]) -> list[str]:
-    """``<area> not set up yet, arrives in <step>`` for each requested area without code."""
-    return [f"{a} not set up yet, arrives in {NOT_SET_UP[a]}" for a in areas if a in NOT_SET_UP]
-
-
 def format_summary(results: Sequence[SectionResult]) -> str:
     """The health summary block from QA.md §4."""
     lines = ["VibeChem health summary"]
@@ -275,8 +270,6 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
             shown = r.output if args.verbose else tail(r.output)
             print(f"---- {r.name}: {r.status} ----\n{shown}\n")
     print(summary)
-    for note in not_set_up_notes(areas) if len(areas) > 1 else []:
-        print(f"note: {note}")
     print(f"Full log: {LOG_PATH.relative_to(ROOT).as_posix()}")
     return 1 if any(r.status == "FAIL" for r in results) else 0
 

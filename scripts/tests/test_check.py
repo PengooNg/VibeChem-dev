@@ -71,7 +71,6 @@ def test_all_pass_prints_summary_only_and_writes_log(
     assert "tests .............. PASS  (3 passed, 0 failed)" in out
     assert "boundaries ......... SKIP" in out
     assert "----" not in out  # no command output on success
-    assert "note: native not set up yet, arrives in T0.05" in out
     assert "ruff" in tmp_log.read_text(encoding="utf-8")
 
 
@@ -110,14 +109,13 @@ def test_full_run_includes_scripts_tests_and_keeps_slow_tests() -> None:
     assert "not slow" not in pytest_call
 
 
-def test_area_not_set_up_skips_everything_without_running_tools(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_only_native_checks_the_native_python_wrapper_and_tests() -> None:
     runner = FakeRunner()
-    assert check.main(["--only", "native"], runner=runner) == 0
-    assert runner.calls == []
-    out = capsys.readouterr().out
-    assert "tests .............. SKIP  (native not set up yet, arrives in T0.05)" in out
+    assert check.main(["--fast", "--only", "native"], runner=runner) == 0
+    pytest_call = next(c for c in runner.calls if "pytest" in c)
+    assert "packages/native/tests" in pytest_call
+    assert all("packages/native/python" in c for c in runner.calls if "pyright" in c)
+    assert not any("packages/core" in arg or arg == "app" for c in runner.calls for arg in c)
 
 
 @pytest.mark.parametrize(

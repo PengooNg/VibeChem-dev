@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Layout follows wjakob/nanobind_example and the nanobind packaging guide (BSD-3-Clause).
+[project]
+name = "vibechem-native"
+version = "0.0.0"
+description = "VibeChem optional C++20 kernels with automatic NumPy fallback"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.5"]
+
+[build-system]
+requires = ["scikit-build-core==1.1.2", "nanobind==2.9.2"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.28"
+# Setuptools-style build caching in a local directory
+build-dir = "build/{wheel_tag}"
+# Stable ABI wheels for CPython 3.12+ (one wheel per platform)
+wheel.py-api = "cp312"
+wheel.packages = ["python/vibechem_native"]
+
+[tool.uv]
+# Rebuild the extension on `uv sync` when C++ sources or build config change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "src/**/*" },
+    { file = "include/**/*" },
+    { file = "bindings/**/*" },
+]
