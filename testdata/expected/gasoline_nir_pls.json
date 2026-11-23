@@ -1,0 +1,33 @@
+{
+  "dataset": "gasoline_nir",
+  "method": "PLS regression (pls::plsr, kernel PLS), X and y mean-centred, no scaling, no preprocessing",
+  "source": "Mevik B-H, Wehrens R (2007) The pls package: principal component and partial least squares regression in R. J Stat Softw 18(2):1-23, doi:10.18637/jss.v018.i02, section 2 (summary(gas1), explvar(gas1), predict(gas1, ncomp = 2, newdata = gasTest), RMSEP(gas1, newdata = gasTest))",
+  "protocol": {
+    "train_samples": "1-50 (1-based sample numbers)",
+    "test_samples": "51-60",
+    "cross_validation": "leave-one-out on the 50 training samples",
+    "n_components": "0 (intercept only) to 10; list index = number of components"
+  },
+  "tolerance": {
+    "rtol": 1e-3,
+    "atol": 0.0,
+    "status": "proposed, Quan to confirm",
+    "note": "Published values have 4 significant digits (relative rounding <= 3.3e-4), predictions 2 decimals."
+  },
+  "values": {
+    "rmsep_cv": [1.545, 1.357, 0.2966, 0.2524, 0.2476, 0.2398, 0.2319, 0.2386, 0.2316, 0.2449, 0.2673],
+    "rmsep_adjcv": [1.545, 1.356, 0.2947, 0.2521, 0.2478, 0.2388, 0.2313, 0.2377, 0.2308, 0.2438, 0.2657],
+    "rmsep_test": [1.5114, 1.1696, 0.2445, 0.2341, 0.3287, 0.278, 0.2703, 0.3301, 0.3571, 0.409, 0.6116],
+    "x_variance_explained_cumulative_pct": [78.17, 85.58, 93.4, 96.06, 96.94, 97.89, 98.38, 98.85, 99.02, 99.2],
+    "y_variance_explained_cumulative_pct": [29.39, 96.85, 97.9, 98.26, 98.86, 98.96, 99.09, 99.16, 99.28, 99.4],
+    "x_variance_explained_per_component_pct": [78.1708, 7.4122, 7.8242, 2.6578, 0.8768, 0.9466, 0.4922, 0.4723, 0.1688, 0.1694],
+    "test_predictions_2_components": {
+      "samples": [51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
+      "octane": [87.94, 87.25, 88.16, 84.97, 85.15, 84.51, 87.56, 86.85, 89.19, 87.09]
+    }
+  },
+  "notes": [
+    "rmsep_test[0] (1.5114) is the population standard deviation of the 10 test octane values: pls computes the intercept-only test RMSEP with the test-set mean. Predicting the training mean gives 1.5369. Compare components 1-10 only, or reproduce this convention explicitly.",
+    "x_variance_explained_cumulative_pct and y_variance_explained_cumulative_pct are printed by summary(gas1) (the y row is on the same page); x_variance_explained_per_component_pct by explvar(gas1)."
+  ]
+}
