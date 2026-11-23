@@ -45,7 +45,8 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 |---|---|
 | ruff | Lint + format |
 | pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
-| pytest, pytest-cov, pytest-xdist | Tests, coverage, parallel tests |
+| pytest, pytest-cov, pytest-xdist | Tests, coverage (per-package thresholds in `check.py`), parallel tests |
+| pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
 | pyinstaller 6.21.x | Engine bundle for the desktop app |
@@ -251,7 +252,7 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | approved (T0.05: nanobind_example / nanobind packaging-guide configuration — stable ABI `cp312`, `build-dir`, `wheel.packages`; `uv init --build-backend=scikit` rejected: pybind11 scaffold) |
 | Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | approved (T0.04: electron-vite 5 with the layout of its react-ts template; shadcn config written by hand from its manual-install guide because `shadcn init` does not detect electron-vite; electron-forge rejected: its packaging overlaps electron-builder) |
 | Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |
-| Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | candidate |
+| Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | approved (T0.07: `data_regression` stores the per-node hash file and handles `--force-regen`; `num_regression` available for metric tables in T2.13) |
 | Preprocessing: MSC, SG derivatives, scaling, smoothing, some baselines (T1.07–T1.09, Phase 6) | `chemotools` (scikit-learn-style transformers) | MIT | Large part of P0 preprocessing | candidate |
 | Baselines: AsLS, airPLS, arPLS, polynomial, SNIP… (Phase 6) | `pybaselines` (50+ algorithms) | BSD-3 | Almost all baseline methods | candidate |
 | Kennard–Stone split (T1.10) | `kennard-stone` | MIT | KS split; SPXY may still be ours | candidate |

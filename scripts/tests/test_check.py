@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -38,6 +40,8 @@ def tmp_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     log = tmp_path / "reports" / "check.log"
     monkeypatch.setattr(check, "LOG_PATH", log)
     monkeypatch.setattr(check, "ROOT", tmp_path)
+    # check.main sets this for its pytest child; restore it after each test.
+    monkeypatch.setenv(check.REFERENCE_LOG_ENV, "")
     monkeypatch.setattr(
         check, "app_setup_problem", lambda: None
     )  # pretend pnpm + node_modules exist
@@ -69,7 +73,7 @@ def test_all_pass_prints_summary_only_and_writes_log(
     out = capsys.readouterr().out
     assert out.startswith("VibeChem health summary\nformat/lint ........ PASS\n")
     assert "tests .............. PASS  (3 passed, 0 failed)" in out
-    assert "boundaries ......... SKIP" in out
+    assert "boundaries ......... PASS" in out
     assert "----" not in out  # no command output on success
     assert "ruff" in tmp_log.read_text(encoding="utf-8")
 
@@ -99,6 +103,16 @@ def test_fast_deselects_slow_tests_and_only_limits_paths() -> None:
     assert pytest_call[-2:] == ["-m", "not slow"]
     assert "packages/core/tests" in pytest_call
     assert not any("engine" in arg or "scripts" in arg for c in runner.calls for arg in c)
+
+
+def test_boundary_violation_fails_with_import_linter_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert check.main(["--fast", "--only", "core"], runner=FakeRunner(fail_on="--no-cache")) == 1
+    out = capsys.readouterr().out
+    assert "---- boundaries: FAIL ----" in out
+    assert "boom from --no-cache" in out
+    assert "boundaries ......... FAIL" in out
 
 
 def test_full_run_includes_scripts_tests_and_keeps_slow_tests() -> None:
@@ -145,8 +159,8 @@ def test_only_app_runs_the_three_pnpm_scripts(capsys: pytest.CaptureFixture[str]
     out = capsys.readouterr().out
     assert "format/lint ........ PASS" in out
     assert "tests .............. PASS  (app: 0 passed, 0 failed)" in out
-    assert "boundaries ......... SKIP  (import-linter arrives in T0.07)" in out
-    assert "coverage ........... SKIP  (arrives in T0.07)" in out
+    assert "boundaries ......... SKIP\n" in out  # import-linter checks Python packages only
+    assert "coverage ........... SKIP\n" in out
 
 
 def test_full_run_merges_python_and_app_results(capsys: pytest.CaptureFixture[str]) -> None:
@@ -194,3 +208,142 @@ def test_no_tests_collected_is_skip_not_fail(capsys: pytest.CaptureFixture[str])
 
     assert check.main(["--fast", "--only", "core"], runner=runner) == 0
     assert "tests .............. SKIP  (no tests collected)" in capsys.readouterr().out
+
+
+def _row(method: str, actual: float, *, passed: bool) -> dict[str, object]:
+    return {
+        "method": method,
+        "dataset": "hand calculation",
+        "expected": 2.0,
+        "actual": actual,
+        "difference": actual - 2.0,
+        "rtol": 0.0,
+        "atol": 1e-9,
+        "source": "worked example",
+        "passed": passed,
+    }
+
+
+def _reference_runner(rows: Sequence[dict[str, object]]) -> FakeRunner:
+    """A fake runner whose pytest call writes ``rows`` like ``assert_reference`` does."""
+
+    class Runner(FakeRunner):
+        def __call__(self, args: Sequence[str]) -> check.CommandResult:
+            if "pytest" in args:
+                log = Path(os.environ[check.REFERENCE_LOG_ENV])
+                log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            return super().__call__(args)
+
+    return Runner()
+
+
+def test_reference_report_lists_rows_sorted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("MSC", 2.0, passed=True)])
+    assert check.main(["--fast"], runner=runner) == 0
+    assert "reference report ... PASS  (2/2 within tolerance)" in capsys.readouterr().out
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert report.index("| MSC |") < report.index("| SNV |")
+    assert (
+        "| SNV | hand calculation | 2 | 2 | 0 | rtol=0, atol=1e-09 | worked example | PASS |"
+        in report
+    )
+
+
+def test_reference_value_outside_tolerance_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("PLS", 2.5, passed=False)])
+    assert check.main(["--fast"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "reference report ... FAIL  (1/2 within tolerance)" in out
+    assert "outside tolerance: PLS on hand calculation: VibeChem 2.5, expected 2.0" in out
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert "| PLS | hand calculation | 2 | 2.5 | 0.5 |" in report
+    assert report.index("| PLS |") < report.index("| SNV |")
+
+
+def _coverage_runner(tmp_path: Path, lines: dict[str, tuple[int, int]]) -> FakeRunner:
+    """A fake runner whose pytest call writes a pytest-cov JSON report."""
+    files = {
+        name: {"summary": {"covered_lines": c, "num_statements": n}}
+        for name, (c, n) in lines.items()
+    }
+
+    class Runner(FakeRunner):
+        def __call__(self, args: Sequence[str]) -> check.CommandResult:
+            if "pytest" in args:
+                path = tmp_path / check.COVERAGE_JSON
+                path.write_text(json.dumps({"files": files}), encoding="utf-8")
+            return super().__call__(args)
+
+    return Runner()
+
+
+def test_coverage_per_package_with_thresholds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _coverage_runner(
+        tmp_path,
+        {
+            "packages\\core\\src\\vibechem_core\\a.py": (9, 10),
+            "packages/core/src/vibechem_core/b.py": (10, 10),
+            "packages/engine/src/vibechem_engine/__init__.py": (2, 2),
+            "packages/native/python/vibechem_native/__init__.py": (1, 3),
+        },
+    )
+    assert check.main(["--fast"], runner=runner) == 0
+    assert (
+        "coverage ........... PASS  core 95% | engine 100% | native 33%" in capsys.readouterr().out
+    )
+    pytest_call = next(c for c in runner.calls if "pytest" in c)
+    assert "--cov=vibechem_core" in pytest_call
+    assert "--cov-report=json:reports/coverage.json" in pytest_call
+
+
+def test_coverage_below_threshold_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # 179/200 = 89.5 % is floored to 89 % (< 90 %), never rounded up to 90 %.
+    runner = _coverage_runner(tmp_path, {"packages/core/src/vibechem_core/a.py": (179, 200)})
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "coverage ........... FAIL  core 89%" in out
+    assert "core 89% is below the 90% threshold" in out
+
+
+def test_coverage_without_data_is_skip(capsys: pytest.CaptureFixture[str]) -> None:
+    assert check.main(["--fast", "--only", "engine"], runner=FakeRunner()) == 0
+    assert "coverage ........... SKIP  (no coverage data" in capsys.readouterr().out
+
+
+def test_reference_report_escapes_table_cells(tmp_path: Path) -> None:
+    row = {**_row("norm |r|", 2.0, passed=True), "source": "Eq. 3\nTable 2"}
+    assert check.main(["--fast"], runner=_reference_runner([row])) == 0
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert r"| norm \|r\| | hand calculation |" in report
+    assert "| Eq. 3 Table 2 | PASS |" in report
+
+
+def test_only_run_checks_references_but_keeps_the_committed_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("PLS", 2.5, passed=False)])
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    assert "reference report ... FAIL  (0/1 within tolerance)" in capsys.readouterr().out
+    assert not (tmp_path / "reports" / "reference_report.md").exists()
+
+
+def test_coverage_package_without_measured_files_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _coverage_runner(tmp_path, {".venv/site-packages/vibechem_engine/x.py": (0, 50)})
+    assert check.main(["--fast", "--only", "engine"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "coverage ........... FAIL  engine no data" in out
+    assert "no measured files under packages/engine/src" in out
+
+
+def test_no_reference_rows_writes_placeholder_report(tmp_path: Path) -> None:
+    assert check.main(["--fast"], runner=FakeRunner()) == 0
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert report.endswith("No reference tests yet.\n")

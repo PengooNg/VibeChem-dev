@@ -19,6 +19,13 @@ the Python checks. Missing ``pnpm`` or ``app/node_modules`` is a FAIL with a hin
 The ``native`` area checks the Python wrapper and tests of ``packages/native``; its
 C++ extension is built by ``uv sync`` (the Catch2 tests run via CMake, see its README).
 
+``boundaries`` runs import-linter with the contracts in ``pyproject.toml``
+(TECH_STACK.md §3.1) whenever a Python area is checked; it always covers all packages.
+``reference report`` renders ``reports/reference_report.md`` from the values recorded
+by ``vibechem_core.testing.assert_reference`` during the pytest run and fails if any is
+outside its tolerance. ``coverage`` is line coverage per package (pytest-cov JSON in
+``reports/coverage.json``) and fails below the QA.md §3 thresholds.
+
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 """
@@ -26,6 +33,8 @@ them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -33,6 +42,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG_PATH = ROOT / "reports" / "check.log"
@@ -53,15 +63,45 @@ APP_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("tests", "test"),
 )
 SCRIPTS_PATHS = ("scripts",)
+# import-linter with the contracts in pyproject.toml (TECH_STACK.md §3.1); it has no
+# `python -m` entry point, so its CLI function is called directly.
+LINT_IMPORTS = (
+    sys.executable,
+    "-c",
+    "from importlinter.cli import lint_imports_command; lint_imports_command()",
+    "--no-cache",
+)
 
 # Summary lines after "tests" whose tooling arrives in a later step.
 LATER_CHECKS: tuple[tuple[str, str], ...] = (
-    ("reference report", "T0.07"),
     ("leakage suite", "T2.05"),
     ("golden pipeline", "T2.13"),
-    ("coverage", "T0.07"),
 )
-SUMMARY_ORDER = ("format/lint", "types", "boundaries", "tests", *(n for n, _ in LATER_CHECKS))
+SUMMARY_ORDER = (
+    "format/lint",
+    "types",
+    "boundaries",
+    "tests",
+    "reference report",
+    "leakage suite",
+    "golden pipeline",
+    "coverage",
+)
+
+# Reference results: written by `vibechem_core.testing.assert_reference` to the file
+# named by this variable (same name as REFERENCE_LOG_ENV there), rendered to the report.
+REFERENCE_LOG_ENV = "VIBECHEM_REFERENCE_LOG"
+REFERENCE_LOG = Path("reports") / "reference_results.jsonl"
+REFERENCE_REPORT = Path("reports") / "reference_report.md"
+
+# Line coverage per area: (package, source folder, minimum percent or None = report only).
+# Thresholds from QA.md §3; app (renderer) coverage is not measured yet.
+COVERAGE: dict[str, tuple[str, str, int | None]] = {
+    "core": ("vibechem_core", "packages/core/src", 90),
+    "engine": ("vibechem_engine", "packages/engine/src", 85),
+    "native": ("vibechem_native", "packages/native/python", None),
+}
+COVERAGE_JSON = Path("reports") / "coverage.json"
 
 
 @dataclass(frozen=True)
@@ -209,14 +249,25 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
             runner,
         ),
         run_section("types", [tool("pyright", *paths)], runner),
+        run_section("boundaries", [LINT_IMPORTS], runner),
     ]
 
     test_paths = [p for p in paths if p.endswith("tests")] + [
         f"{p}/tests" for p in paths if p in SCRIPTS_PATHS
     ]
+    coverage_json = ROOT / COVERAGE_JSON
+    coverage_json.unlink(missing_ok=True)
+    measured = [a for a in COVERAGE if a in areas]
     pytest_args = tool("pytest", "-q", *test_paths)
+    pytest_args += [f"--cov={COVERAGE[a][0]}" for a in measured]
+    if measured:
+        pytest_args += [f"--cov-report=json:{COVERAGE_JSON.as_posix()}", "--cov-report="]
     if fast:
         pytest_args += ["-m", "not slow"]
+    reference_log = ROOT / REFERENCE_LOG
+    reference_log.parent.mkdir(parents=True, exist_ok=True)
+    reference_log.unlink(missing_ok=True)
+    os.environ[REFERENCE_LOG_ENV] = str(reference_log)  # inherited by the pytest process
     result = runner(pytest_args)
     output = f"$ {' '.join(pytest_args)}\n{result.output}"
     if result.returncode == PYTEST_NO_TESTS_COLLECTED:
@@ -224,13 +275,108 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
     else:
         status = "FAIL" if result.returncode != 0 else "PASS"
         results.append(SectionResult("tests", status, parse_pytest_counts(output), output))
+    results.append(reference_section(read_reference_rows(reference_log), areas))
+    if measured:
+        results.append(coverage_section(coverage_json, measured))
     return results
+
+
+def coverage_section(path: Path, areas: Sequence[str]) -> SectionResult:
+    """Line coverage per package from pytest-cov's JSON report, checked against thresholds.
+
+    Coverage is that of the whole pytest run, so in a full run a package's lines may
+    also be covered by other packages' tests. A package with no measured files fails.
+    """
+    if not path.is_file():
+        return SectionResult("coverage", "SKIP", "(no coverage data: see tests)")
+    files: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    parts: list[str] = []
+    below: list[str] = []
+    for area in areas:
+        _, src, threshold = COVERAGE[area]
+        summaries = [
+            f["summary"]
+            for name, f in files.items()
+            if name.replace("\\", "/").startswith(f"{src}/")
+        ]
+        statements = sum(s["num_statements"] for s in summaries)
+        covered = sum(s["covered_lines"] for s in summaries)
+        if not statements:
+            parts.append(f"{area} no data")
+            below.append(f"{area}: no measured files under {src} (installed elsewhere?)")
+            continue
+        percent = 100 * covered // statements  # floor: never round up to a threshold
+        parts.append(f"{area} {percent}%")
+        if threshold is not None and percent < threshold:
+            below.append(f"{area} {percent}% is below the {threshold}% threshold (QA.md §3)")
+    return SectionResult(
+        "coverage", "FAIL" if below else "PASS", " | ".join(parts), "\n".join(below)
+    )
+
+
+def read_reference_rows(path: Path) -> list[dict[str, Any]]:
+    """Rows written by ``vibechem_core.testing.assert_reference`` (one JSON object per line)."""
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def _cell(text: str) -> str:
+    """Text safe inside a Markdown table cell."""
+    return " ".join(text.split()).replace("|", "\\|")
+
+
+def render_reference_report(rows: Sequence[dict[str, Any]]) -> str:
+    """Markdown for ``reports/reference_report.md`` (QA.md §4), sorted for stable diffs."""
+    lines = [
+        "<!-- SPDX-License-Identifier: GPL-3.0-or-later -->",
+        "# Reference report",
+        "",
+        (
+            "Generated by a full `scripts/check.py` run from every `assert_reference` call "
+            "(`vibechem_core.testing`); do not edit by hand."
+        ),
+        "",
+    ]
+    if not rows:
+        return "\n".join([*lines, "No reference tests yet.", ""])
+    lines += [
+        "| Method | Dataset | Expected | VibeChem | Difference | Tolerance | Source | Result |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for r in sorted(rows, key=lambda r: (r["method"], r["dataset"], r["source"])):
+        lines.append(
+            f"| {_cell(r['method'])} | {_cell(r['dataset'])} | {r['expected']:.6g} "
+            f"| {r['actual']:.6g} | {r['difference']:.3g} "
+            f"| rtol={r['rtol']:g}, atol={r['atol']:g} "
+            f"| {_cell(r['source'])} | {'PASS' if r['passed'] else 'FAIL'} |"
+        )
+    return "\n".join([*lines, ""])
+
+
+def reference_section(rows: Sequence[dict[str, Any]], areas: Sequence[str]) -> SectionResult:
+    """Check recorded reference values; the summary line fails if any is outside tolerance.
+
+    The committed report is rewritten only on full runs (every Python area), so a
+    ``--only`` run never replaces it with a partial one.
+    """
+    if set(PYTHON_AREAS) <= set(areas):
+        report = ROOT / REFERENCE_REPORT
+        report.write_text(render_reference_report(rows), encoding="utf-8", newline="\n")
+    failed = [r for r in rows if not r["passed"]]
+    passed = len(rows) - len(failed)
+    output = "\n".join(
+        f"outside tolerance: {r['method']} on {r['dataset']}: "
+        f"VibeChem {r['actual']!r}, expected {r['expected']!r} ({r['source']})"
+        for r in failed
+    )
+    detail = f"({passed}/{len(rows)} within tolerance)"
+    return SectionResult("reference report", "FAIL" if failed else "PASS", detail, output)
 
 
 def later_sections() -> list[SectionResult]:
     """SKIP lines for checks whose tooling arrives in a later step."""
     return [
-        SectionResult("boundaries", "SKIP", "(import-linter arrives in T0.07)"),
         *(SectionResult(name, "SKIP", f"(arrives in {step})") for name, step in LATER_CHECKS),
     ]
 

@@ -36,7 +36,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.04 App workspace | [ ] T1.04 METHODS.md part 1 👤 | [ ] T2.04 Graph compiler |
 | [x] T0.05 Native skeleton | [ ] T1.05 CSV/Excel readers | [ ] T2.05 Leakage rules + suite |
 | [x] T0.06 Full CI + rulesets 👤 | [ ] T1.06 JCAMP/SPC readers | [ ] T2.06 Cache |
-| [ ] T0.07 QA tooling | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.07 Executor + seeds |
+| [x] T0.07 QA tooling | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.07 Executor + seeds |
 | [ ] T0.08 Reference datasets 👤 | [ ] T1.08 Savitzky–Golay | [ ] T2.08 Scheduler |
 | [ ] T0.09 Skeleton engine | [ ] T1.09 Scaling blocks | [ ] T2.09 Crash recovery |
 | [ ] T0.10 Skeleton UI | [ ] T1.10 KS, SPXY, random split | [ ] T2.10 CV / nested CV / search |
