@@ -193,7 +193,7 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 
 ## 5. C++ conventions
 - SPDX header as above. C++20, Eigen; no raw `new`/`delete`; `std::span` for views; RAII.
-- Every exported function: doc comment with the matching Python reference function and METHODS.md section.
+- Every exported function: doc comment with the matching Python reference function and METHODS.md section. (The T0.05 stub `row_mean` has no core counterpart; its reference is `vibechem_native/_reference.py`.)
 - Accept `n_threads` (default 1); release the GIL in bindings.
 - clang-format (repo config), clang-tidy clean, warnings as errors.
 

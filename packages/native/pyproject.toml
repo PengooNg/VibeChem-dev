@@ -27,7 +27,7 @@ wheel.packages = ["python/vibechem_native"]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "CMakeLists.txt" },
-    { file = "src/**/*.cpp" },
-    { file = "include/**/*.hpp" },
-    { file = "bindings/**/*.cpp" },
+    { file = "src/**/*" },
+    { file = "include/**/*" },
+    { file = "bindings/**/*" },
 ]

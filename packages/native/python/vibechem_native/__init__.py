@@ -8,6 +8,8 @@ imports, otherwise ``"python"`` and every kernel runs its NumPy reference
 """
 
 import logging
+import operator
+import os
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -35,7 +37,8 @@ def row_mean(X: ArrayLike, n_threads: int = 1) -> NDArray[np.float64]:
     X : array_like, shape (n_rows, n_cols)
         Values; converted to C-contiguous float64. ``n_cols`` must be > 0.
     n_threads : int, default 1
-        Worker threads for the native kernel (ignored by the fallback).
+        Worker threads for the native kernel, capped at the CPU count (ignored by
+        the fallback). Must be an integer >= 1 on both backends.
 
     Returns
     -------
@@ -44,8 +47,13 @@ def row_mean(X: ArrayLike, n_threads: int = 1) -> NDArray[np.float64]:
     Raises
     ------
     ValueError
-        If ``X`` is not 2-D, has no columns, or ``n_threads < 1``.
+        If ``X`` is complex, not 2-D, has no columns, or ``n_threads < 1``.
+    TypeError
+        If ``n_threads`` is not an integer.
     """
+    n_threads = operator.index(n_threads)
+    if np.iscomplexobj(X):
+        raise ValueError("row_mean needs real values, got a complex array")
     X_c = np.ascontiguousarray(X, dtype=np.float64)
     if X_c.ndim != 2 or X_c.shape[1] == 0:
         raise ValueError(f"row_mean needs a 2-D array with at least one column, got {X_c.shape}")
@@ -54,5 +62,5 @@ def row_mean(X: ArrayLike, n_threads: int = 1) -> NDArray[np.float64]:
     if _core is None:
         return row_mean_reference(X_c)
     out = np.empty(X_c.shape[0], dtype=np.float64)
-    _core.row_mean(X_c, out, n_threads)
+    _core.row_mean(X_c, out, min(n_threads, os.cpu_count() or 1))
     return out

@@ -58,6 +58,18 @@ def test_rejects_bad_shape(bad: np.ndarray) -> None:
 def test_rejects_bad_thread_count() -> None:
     with pytest.raises(ValueError, match="n_threads"):
         vibechem_native.row_mean(np.ones((2, 2)), n_threads=0)
+    with pytest.raises(TypeError):
+        vibechem_native.row_mean(np.ones((2, 2)), n_threads=2.0)  # pyright: ignore[reportArgumentType]
+
+
+def test_huge_thread_count_is_capped() -> None:
+    X = np.ones((5, 3))
+    np.testing.assert_array_equal(vibechem_native.row_mean(X, n_threads=2**40), np.ones(5))
+
+
+def test_rejects_complex_input() -> None:
+    with pytest.raises(ValueError, match="real values"):
+        vibechem_native.row_mean(np.array([[1 + 5j, 2 + 5j]]))
 
 
 def test_fallback_when_extension_hidden() -> None:
