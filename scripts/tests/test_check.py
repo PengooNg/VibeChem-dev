@@ -241,10 +241,9 @@ def test_reference_report_lists_rows_sorted(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("MSC", 2.0, passed=True)])
-    assert check.main(["--fast", "--only", "core"], runner=runner) == 0
+    assert check.main(["--fast"], runner=runner) == 0
     assert "reference report ... PASS  (2/2 within tolerance)" in capsys.readouterr().out
     report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
-    assert "Areas checked: core." in report
     assert report.index("| MSC |") < report.index("| SNV |")
     assert (
         "| SNV | hand calculation | 2 | 2 | 0 | rtol=0, atol=1e-09 | worked example | PASS |"
@@ -256,7 +255,7 @@ def test_reference_value_outside_tolerance_fails(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runner = _reference_runner([_row("SNV", 2.0, passed=True), _row("PLS", 2.5, passed=False)])
-    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    assert check.main(["--fast"], runner=runner) == 1
     out = capsys.readouterr().out
     assert "reference report ... FAIL  (1/2 within tolerance)" in out
     assert "outside tolerance: PLS on hand calculation: VibeChem 2.5, expected 2.0" in out
@@ -317,7 +316,34 @@ def test_coverage_without_data_is_skip(capsys: pytest.CaptureFixture[str]) -> No
     assert "coverage ........... SKIP  (no coverage data" in capsys.readouterr().out
 
 
+def test_reference_report_escapes_table_cells(tmp_path: Path) -> None:
+    row = {**_row("norm |r|", 2.0, passed=True), "source": "Eq. 3\nTable 2"}
+    assert check.main(["--fast"], runner=_reference_runner([row])) == 0
+    report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
+    assert r"| norm \|r\| | hand calculation |" in report
+    assert "| Eq. 3 Table 2 | PASS |" in report
+
+
+def test_only_run_checks_references_but_keeps_the_committed_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _reference_runner([_row("PLS", 2.5, passed=False)])
+    assert check.main(["--fast", "--only", "core"], runner=runner) == 1
+    assert "reference report ... FAIL  (0/1 within tolerance)" in capsys.readouterr().out
+    assert not (tmp_path / "reports" / "reference_report.md").exists()
+
+
+def test_coverage_package_without_measured_files_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = _coverage_runner(tmp_path, {".venv/site-packages/vibechem_engine/x.py": (0, 50)})
+    assert check.main(["--fast", "--only", "engine"], runner=runner) == 1
+    out = capsys.readouterr().out
+    assert "coverage ........... FAIL  engine no data" in out
+    assert "no measured files under packages/engine/src" in out
+
+
 def test_no_reference_rows_writes_placeholder_report(tmp_path: Path) -> None:
-    assert check.main(["--fast", "--only", "engine"], runner=FakeRunner()) == 0
+    assert check.main(["--fast"], runner=FakeRunner()) == 0
     report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
     assert report.endswith("No reference tests yet.\n")

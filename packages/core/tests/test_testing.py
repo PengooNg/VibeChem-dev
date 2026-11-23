@@ -107,6 +107,29 @@ def test_assert_reference_records_pass_and_fail(
     }
 
 
+def test_assert_reference_logs_numpy_scalars_and_nan_like_assert_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "reference.jsonl"
+    monkeypatch.setenv(testing.REFERENCE_LOG_ENV, str(log))
+    testing.assert_reference(
+        method="f32",
+        dataset="d",
+        actual=np.float32(2.0),  # pyright: ignore[reportArgumentType]
+        expected=np.int64(2),  # pyright: ignore[reportArgumentType]
+        rtol=1e-6,
+        atol=0.0,
+        source="s",
+    )
+    nan = float("nan")
+    testing.assert_reference(
+        method="nan", dataset="d", actual=nan, expected=nan, rtol=1e-6, atol=0.0, source="s"
+    )
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [(r["actual"], r["passed"]) for r in rows[:1]] == [(2.0, True)]
+    assert rows[1]["passed"] is True
+
+
 def test_assert_reference_writes_nothing_without_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -118,7 +141,13 @@ def test_assert_reference_writes_nothing_without_log(
 
 @pytest.mark.parametrize(
     ("ci", "override", "expected"),
-    [("", "", "dev"), ("true", "", "ci"), ("true", "dev", "dev"), ("", "ci", "ci")],
+    [
+        ("", "", "dev"),
+        ("true", "", "ci"),
+        ("false", "", "dev"),
+        ("true", "dev", "dev"),
+        ("", "ci", "ci"),
+    ],
 )
 def test_load_hypothesis_profile(
     monkeypatch: pytest.MonkeyPatch, ci: str, override: str, expected: str

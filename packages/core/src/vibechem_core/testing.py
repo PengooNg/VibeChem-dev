@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -141,7 +140,9 @@ def assert_reference(
     AssertionError
         If ``actual`` is outside the tolerance.
     """
-    passed = math.isclose(actual, expected, rel_tol=0.0, abs_tol=atol + rtol * abs(expected))
+    actual, expected = float(actual), float(expected)  # numpy scalars are not JSON-serialisable
+    # Same criterion as assert_close (NaN equals NaN).
+    passed = bool(np.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True))
     log = os.environ.get(REFERENCE_LOG_ENV)
     if log:
         row = {
@@ -175,7 +176,8 @@ def load_hypothesis_profile() -> str:
     settings.register_profile(
         "ci", base, max_examples=200, deadline=None, derandomize=True, print_blob=True
     )
-    name = os.environ.get(HYPOTHESIS_PROFILE_ENV) or ("ci" if os.environ.get("CI") else "dev")
+    on_ci = os.environ.get("CI", "").lower() in {"1", "true", "yes"}
+    name = os.environ.get(HYPOTHESIS_PROFILE_ENV) or ("ci" if on_ci else "dev")
     settings.load_profile(name)
     return name
 

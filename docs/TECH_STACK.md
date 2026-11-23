@@ -46,7 +46,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | ruff | Lint + format |
 | pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
 | pytest, pytest-cov, pytest-xdist | Tests, coverage (per-package thresholds in `check.py`), parallel tests |
-| pytest-regressions | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
+| pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
 | pyinstaller 6.21.x | Engine bundle for the desktop app |
