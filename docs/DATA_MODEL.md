@@ -1,9 +1,10 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.3 · Last updated: 2026-11-18 · Reviewers: K (API, formats), Quan (scientific fields)
+> Status: DRAFT v0.4 · Last updated: 2026-11-24 · Reviewers: K (API, formats), Quan (scientific fields)
+> v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
 > Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with K's approval), then implement.
-> §1–§3 and §7 written; §4 (TASKS T0.14), §5 (T1.03), §6 (T2.03) are filled in by those steps.
+> §1–§4 and §7 written (§4 draft); §5 (T1.03), §6 (T2.03) are filled in by those steps.
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
 ## Contents
@@ -514,8 +515,160 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 
 ---
 
-## 4. Port types *(filled in by TASKS.md T0.14)*
-To define: `Spectra`, `Table`, `Model`, `Transform`, `Folds`, `Results`, `ImageCube`; fields of each; implicit conversions; multi-input rules (e.g. PDS `master`, `slave`, `transfer_samples`).
+## 4. Port types *(DRAFT, T0.14 — Quan reviews; K confirms at demo v0)*
+A port is a named, typed input or output of a block (PRD F-07). Every edge connects one output port to one input port. The engine checks types **statically** when a pipeline is validated (`PIPELINE_PORT_TYPE_MISMATCH`, §2.6 validate); checks that depend on the data (matching rows, axes, presence of Y) run when the block runs and set the node to `error` (§3 `node.state`). Implemented in T2.01 (`vibechem_engine/ports/`); the Python classes behind the types come from T1.01 (`SpectralDataset`) and T1.02 (block contract).
+
+### 4.1 Type registry
+Seven types in v1. Names are case-sensitive and appear as `port_type` in `/blocks` (§2.3) and in pipeline files (§6).
+| `name` | Carries | Python object (core) | `shape_icon` (UI_GUIDE §6) | `description_key` |
+|---|---|---|---|---|
+| `Spectra` | n samples × p variables on one spectral axis, plus sample annotations | `SpectralDataset` | `circle` | `ports.spectra` |
+| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | `pyarrow.Table` wrapper | `circle` | `ports.table` |
+| `Model` | Fitted state of a predictive block (regression, classification, projection, one-class) | `ModelState` | `diamond` | `ports.model` |
+| `Transform` | Fitted state of a non-predictive block that maps spectra to spectra (scaler, MSC reference, PDS/DS matrix, EPO projection) | `TransformState` | `diamond_outline` *(proposed; add to UI_GUIDE §6)* | `ports.transform` |
+| `Folds` | Row-index sets for validation: k folds, repeats, or one train/test hold-out | `FoldSet` | `triangle` | `ports.folds` |
+| `Results` | Outcome of an evaluation: metrics, per-sample predictions, per-candidate search table | `ResultSet` | `square` | `ports.results` |
+| `ImageCube` | Hyperspectral image: height × width × p on one spectral axis (P2) | `ImageCube` | `hexagon` | `ports.image_cube` |
+
+No `Any` type: a block that accepts several kinds of data declares a `Table` input and relies on the implicit views in §4.4 (e.g. export accepts `Spectra`, `Table` and `Results`).
+
+### 4.2 Fields of each type
+Fields are the logical content; storage in the cache is `.npy` for arrays and Arrow/Parquet for tables (ARCHITECTURE.md §2.3). `row_index` is the key to leakage safety: every row-bearing type keeps, per row, its index in the **source dataset** (the `data.dataset` node it came from), so the compiler can map folds onto any downstream object.
+
+**`Spectra`**
+| Field | Type | Notes |
+|---|---|---|
+| `X` | float64 array (n, p) | Signal values |
+| `axis` | `{ "values": float64[p], "unit": str }` | `unit` ∈ `nm` \| `cm-1` \| `um` \| `index`; strictly monotonic |
+| `signal_unit` | str | e.g. `absorbance`, `reflectance`, `transmittance`, `counts`, `arbitrary` |
+| `sample_ids` | str[n] | Unique within the object |
+| `row_index` | int64[n] | Row in the source dataset (see above) |
+| `source_id` | str | `dataset_id` of the source dataset |
+| `group_ids` | str[n] \| null | Replicate / batch groups (group CV) |
+| `y` | float64 array (n, k) \| null | With `y_columns: str[k]`, `y_units: str[k]` |
+| `classes` | str[n] \| null | With `class_column: str` |
+| `metadata` | Table (n rows) \| null | Other columns kept from import |
+| `spatial` | `{ "height": int, "width": int, "pixel": int64[n], "cube_id": str }` \| null | Set only when the rows were unfolded from an `ImageCube` (§4.4); `pixel` = row-major pixel index |
+| `history` | str[] | Applied steps, e.g. `"SNV(ddof=1)"` |
+
+Result summary `content` (§2.8): `{ "shape": [n, p], "axis": {unit, min, max}, "signal_unit", "y_columns", "has_classes", "has_groups", "has_spatial" }`.
+
+**`Table`**
+| Field | Type | Notes |
+|---|---|---|
+| `columns` | `[{ "name": str, "dtype": "float64" \| "int64" \| "bool" \| "string", "unit": str \| null }]` | Column names unique |
+| `data` | Arrow table | |
+| `row_index` | int64[n] \| null | Present when rows are samples of a source dataset; null for summary tables (e.g. ANOVA table) |
+| `source_id` | str \| null | |
+
+Summary `content`: `{ "shape": [n, m], "columns": [...] }`.
+
+**`Model`** and **`Transform`** (same layout; separate types so a transform can never be wired where a predictor is expected)
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | Model: `regression` \| `classification` \| `projection` \| `one_class`; Transform: `preprocess` \| `transfer` | |
+| `producer` | `{ "block_id", "block_version", "params" }` | Block that was fitted |
+| `state` | JSON object + named arrays | Serialised without pickle (ADR-007); exact content per block |
+| `input_axis` | `{ "unit", "min", "max", "p" }` | Axis the state was fitted on; applying to a different axis → `BLOCK_INPUT_AXIS_MISMATCH` |
+| `output_axis` | same \| null | Transform only (e.g. range cut changes p) |
+| `y_columns` / `classes` | str[] \| null | Model only |
+| `fitted_rows` | `{ "source_id": str, "row_index_sha256": str, "n": int }` | Fingerprint of the training rows; lets the leakage audit (T2.05) and reports prove what a state was fitted on |
+
+Summary `content`: `{ "kind", "producer", "n_fitted": n, ... block-specific (e.g. "n_lv") }`.
+
+**`Folds`**
+| Field | Type | Notes |
+|---|---|---|
+| `scheme` | `kfold` \| `venetian` \| `contiguous` \| `loo` \| `repeated_kfold` \| `monte_carlo` \| `group_kfold` \| `holdout` \| `custom` | `holdout` = one train/test split (random, KS, SPXY, by column) |
+| `source_id` | str | Dataset the indices refer to |
+| `n_samples` | int | Rows of the source covered |
+| `folds` | `[{ "fold": int, "repeat": int, "train": int64[], "validation": int64[] }]` | Values are `row_index` values, not positions; for `holdout` one entry where `validation` is the test set |
+| `groups_respected` | bool | true when no group is split across train/validation |
+| `seed` | int \| null | Seed used (null for deterministic schemes) |
+
+Summary `content`: `{ "scheme", "n_folds", "n_repeats", "n_samples", "groups_respected" }`.
+
+**`Results`**
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | `cv` \| `nested_cv` \| `test_set` \| `permutation` \| `search` \| `statistics` | |
+| `metrics` | object: name → number | Names from METHODS.md (e.g. `rmsecv`, `r2cv`, `bias`, `rpd`); original Y units |
+| `y_unit` | str \| null | |
+| `predictions` | Table \| null | Columns `row_index`, `sample_id`, `fold`, `repeat`, `y_true_<col>`, `y_pred_<col>` (classification: `class_true`, `class_pred`, `score_<class>`) |
+| `candidates` | Table \| null | `search` / `nested_cv`: one row per parameter candidate with its metrics |
+| `leakage_safe` | bool | Copied from validation (§2.6) |
+| `details` | JSON object | Block-specific (e.g. LV curve, permutation distribution) |
+
+Summary `content` = the `metrics`, `y_unit`, `leakage_safe` object already shown in §2.8, plus `kind`.
+
+**`ImageCube`** (P2; the type is fixed now so imaging blocks need no format change)
+| Field | Type | Notes |
+|---|---|---|
+| `data` | float32 or float64 array (height, width, p) | Memory-mapped `.npy` or chunked Zarr (ARCHITECTURE.md §2.3); processed in tiles |
+| `axis`, `signal_unit` | as `Spectra` | |
+| `mask` | bool array (height, width) \| null | true = pixel used (ROI / background removal) |
+| `pixel_size` | `{ "x": float, "y": float, "unit": str }` \| null | |
+| `cube_id` | str | Stable id, referenced by `Spectra.spatial.cube_id` |
+| `history` | str[] | |
+
+Summary `content`: `{ "shape": [h, w, p], "axis": {...}, "n_masked": int }`.
+
+### 4.3 Port declaration (in `/blocks`, §2.3)
+Inputs: `port_id`, `port_type`, `required`, `multiple` (already in §2.3) plus these optional fields; outputs: `port_id`, `port_type`.
+| Field | Default | Meaning |
+|---|---|---|
+| `requires` | `[]` | Content the data must have: `y`, `classes`, `groups`, `spatial`. Checked at run time → `BLOCK_INPUT_REQUIREMENT_MISSING` |
+| `rows_match` | null | `port_id` of another input of the same block whose `sample_ids` this input must match (§4.5). Checked at run time → `BLOCK_INPUT_ROWS_MISMATCH` |
+| `axis_match` | null | `port_id` of another input whose axis this input must equal. Checked at run time → `BLOCK_INPUT_AXIS_MISMATCH` |
+| `refit_per_fold` | false | Only on `Model`/`Transform` inputs of validation blocks: the upstream subgraph that produced this state is re-fitted per fold (§4.6) instead of being applied as is |
+
+`port_id` is `snake_case`, unique per direction within a block. i18n: `blocks.<block_id>.ports.<port_id>` (label) and `….tip`.
+
+### 4.4 Compatibility rules
+An edge `from_type → to_type` is valid if the types are equal **or** the pair is listed here. Everything else → `PIPELINE_PORT_TYPE_MISMATCH` (params `from_port`, `to_port`, `from_type`, `to_type`, §1 error body). Rules are returned by `GET /port-types` as `compatibility`.
+| `from` | `to` | `rule` | What the receiving block sees |
+|---|---|---|---|
+| `Spectra` | `Table` | `implicit_view` | Columns `sample_id`, `group_id`?, Y columns, class column, metadata columns, then one `float64` column per axis value (name = value as text); `row_index` kept |
+| `Results` | `Table` | `implicit_view` | The `predictions` table; a `Results` without predictions → `BLOCK_INPUT_REQUIREMENT_MISSING` |
+| `ImageCube` | `Spectra` | `implicit_unfold` | One row per unmasked pixel (row-major), `sample_ids` = `px_<pixel>`, `spatial` filled; no Y. Large cubes are processed in tiles by the scheduler |
+
+Not convertible, on purpose: `Model ↔ Transform` (a predictor is not a preprocessing step), anything `→ Folds` (folds come only from split/fold blocks), `Spectra → ImageCube` (refolding is the explicit block `imaging.refold`, input `spectra` with `requires: ["spatial"]`).
+Graph rules (validated statically, T2.02):
+- **Fan-out:** an output port may feed any number of inputs.
+- **One edge per single input:** an input with `multiple: false` takes at most one edge → `PIPELINE_INPUT_MULTIPLE_EDGES`.
+- **`multiple: true` inputs** (e.g. model comparison over several `Results`, concatenate several `Spectra`) receive their edges in the order they appear in the pipeline's `edges` array; the UI shows that order and lets the user reorder it.
+- **Required inputs** unconnected → `PIPELINE_REQUIRED_INPUT_MISSING` (§2.6). Optional unconnected inputs are `None` in `apply`.
+- The graph is a DAG (`PIPELINE_CYCLE`).
+
+### 4.5 Multi-input rules
+**Row matching (`rows_match`).** Rows of two inputs are paired by `sample_id`, not by position. The block receives both inputs reordered to the order of the referenced port; ids present in only one input are dropped and counted in a `log` warning. No common id, or fewer than the block's minimum → `BLOCK_INPUT_ROWS_MISMATCH` (params `port_id`, `other_port_id`, `n_common`, `n_required`).
+**Axis matching (`axis_match`).** Equal unit and values (relative tolerance 1e-9). Otherwise `BLOCK_INPUT_AXIS_MISMATCH` (params `port_id`, `expected`, `found`); the fix is an interpolation block upstream — the engine never interpolates silently.
+
+Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
+| Block | Inputs | Outputs |
+|---|---|---|
+| PDS / DS (`transfer.pds`, `transfer.ds`) | `master: Spectra` (required) · `slave: Spectra` (required, `rows_match: master`; PDS also `axis_match: master`, DS allows a different axis) · `transfer_samples: Table` (optional, column `sample_id`; absent = all ids common to master and slave) | `transform: Transform` (`kind: transfer`, fitted on the transfer samples only) · `corrected: Spectra` (all `slave` rows mapped to the master space) |
+| Apply transform (`transfer.apply`) | `transform: Transform` · `spectra: Spectra` (new slave data) | `spectra: Spectra` |
+| Transfer-sample selection (`transfer.select_ks`) | `spectra: Spectra` (master) | `transfer_samples: Table` (`sample_id` column) |
+| Slope/bias correction | `model: Model` · `reference: Spectra` (`requires: ["y"]`) | `model: Model` |
+| Domain adaptation (di-PLS) | `source: Spectra` (`requires: ["y"]`) · `target: Spectra` (`axis_match: source`, Y not needed) | `model: Model` |
+| Prediction map (`imaging.predict_map`) | `cube: ImageCube` · `model: Model` | `map: ImageCube` (one band per predicted Y column / class score) |
+| Refold (`imaging.refold`) | `spectra: Spectra` (`requires: ["spatial"]`) | `cube: ImageCube` |
+| ROI / mask (`imaging.roi`) | `cube: ImageCube` | `cube: ImageCube` (with `mask`) · `mean_spectra: Spectra` (one row per ROI) |
+
+**ImageCube inside ordinary pipelines.** Every P0 preprocessing block works on a cube through `implicit_unfold`; its output is `Spectra` with `spatial` set, and `imaging.refold` turns it back into a cube. Fitted blocks applied to unfolded pixels follow the same fit/apply rules as any `Spectra` (a model is fitted on calibration spectra, then applied to pixels).
+
+### 4.6 Fitted states, folds and validation (leakage)
+- A fitted block has the usual data outputs plus an optional state output (`model: Model` or `transform: Transform`). Inside a pipeline the compiler splits it into fit and apply tasks (ARCHITECTURE.md §3.2); the state port exists so a state can be applied to other data or exported.
+- **Split and fold blocks** take `spectra: Spectra` and output `folds: Folds`. Hold-out splits (random, KS, SPXY) also output `train: Spectra` and `test: Spectra` for convenience; both carry `row_index`, so a later `fit` on `test` rows is still detected.
+- **Validation blocks** (CV, nested CV, permutation, grid search) take `model: Model` with `refit_per_fold: true` and `folds: Folds`, and output `results: Results` and `model: Model` (refit on all training rows). The compiler re-runs the whole upstream subgraph between the dataset node and the `model` port once per fold, with every `fit` task restricted to that fold's `train` rows and `apply` tasks run on train and validation rows. The `Folds` and the model's subgraph must come from the same source dataset → `PIPELINE_FOLDS_SOURCE_MISMATCH`. Nested CV adds an inner `inner_folds: Folds` input or an inner scheme parameter (decided in T2.10).
+- **External test set** (`validate.test_set`): `model: Model` (`refit_per_fold: false`, applied as is) · `spectra: Spectra` (`requires: ["y"]` or `["classes"]`) → `results: Results`. If the test rows overlap `Model.fitted_rows` → `PIPELINE_LEAKAGE`.
+- **Container blocks (UI_GUIDE §6).** A nested-CV or grid-search container on the canvas is a drawing of a validation block plus the subgraph feeding its `refit_per_fold` port; it is not a separate port type. How the pipeline file records which nodes sit inside a frame is decided in T2.03 (§6).
+
+### 4.7 Open points for review
+1. `Transform` shape `diamond_outline` is new — UI_GUIDE §6 lists shapes only for the other six types.
+2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
+3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
 ## 5. Block parameter schema *(filled in by T1.03)*
 To define: parameter types (`int`, `float`, `bool`, `enum`, `string`, `range`, `column_ref`, `wavelength_range`, `list`), units, conditional visibility (`visible_if`), cross-field constraints, `advanced` flag, translation keys.
@@ -539,6 +692,8 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `PIPELINE_PORT_TYPE_MISMATCH` | 422 | `engine/graph` | Incompatible edge |
 | `PIPELINE_REQUIRED_INPUT_MISSING` | 422 | `engine/graph` | Unconnected required port |
 | `PIPELINE_CYCLE` | 422 | `engine/graph` | Graph has a cycle |
+| `PIPELINE_INPUT_MULTIPLE_EDGES` | 422 | `engine/graph` | Second edge into an input with `multiple: false` (§4.4) |
+| `PIPELINE_FOLDS_SOURCE_MISMATCH` | 422 | `engine/compiler` | Folds and the re-fitted subgraph come from different datasets (§4.6) |
 | `PIPELINE_LEAKAGE` | 422 | `engine/compiler` | Fit step would see validation/test data |
 | `PIPELINE_RUNNING` | 409 | `engine/api` | Change blocked during run |
 | `RUN_ALREADY_ACTIVE` | 409 | `engine/scheduler` | Run already active on this pipeline/project |
@@ -548,3 +703,6 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it) |
+| `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3) |
+| `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
+| `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |
