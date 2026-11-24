@@ -280,6 +280,20 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(tool("Skill", skill="gstack:land-and-deploy"), "deny")
         self.assertEqual(tool("Skill", skill="crew"), "deny")
         self.assertEqual(tool("Skill", skill="setup-deploy"), "deny")
+        for name in [
+            "codex",
+            "scrape",
+            "skillify",
+            "sync-gbrain",
+            "benchmark-models",
+            "eval-plan",
+            "connect-chrome",
+            "open-gstack-browser",
+            "gstack-upgrade",
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(tool("Skill", skill=name), "deny")
+        self.assertEqual(tool("Skill", skill="plan-eng-review"), "allow")
         self.assertEqual(tool("Skill", skill="superpowers:test-driven-development"), "allow")
         self.assertEqual(tool("Skill", skill="qa"), "allow")
 
