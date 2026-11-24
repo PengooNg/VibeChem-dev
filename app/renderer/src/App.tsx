@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { EngineRequestError, type Spectra } from "./api/client";
-import { useSkeletonRun } from "./api/useSkeletonRun";
+import { PREVIEW_WIDTH, useSkeletonRun } from "./api/useSkeletonRun";
 import type { RunState } from "./canvas/BlockNode";
 import { SkeletonCanvas } from "./canvas/SkeletonCanvas";
 import { SpectraPlot } from "./plots/SpectraPlot";
@@ -48,6 +48,11 @@ export function App() {
         ? "done"
         : "idle";
   const snv = run.data?.snv;
+  // The preview has the true number of points only when it was not decimated.
+  const shape =
+    snv !== undefined && snv.x.length < PREVIEW_WIDTH
+      ? { rows: snv.y.length, cols: snv.x.length }
+      : undefined;
 
   return (
     <div className="flex h-screen flex-col">
@@ -75,10 +80,7 @@ export function App() {
       </header>
       <main className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-48 flex-1">
-          <SkeletonCanvas
-            state={state}
-            {...(snv === undefined ? {} : { shape: { rows: snv.y.length, cols: snv.x.length } })}
-          />
+          <SkeletonCanvas state={state} {...(shape === undefined ? {} : { shape })} />
         </div>
         <div className="bg-background grid shrink-0 grid-cols-1 gap-3 border-t p-3 lg:grid-cols-2">
           <Preview titleKey="plots.raw" yLabelKey="plots.log_inv_r" spectra={run.data?.raw} />

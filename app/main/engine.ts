@@ -58,6 +58,7 @@ export function startDevEngine(repoRoot: string): DevEngine {
   // Step 2: wait for the one `engine.listening` line, or fail on exit/timeout.
   const connection = new Promise<EngineConnection>((resolve, reject) => {
     const timer = setTimeout(() => {
+      child.kill(); // don't leave a late-starting engine behind
       reject(new Error(`engine did not start within ${START_TIMEOUT_MS / 1000} s`));
     }, START_TIMEOUT_MS);
     child.once("error", (error) => {
@@ -66,6 +67,9 @@ export function startDevEngine(repoRoot: string): DevEngine {
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
+      // Before the announcement this rejects; after it, the promise is settled and only the log
+      // remains (restart and the F-84 banner come with T0.11's supervision).
+      console.error(`[engine] exited with code ${String(code)}`);
       reject(new Error(`engine exited with code ${String(code)} before it was ready`));
     });
     if (child.stdout === null) throw new Error("engine stdout is not piped");

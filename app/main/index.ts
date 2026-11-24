@@ -62,6 +62,11 @@ void app.whenReady().then(() => {
 app.on("will-quit", () => {
   engine?.stop();
 });
+// Also when the main process ends without a normal quit (e.g. electron-vite restarting it after
+// a main/ change). A hard kill still leaves the engine running; T0.11 adds supervision.
+process.on("exit", () => {
+  engine?.stop();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

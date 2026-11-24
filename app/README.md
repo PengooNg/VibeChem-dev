@@ -45,6 +45,6 @@ pnpm is pinned in `package.json` (`packageManager`). Run `corepack install -g pn
    Snapshots and logs land in `app/.playwright-cli/` (git-ignored).
 3. Attach the screenshots to the PR. Don't commit them.
 
-**Tests:** Vitest next to the code (`*.test.ts(x)`, renderer in jsdom, `main/` in node), Playwright in `e2e/`. The e2e tests serve the renderer with plain Vite (`e2e/vite.renderer.config.ts`, port 5179) and launch Electron themselves, so the page keeps a `http://localhost` origin that the dev-mode engine accepts. `pnpm dev` and `pnpm e2e` need `uv sync` first (the engine runs from `.venv`).
+**Tests:** Vitest next to the code (`*.test.ts(x)`, renderer in jsdom, `main/` in node), Playwright in `e2e/`. The e2e tests serve the renderer with plain Vite (`e2e/vite.renderer.config.ts`, port 5179) and launch Electron themselves, so the page keeps a `http://localhost` origin that the dev-mode engine accepts. `pnpm dev` and `pnpm e2e` need `uv sync` first (the engine runs from `.venv`). Before T0.11 only the dev-server page can reach the engine: a built renderer loaded from `file://` (`pnpm build` then `electron .`) sends `Origin: null`, which the engine refuses (403).
 
 **API types:** never hand-write engine field names (TECH_STACK.md §6). After changing an engine endpoint, run `pnpm --dir app gen:api` and commit `schema.d.ts`.
