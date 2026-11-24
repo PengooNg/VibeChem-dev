@@ -10,6 +10,7 @@ on:
       - scripts/bench_transport.py
       - app/scripts/bench-transport-client.mjs
       - .github/workflows/spike-transport.yml
+      - packages/engine/src/vibechem_engine/api/**
   workflow_dispatch:
 
 permissions:

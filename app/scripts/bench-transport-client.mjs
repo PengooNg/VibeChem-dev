@@ -11,13 +11,22 @@ import { tableFromIPC } from "apache-arrow";
 const [port, token, mode, width, repeats] = process.argv.slice(2);
 const url = `http://127.0.0.1:${port}/api/v1/spike/preview?mode=${mode}&width=${width}`;
 
-/** Decode and pull out every column's values (float32 curves; density as one Uint16Array). */
+/** Decode and pull out every column's values (float32 curves; density counts as Uint16Arrays). */
 function decode(bytes) {
   const table = tableFromIPC(bytes);
   const arrays = [];
   for (const field of table.schema.fields) {
     const column = table.getChild(field.name);
-    arrays.push(field.name === "density" ? column.data[0].children[0].values : column.toArray());
+    if (field.name !== "density") {
+      arrays.push(column.toArray());
+      continue;
+    }
+    // Fixed-size list: each chunk's child holds `length * listSize` counts from `offset`.
+    for (const chunk of column.data) {
+      const size = chunk.type.listSize;
+      const start = chunk.offset * size;
+      arrays.push(chunk.children[0].values.subarray(start, start + chunk.length * size));
+    }
   }
   return arrays;
 }

@@ -36,6 +36,8 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
@@ -56,6 +58,7 @@ NODE_CLIENT = REPO / "app" / "scripts" / "bench-transport-client.mjs"
 DENSITY_BINS = 256
 N_SELECTED = 10
 TARGET_MS = 300.0  # ADR-003 "Actions"
+START_TIMEOUT_S = 30.0
 
 
 def synthetic_spectra(
@@ -139,20 +142,32 @@ def make_spike_router(x: NDArray[np.float64], y: NDArray[np.float64]) -> APIRout
     return router
 
 
-def start_server(x: NDArray[np.float64], y: NDArray[np.float64]) -> tuple[int, str, uvicorn.Server]:
-    """Serve the engine app + spike route on a random loopback port in a thread."""
+@contextmanager
+def serve(x: NDArray[np.float64], y: NDArray[np.float64]) -> Generator[tuple[int, str]]:
+    """Serve the engine app + spike route on a random loopback port in a thread.
+
+    Yields ``(port, token)``; on exit the server is stopped and its thread joined.
+    """
     token = new_session_token()
     app = create_app(token, testdata_dir=find_testdata_dir())
     app.include_router(make_spike_router(x, y), prefix=API_PREFIX)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen()
-    port: int = sock.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_level="warning"))
-    threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True).start()
-    while not server.started:
-        time.sleep(0.01)
-    return port, token, server
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        port: int = sock.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_level="warning"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + START_TIMEOUT_S
+            while not server.started:
+                if not thread.is_alive() or time.monotonic() > deadline:
+                    raise RuntimeError("benchmark server did not start")
+                time.sleep(0.01)
+            yield port, token
+        finally:
+            server.should_exit = True
+            thread.join(START_TIMEOUT_S)
 
 
 def summarise(samples: list[dict[str, float]]) -> dict[str, float]:
@@ -197,7 +212,9 @@ def python_client(port: int, token: str, mode: str, width: int, repeats: int) ->
 def node_client(port: int, token: str, mode: str, width: int, repeats: int) -> dict[str, Any]:
     """Run the Node client (fetch + apache-arrow) and return its JSON result."""
     cmd = ["node", str(NODE_CLIENT), str(port), token, mode, str(width), str(repeats)]
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=REPO / "app")
+    out = subprocess.run(cmd, check=False, capture_output=True, text=True, cwd=REPO / "app")
+    if out.returncode != 0:
+        raise RuntimeError(f"Node client failed ({out.returncode}): {out.stderr.strip()}")
     result: dict[str, Any] = json.loads(out.stdout)
     return result
 
@@ -205,15 +222,12 @@ def node_client(port: int, token: str, mode: str, width: int, repeats: int) -> d
 def run(n: int, points: int, repeats: int, width: int, *, node: bool) -> dict[str, Any]:
     """Run every (client, mode) combination and return the results."""
     x, y = synthetic_spectra(n, points, np.random.default_rng(12))
-    port, token, server = start_server(x, y)
-    try:
-        results: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+    with serve(x, y) as (port, token):
         for mode in ("lines", "density"):
             results.append(python_client(port, token, mode, width, repeats))
             if node:
                 results.append(node_client(port, token, mode, width, repeats))
-    finally:
-        server.should_exit = True
     return {
         "os": platform.system(),
         "machine": platform.machine(),
@@ -262,8 +276,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--node", action="store_true", help="also time the Node client")
     parser.add_argument("--json", type=Path, help="write the raw results here")
     args = parser.parse_args(argv)
-    if args.width > args.points:
-        parser.error("--width must not exceed --points")
+    if not 2 <= args.width <= args.points:
+        parser.error("--width must be between 2 and --points")
+    if args.n < 2 or args.repeats < 1:
+        parser.error("--n must be at least 2 and --repeats at least 1")
     report = run(args.n, args.points, args.repeats, args.width, node=args.node)
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)

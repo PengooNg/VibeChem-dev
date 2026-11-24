@@ -73,17 +73,18 @@ def test_node_client_decodes_both_modes() -> None:
 
 def test_spike_route_still_needs_the_session_token() -> None:
     x, y = bt.synthetic_spectra(5, 100, np.random.default_rng(1))
-    port, _token, server = bt.start_server(x, y)
-    try:
+    with bt.serve(x, y) as (port, _token):
         url = f"http://127.0.0.1:{port}/api/v1/spike/preview?mode=lines"
         with pytest.raises(urllib.error.HTTPError) as info:
             urllib.request.urlopen(url)
         assert info.value.code == 401
         info.value.close()
-    finally:
-        server.should_exit = True
 
 
-def test_width_above_points_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "argv",
+    [["--points", "100", "--width", "200"], ["--width", "1"], ["--n", "1"], ["--repeats", "0"]],
+)
+def test_invalid_arguments_are_rejected(argv: list[str]) -> None:
     with pytest.raises(SystemExit):
-        bt.main(["--points", "100", "--width", "200"])
+        bt.main(argv)
