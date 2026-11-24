@@ -16,7 +16,7 @@ export default tseslint.config(
     extends: [reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
   },
   {
-    files: ["main/**/*.ts", "*.config.{js,ts}"],
+    files: ["main/**/*.ts", "e2e/**/*.ts", "*.config.{js,ts}"],
     languageOptions: { globals: globals.node },
   },
 );

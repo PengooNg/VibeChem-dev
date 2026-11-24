@@ -2,11 +2,11 @@
 
 # VibeChem app (`app/`)
 
-**Status:** workspace set up (T0.04). The window shows only the app name in EN/JA/VI; the skeleton UI comes in T0.10.
+**Status:** walking skeleton (T0.10). In development the app starts the engine, shows a fixed Dataset → SNV pipeline, and Run plots the gasoline NIR spectra raw and after SNV. The packaged engine comes in T0.11.
 
 **Purpose:** the desktop app.
 
-- `main/`: Electron main process and preload (TypeScript). It starts and stops the engine and holds no business logic.
+- `main/`: Electron main process and preload (TypeScript). It starts and stops the engine and holds no business logic. `engine.ts` runs `python -m vibechem_engine.api` from the repository's `.venv` (dev mode, `VIBECHEM_DEV=1`) and reads its port + token; `preload.ts` (bundled as CommonJS because the renderer is sandboxed) exposes them as `window.vibechem.engine()`.
 - `renderer/src/`: React + TypeScript UI (canvas, inspector, plots, jobs, library, state, ui, i18n `en`/`ja`/`vi`).
 - `e2e/`: Playwright end-to-end tests.
 
@@ -24,6 +24,8 @@
 | `pnpm --dir app typecheck`                         | TypeScript (strict) for main and renderer                           |
 | `pnpm --dir app test`                              | Vitest                                                              |
 | `uv run python scripts/check.py --fast --only app` | lint + typecheck + tests, as one health summary                     |
+| `pnpm --dir app e2e`                               | Build main + preload, serve the renderer, run Playwright (Electron) |
+| `pnpm --dir app gen:api`                           | Regenerate `renderer/src/api/schema.d.ts` from the engine OpenAPI   |
 
 pnpm is pinned in `package.json` (`packageManager`). Run `corepack install -g pnpm@<that version>` once per machine so `pnpm --dir app …` from the repo root uses it (TECH_STACK.md §2).
 
@@ -43,4 +45,6 @@ pnpm is pinned in `package.json` (`packageManager`). Run `corepack install -g pn
    Snapshots and logs land in `app/.playwright-cli/` (git-ignored).
 3. Attach the screenshots to the PR. Don't commit them.
 
-**Tests:** Vitest next to the code (`*.test.tsx`), Playwright in `e2e/` (from T0.10).
+**Tests:** Vitest next to the code (`*.test.ts(x)`, renderer in jsdom, `main/` in node), Playwright in `e2e/`. The e2e tests serve the renderer with plain Vite (`e2e/vite.renderer.config.ts`, port 5179) and launch Electron themselves, so the page keeps a `http://localhost` origin that the dev-mode engine accepts. `pnpm dev` and `pnpm e2e` need `uv sync` first (the engine runs from `.venv`). Before T0.11 only the dev-server page can reach the engine: a built renderer loaded from `file://` (`pnpm build` then `electron .`) sends `Origin: null`, which the engine refuses (403).
+
+**API types:** never hand-write engine field names (TECH_STACK.md §6). After changing an engine endpoint, run `pnpm --dir app gen:api` and commit `schema.d.ts`.

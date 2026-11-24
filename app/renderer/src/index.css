@@ -50,6 +50,9 @@
   --color-ring: var(--ring);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-focus: var(--focus);
+  --color-state-done: var(--state-done);
+  --color-state-error: var(--state-error);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-numbers);
   --spacing: var(--space-unit);

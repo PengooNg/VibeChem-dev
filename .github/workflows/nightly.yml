@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Nightly checks (TECH_STACK.md §8, QA.md §2 L3) on `main` and the newest `phase-*` branch.
 # Skeleton from T0.06: full check.py (incl. slow tests) on Windows, macOS arm64,
-# macOS Intel and Linux. Later steps add their jobs here: e2e (T0.10),
-# installers incl. macOS Intel (T0.11), benchmarks + determinism 1 vs N cores (T2.12).
+# macOS Intel and Linux; Electron e2e tests on Windows, macOS and Linux (T0.10). Later steps
+# add their jobs here: installers incl. macOS Intel (T0.11), benchmarks + determinism 1 vs N
+# cores (T2.12). ci.yml also runs the e2e tests on every PR (job `check`).
 # Any failure opens (or comments on) one `S2` issue.
 name: nightly
 
@@ -72,9 +73,53 @@ jobs:
       - name: check.py (full, incl. slow tests)
         run: uv run python scripts/check.py --verbose
 
+  e2e:
+    name: e2e (${{ matrix.ref }}, ${{ matrix.name }})
+    needs: refs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.refs.outputs.refs) }}
+        name: [linux, windows, macos]
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: uv sync --locked
+      - run: pnpm --dir app install --frozen-lockfile
+      - name: Playwright e2e (Electron)
+        if: runner.os != 'Linux'
+        run: pnpm --dir app e2e
+      - name: Playwright e2e (Electron, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm --dir app e2e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-report-${{ matrix.name }}-${{ strategy.job-index }}
+          path: |
+            app/playwright-report/
+            app/test-results/
+          retention-days: 14
+
   report:
     name: open S2 issue on failure
-    needs: [refs, check]
+    needs: [refs, check, e2e]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
