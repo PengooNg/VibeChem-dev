@@ -516,7 +516,7 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 ---
 
 ## 4. Port types *(DRAFT, T0.14 — Quan reviews; K confirms at demo v0)*
-A port is a named, typed input or output of a block (PRD F-07). Every edge connects one output port to one input port. The engine checks types **statically** when a pipeline is validated (`PIPELINE_PORT_TYPE_MISMATCH`, §2.6 validate); checks that depend on the data (matching rows, axes, presence of Y) run when the block runs and set the node to `error` (§3 `node.state`). Implemented in T2.01 (`vibechem_engine/ports/`); the Python classes behind the types come from T1.01 (`SpectralDataset`) and T1.02 (block contract).
+A port is a named, typed input or output of a block (PRD F-07). Every edge connects one output port to one input port. The engine checks types **statically** when a pipeline is validated (`PIPELINE_PORT_TYPE_MISMATCH`, §2.6 validate); checks that depend on the data (matching rows, axes, presence of Y) run when the block runs and set the node to `error` (§3 `node.state`). Implemented in T2.01 (`vibechem_engine/ports/`); the Python classes behind the types come from T1.01 (`SpectralDataset`) and T1.02a/b (block contract).
 
 ### 4.1 Type registry
 Seven types in v1. Names are case-sensitive and appear as `port_type` in `/blocks` (§2.3) and in pipeline files (§6).
