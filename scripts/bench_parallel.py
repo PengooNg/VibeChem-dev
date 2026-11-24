@@ -101,7 +101,11 @@ def loky_freeze_support() -> None:
             loky.backend.popen_loky_win32.main(int(argv[2]), parent_pid=os.getppid())
     elif argv[1:3] == ["-m", "loky.backend.popen_loky_posix"]:
         sys.argv = [argv[0], *argv[3:]]
-        runpy.run_module(loky.backend.popen_loky_posix.__name__, run_name="__main__")
+        # Run it as __main__ like ``python -m``; drop the copy imported above so runpy
+        # does not warn about running a module that is already imported.
+        name = loky.backend.popen_loky_posix.__name__
+        del sys.modules[name]
+        runpy.run_module(name, run_name="__main__")
         sys.exit(0)
 
 
@@ -131,13 +135,14 @@ class ConfigResult:
     blas: str  # "1" or "default"
     startup_s: float | None
     wall_s: list[float] = field(default_factory=list[float])
-    task_s_sum: float = 0.0
-    distinct_pids: int = 0
-    blas_threads_seen: list[int] = field(default_factory=list[int])
-    memmapped: bool = False
+    task_s_per_repeat: float = 0.0  # summed task time, mean over repeats
+    distinct_pids: int = 0  # over all repeats
+    blas_threads_seen: list[int] = field(default_factory=list[int])  # over all repeats
+    memmapped: bool = True  # in every task of every repeat
     repeatable: bool = True  # every repeat gave the same bits
     same_as_serial: bool = True  # ... and they equal the serial BLAS = 1 reference
     digest: str = ""
+    pids: list[int] = field(default_factory=list[int])
 
 
 def synthetic_matrix(rows: int, cols: int, rng: np.random.Generator) -> NDArray[np.float64]:
@@ -211,11 +216,16 @@ def combined_digest(results: list[TaskResult]) -> str:
 
 def record(config: ConfigResult, wall: float, results: list[TaskResult], reference: str) -> None:
     """Add one timed repeat to ``config``."""
+    done = len(config.wall_s)
     config.wall_s.append(wall)
-    config.task_s_sum = sum(r.seconds for r in results)
-    config.distinct_pids = len({r.pid for r in results})
-    config.blas_threads_seen = sorted({r.blas_threads for r in results})
-    config.memmapped = all(r.memmapped for r in results)
+    task_s = sum(r.seconds for r in results)
+    config.task_s_per_repeat = (config.task_s_per_repeat * done + task_s) / (done + 1)
+    config.pids = sorted({*config.pids, *(r.pid for r in results)})
+    config.distinct_pids = len(config.pids)
+    config.blas_threads_seen = sorted(
+        {*config.blas_threads_seen, *(r.blas_threads for r in results)}
+    )
+    config.memmapped = config.memmapped and all(r.memmapped for r in results)
     digest = combined_digest(results)
     config.digest = config.digest or digest
     config.repeatable = config.repeatable and digest == config.digest
@@ -245,10 +255,10 @@ def run_loky(
     executor = loky.get_reusable_executor(
         max_workers=workers, timeout=60, initializer=init_worker, initargs=(blas,)
     )
-    list(executor.map(worker_pid, range(workers)))
-    config.startup_s = time.perf_counter() - start
-    # Step 2: timed repeats on the warm pool.
     try:
+        list(executor.map(worker_pid, range(workers)))
+        config.startup_s = time.perf_counter() - start
+        # Step 2: timed repeats on the warm pool.
         for _ in range(repeats):
             start = time.perf_counter()
             results = list(executor.map(run_task, tasks))
@@ -314,14 +324,14 @@ def markdown(report: dict[str, Any]) -> str:
             f"{report['loky_cpu_count']} CPUs ({report['loky_physical_cores']} physical)"
         ),
         "",
-        "| Config | Workers | BLAS | Start-up s | Median s | Speed-up | Task CPU s | PIDs | BLAS threads | memmap | Repeatable | Same bits as serial |",
+        "| Config | Workers | BLAS | Start-up s | Median s | Speed-up | Task s / repeat | PIDs | BLAS threads | memmap | Repeatable | Same bits as serial |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in report["configs"]:
         startup = "-" if c["startup_s"] is None else f"{c['startup_s']:.2f}"
         lines.append(
             f"| {c['name']} | {c['workers'] or 'in-process'} | {c['blas']} | {startup} | "
-            f"{c['median_s']:.2f} | {c['speedup']:.2f}x | {c['task_s_sum']:.2f} | "
+            f"{c['median_s']:.2f} | {c['speedup']:.2f}x | {c['task_s_per_repeat']:.2f} | "
             f"{c['distinct_pids']} | {c['blas_threads_seen']} | {'yes' if c['memmapped'] else 'no'} | "
             f"{'yes' if c['repeatable'] else '**NO**'} | {'yes' if c['same_as_serial'] else 'no'} |"
         )

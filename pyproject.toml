@@ -11,6 +11,7 @@ dev = [
     "httpx2>=2.16.0,<2.16.1",
     "hypothesis",
     "import-linter",
+    "loky>=3.7.0",
     "pre-commit",
     "pyinstaller>=6.21,<6.22",
     "pyright[nodejs]",
@@ -18,6 +19,7 @@ dev = [
     "pytest-cov",
     "pytest-regressions",
     "ruff",
+    "threadpoolctl>=3.8.0",
 ]
 
 [tool.uv]

@@ -10,8 +10,11 @@ on:
     branches: [main, "phase-*"]
     paths:
       - scripts/bench_parallel.py
+      - scripts/tests/test_bench_parallel.py
       - scripts/build_engine.py
       - .github/workflows/spike-parallel.yml
+      - pyproject.toml # loky / threadpoolctl / cloudpickle versions
+      - uv.lock
   workflow_dispatch:
 
 permissions:

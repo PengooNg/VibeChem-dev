@@ -15,6 +15,7 @@ dev = [
     { name = "httpx2", specifier = ">=2.16.0,<2.16.1" },
     { name = "hypothesis" },
     { name = "import-linter" },
+    { name = "loky", specifier = ">=3.7.0" },
     { name = "pre-commit" },
     { name = "pyinstaller", specifier = ">=6.21,<6.22" },
     { name = "pyright", extras = ["nodejs"] },
@@ -22,6 +23,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-regressions" },
     { name = "ruff" },
+    { name = "threadpoolctl", specifier = ">=3.8.0" },
 ]
 
 [[package]]
@@ -1193,10 +1195,8 @@ version = "0.0.0"
 source = { editable = "packages/engine" }
 dependencies = [
     { name = "fastapi" },
-    { name = "loky" },
     { name = "pyarrow" },
     { name = "pydantic" },
-    { name = "threadpoolctl" },
     { name = "uvicorn" },
     { name = "vibechem-core" },
 ]
@@ -1204,10 +1204,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.149,<0.150" },
-    { name = "loky", specifier = ">=3.7.0" },
     { name = "pyarrow", specifier = ">=26.0.1" },
     { name = "pydantic", specifier = ">=2.13,<2.14" },
-    { name = "threadpoolctl", specifier = ">=3.8.0" },
     { name = "uvicorn", specifier = ">=0.54.0" },
     { name = "vibechem-core", editable = "packages/core" },
 ]
