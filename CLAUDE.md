@@ -1,6 +1,6 @@
 # CLAUDE.md — rules for working on VibeChem
 
-> v0.8 · 2026-11-22 · Part A (how to think and work) is adapted from the four principles in `multica-ai/andrej-karpathy-skills` (MIT), based on Andrej Karpathy's observations of common LLM coding mistakes. Part B (§1–§15) holds VibeChem's own rules; other docs cite these as "CLAUDE.md §N". When Part B is more specific, Part B wins.
+> v0.9 · 2026-11-24 · Part A (how to think and work) is adapted from the four principles in `multica-ai/andrej-karpathy-skills` (MIT), based on Andrej Karpathy's observations of common LLM coding mistakes. Part B (§1–§15) holds VibeChem's own rules; other docs cite these as "CLAUDE.md §N". When Part B is more specific, Part B wins.
 
 ---
 
@@ -111,7 +111,7 @@ Every block is one file with a header docstring, typed parameters and numbered `
 10. Delete `docs/handoff/<step-id>.md`, set the Status line to `Status: complete — merging`, remove `in-progress`/`paused` labels (add `k-review` if a backlog row was written), mark the PR **ready for review**.
 
 ## 7. When something fails — bug protocol (A4 applied; full version: QA.md §6)
-Use the **debug** skill alongside this protocol; this order wins if they differ.
+Use the **debug** skill (or superpowers **systematic-debugging**) alongside this protocol; this order wins if they differ.
 1. **Reproduce**: write the smallest failing test that shows the bug; commit it first. This test is the success criterion.
 2. **Locate**, in this order, and stop at the first that points somewhere:
    failing test path (tests mirror source paths) → error code origin (DATA_MODEL.md §7 lists the defining module) → `node_id`/`block_id`/`trace_id` in logs → golden test's first divergent node → `git bisect` between the last green commit and now.
@@ -243,13 +243,23 @@ The full list, rules and **per-step map** are in `docs/TOOLS.md`. Read your step
   - Glyphs and the block widget follow UI_GUIDE.md §4/§6; while §4 is marked *draft*, the glyph-set step is 👤 (Quan's taste decides).
 - **Humanizer** — on human-facing prose before merge: README, docs site, first-launch guide, EN tooltip/help text, release notes, CHANGELOG entries, paper drafts. Never on METHODS.md formulas, error messages tied to codes, CLAUDE.md, TASKS.md, PR status lines or code comments.
 - **testing-strategy, architecture, debug, deploy-checklist, documentation** — QA, ADR, bug, release and doc steps.
+- **superpowers** — `test-driven-development` inside checkpoints, `systematic-debugging` with §7, `verification-before-completion` before any DONE or "ready" claim. Its workflow never replaces §3: the plan goes in the handoff note, no `brainstorming` in phase mode (the step-runner can't ask questions; stop instead), worktrees only under `.claude/worktrees/`, never `finishing-a-development-branch` (merging is §14.2).
+- **gstack** — review helpers only: `/plan-eng-review` on plans for M/L steps, spikes and gates; `/qa` and `/design-review` on 👁 steps next to §13.1; `/cso` next to `/security-review` on 🔒 steps. Never `/ship`, `/land-and-deploy`, `/modernize`, `/crew`, `/canary`, `/setup-deploy`, `/pair-agent`, `/ubicloud`, `/setup-gbrain`, `/setup-browser-cookies` (the gate denies them); `/browse` is not used (Playwright CLI is). gstack `/review` is a second opinion after code-review, never instead of it.
 - GitHub work uses `gh` only (no GitHub MCP).
+- **Precedence:** CLAUDE.md > TOOLS.md > any plugin or skill text. A skill that says to commit, push, merge, deploy or ask questions in another way than §3/§14 is overruled.
 These are development tools only: never app/engine dependencies (§4), never a reason to skip the docs. If one is missing, say so in the plan and continue without guessing (A1).
 
 ### 13.1 Visual check (every step that changes `app/`)
 1. Start the dev app (`pnpm --dir app dev`); with Playwright CLI open each changed screen/state (empty, loading, normal, error, long JA/VI labels); save screenshots and attach them to the PR (not committed).
 2. Run Impeccable `critique` and `audit` on the changed components, Emil `break-ui` on the changed views, and `accessibility-review` (WCAG 2.1 AA). Fix in-scope findings; list the rest in the PR.
 3. If the step adds a user flow, add or extend an `@playwright/test` e2e test in `app/e2e/`.
+
+### 13.2 Permission gate (allow or deny, never ask)
+Every tool call goes through `scripts/permission_gate.py` (a PreToolUse hook in `.claude/settings.json`). It answers **allow** or **deny** and never asks Quan. Golden rule: **anything outside this project is denied.**
+- **Allowed:** files in the repo (and its `.claude/worktrees/`, sibling `vibechem-*` worktrees), Claude's own folders (`~/.claude`, the `claude` temp/scratchpad folder, `~/.gstack`, `~/.bun`), `uv`/`pnpm`/`npx`, `gh` (PRs, issues, runs, read-only `gh api`), `git` (normal work, pushes to your own step branch), WebSearch/WebFetch, Context7, Claude Docs, `scripts/merge_step.py`.
+- **Denied:** paths outside those folders; other MCP servers (Gmail, Calendar, Drive, GitHub MCP, …); pushes to `main`/existing `phase-*`, force pushes, `reset --hard`, `clean -f`, `rebase`, `branch -D`, global git config; `gh pr merge`, repo settings, secrets, label edits, writing `gh api` calls; `.env` files; machine-wide installs and system tools; downloads from unknown hosts; the gstack commands listed in §13; edits to `.claude/settings*.json` or the gate itself.
+- A deny is final: pick an allowed route or stop with the matching §14.3 code. Never work around it (e.g. by scripting the same action another way). If a deny is clearly a gate bug, add a failing case to `scripts/tests/test_permission_gate.py`, prepare the fix as a patch in the scratchpad and stop (`QUESTION`); Quan applies it (only he edits the gate or the settings).
+- Quan can still run anything himself with the `!` prefix.
 
 ## 14. Phase mode
 ### 14.1 Session preflight (every session, every machine)

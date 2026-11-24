@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "DO_NOT_TRACK": "1"
+  },
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
@@ -35,15 +38,6 @@
       "Bash(npx playwright-cli *)",
       "Bash(npx playwright install *)"
     ],
-    "ask": [
-      "Bash(rm *)",
-      "Bash(git reset *)",
-      "Bash(git clean *)",
-      "Bash(git rebase *)",
-      "Bash(git stash *)",
-      "Bash(git merge *)",
-      "Bash(gh api *)"
-    ],
     "deny": [
       "Bash(git push --force *)",
       "Bash(git push -f *)",
@@ -51,17 +45,45 @@
       "Bash(git push origin main *)",
       "Bash(git push origin HEAD:main *)",
       "Bash(git push origin phase-*)",
+      "Bash(git reset --hard *)",
+      "Bash(git rebase *)",
+      "Bash(git filter-branch *)",
       "Bash(gh pr merge *)",
       "Bash(gh repo delete *)",
       "Bash(gh repo edit *)",
-      "Bash(gh ruleset *)",
       "Bash(gh secret *)",
+      "Bash(gh auth token *)",
       "Read(./.env)",
       "Read(./.env.*)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./.claude/settings.local.json)",
+      "Edit(./scripts/permission_gate.py)",
+      "mcp__claude_ai_Gmail",
+      "mcp__claude_ai_Google_Calendar",
+      "mcp__claude_ai_Google_Drive",
+      "mcp__claude_ai_github",
       "Bash(npx impeccable live *)",
       "Bash(npx impeccable install *)",
       "Bash(npx impeccable telemetry on *)",
       "Bash(headroom *)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/scripts/permission_gate.py\"",
+            "timeout": 20,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
   }
 }
