@@ -8,6 +8,9 @@ electron-builder copies the bundle into the installer's resources (``app/electro
 
     uv run python scripts/build_engine.py      # → build/engine/vibechem-engine/
 
+``--entry SCRIPT --name NAME`` freezes another script with the same options (the parallel
+spike, T0.13, measures loky workers inside such a bundle).
+
 The C++ extension ``vibechem_native._core`` is not imported by the engine yet, and in the
 uv workspace it is an editable install whose import hook PyInstaller cannot follow, so the
 compiled file is added explicitly; ``scripts/smoke_engine.py --bundle-dir`` checks it is there.
@@ -15,6 +18,7 @@ compiled file is added explicitly; ``scripts/smoke_engine.py --bundle-dir`` chec
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
 import sys
@@ -37,12 +41,12 @@ def native_extension() -> Path:
     return Path(spec.origin)
 
 
-def pyinstaller_args() -> list[str]:
+def pyinstaller_args(entry: Path = ENTRY, name: str = NAME) -> list[str]:
     """Command-line arguments for PyInstaller (one-folder, console, no prompts)."""
     return [
-        str(ENTRY),
+        str(entry),
         "--name",
-        NAME,
+        name,
         "--onedir",
         "--console",  # Electron main reads the engine.listening line from stdout
         "--noconfirm",
@@ -68,11 +72,17 @@ def pyinstaller_args() -> list[str]:
     ]
 
 
-def main() -> int:
-    PyInstaller.__main__.run(pyinstaller_args())
-    print(f"engine bundle: {DIST / NAME}")
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="python scripts/build_engine.py")
+    parser.add_argument("--entry", type=Path, default=ENTRY, help="entry script to freeze")
+    parser.add_argument("--name", default=NAME, help="bundle and executable name")
+    args = parser.parse_args(argv)
+    if not args.entry.is_file():
+        parser.error(f"{args.entry} is not a file")
+    PyInstaller.__main__.run(pyinstaller_args(args.entry.resolve(), args.name))
+    print(f"bundle: {DIST / args.name}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

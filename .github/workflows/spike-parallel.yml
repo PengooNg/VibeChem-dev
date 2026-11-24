@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Parallel spike (TASKS.md T0.13, ARCHITECTURE.md ADR-004): 1 vs N loky workers, BLAS
+# limits, seeds and memory maps on 3 OS, in Python and inside a PyInstaller bundle built
+# with the skeleton engine's options. Not a required check. Runs only when the spike files
+# change, or by hand.
+name: spike-parallel
+
+on:
+  pull_request:
+    branches: [main, "phase-*"]
+    paths:
+      - scripts/bench_parallel.py
+      - scripts/tests/test_bench_parallel.py
+      - scripts/build_engine.py
+      - .github/workflows/spike-parallel.yml
+      - pyproject.toml # loky / threadpoolctl / cloudpickle versions
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONIOENCODING: utf-8
+  BENCH_ARGS: --workers 1,2,4 --tasks 32 --repeats 3
+
+jobs:
+  bench:
+    name: parallel (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux, os: ubuntu-latest, exe: vibechem-parallel-spike }
+          - { name: windows, os: windows-latest, exe: vibechem-parallel-spike.exe }
+          - { name: macos, os: macos-latest, exe: vibechem-parallel-spike }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install Python workspace (the bundle options include the native extension)
+        run: uv sync --locked
+      - name: Benchmark in Python
+        run: |
+          uv run --no-sync python scripts/bench_parallel.py $BENCH_ARGS \
+            --json "reports/parallel-${{ matrix.name }}-python.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Freeze the benchmark with the skeleton engine's PyInstaller options
+        run: >-
+          uv run --no-sync python scripts/build_engine.py
+          --entry scripts/bench_parallel.py --name vibechem-parallel-spike
+      - name: Benchmark inside the frozen bundle
+        run: |
+          "build/engine/vibechem-parallel-spike/${{ matrix.exe }}" $BENCH_ARGS \
+            --json "reports/parallel-${{ matrix.name }}-frozen.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Frozen and Python results are bit-identical
+        run: |
+          uv run --no-sync python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          runs = {k: json.load(open(f"reports/parallel-${{ matrix.name }}-{k}.json")) for k in ("python", "frozen")}
+          digests = {k: {c["name"]: c["digest"] for c in r["configs"] if c["blas"] == "1"} for k, r in runs.items()}
+          same = digests["python"] == digests["frozen"]
+          print(f"\nFrozen vs Python per-config digests identical: {'yes' if same else 'NO'}\n")
+          sys.exit(0 if same else 1)
+          EOF
+      - name: Frozen bundle without loky_freeze_support (expected to fail)
+        id: noshim
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          VIBECHEM_SPIKE_NO_LOKY_SHIM: "1"
+        run: |
+          "build/engine/vibechem-parallel-spike/${{ matrix.exe }}" --workers 1 --tasks 2 --repeats 1 \
+            > reports/noshim.log 2>&1
+      - name: Record the no-shim outcome
+        if: always()
+        run: |
+          {
+            echo "### Without loky_freeze_support: ${{ steps.noshim.outcome }}"
+            echo '```'
+            tail -n 5 reports/noshim.log || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: parallel-${{ matrix.name }}
+          path: reports/parallel-${{ matrix.name }}-*.json
+          retention-days: 30

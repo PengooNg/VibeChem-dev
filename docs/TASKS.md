@@ -42,7 +42,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.10 Skeleton UI | [ ] T1.10 KS, SPXY, random split | [ ] T2.10 CV / nested CV / search |
 | [x] T0.11 Skeleton shell + installers | [ ] T1.11 CV fold generators | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [ ] T1.12 PLS | [ ] T2.12 Benchmarks + profiling |
-| [ ] T0.13 Spike: parallel | [ ] T1.13 PLS-DA | [ ] T2.13 Golden pipeline |
+| [x] T0.13 Spike: parallel | [ ] T1.13 PLS-DA | [ ] T2.13 Golden pipeline |
 | [ ] T0.14 Port-type design 👤 | [ ] T1.14 Metrics | [ ] T2.14 Phase gate 👤 |
 | [ ] T0.15 Phase gate 👤 | [ ] T1.15 Reproduce published result + gate 👤 | |
 
