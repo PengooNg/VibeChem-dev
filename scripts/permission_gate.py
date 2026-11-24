@@ -45,6 +45,8 @@ FORBIDDEN_SKILLS = frozenset(
         "setup-gbrain",
         "setup-browser-cookies",
         "canary",
+        "crew",
+        "setup-deploy",
     }
 )
 ALLOWED_DOWNLOAD_HOSTS = (
@@ -81,9 +83,9 @@ UNIX_SYSTEM_DIRS = ("/etc", "/usr", "/home", "/var", "/opt", "/root", "/users", 
 SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|\n&]")
 URL = re.compile(r"https?://([^/\s'\"]+)", re.IGNORECASE)
 PROTECTED_BRANCH = re.compile(r"^(refs/heads/)?(main|master|phase-\d+)$")
-WRITE_HINT = re.compile(
-    r">|\bsed\s+-i|\btee\b|\bmv\b|\bcp\b|\brm\b|\bperl\s+-i|\bpython\b|\becho\b"
-)
+REDIRECT = re.compile(r">>?\s*['\"]?([^\s'\";|&]+)")
+WINDOWS_PATH = re.compile(r"\b[A-Za-z]:\\[^\s'\"]*")
+WRITERS = frozenset({"tee", "mv", "cp", "rm", "truncate", "dd", "install", "ln"})
 
 Decision = tuple[str, str]  # ("allow" | "deny", reason)
 ALLOW: Decision = ("allow", "inside the VibeChem realm")
@@ -155,7 +157,7 @@ def is_absolute(token: str) -> bool:
 
 def looks_like_path(token: str) -> bool:
     """Absolute paths and ``..`` escapes worth checking; ignores flags, URLs and regexes."""
-    t = token.replace("\\", "/")
+    t = token  # split_tokens already turned C:\x into C:/x; '\n' must not read as /n
     if "://" in t or t.startswith("-"):
         return False
     if re.match(r"^([a-zA-Z]:/|~|\$HOME|\$\{HOME\})", t):
@@ -171,7 +173,8 @@ def looks_like_path(token: str) -> bool:
 
 
 def split_tokens(segment: str) -> list[str]:
-    segment = re.sub(r"\\(?=[\w.~$-])", "/", segment)  # keep Windows paths (C:\x) through shlex
+    # Keep Windows paths (C:\x) through shlex; other backslashes ('\n', '\|') stay as they are.
+    segment = WINDOWS_PATH.sub(lambda m: m.group(0).replace("\\", "/"), segment)
     try:
         tokens = shlex.split(segment, posix=True)
     except ValueError:
@@ -181,9 +184,34 @@ def split_tokens(segment: str) -> list[str]:
     return tokens
 
 
+def program(tokens: list[str]) -> str:
+    return PurePosixPath(tokens[0].replace("\\", "/")).name.lower().removesuffix(".exe")
+
+
+def writes_protected(command: str) -> bool:
+    """True if the command writes to a protected file (redirect, writer tool, in-place edit)."""
+    if any(p in t for t in REDIRECT.findall(command) for p in PROTECTED_FILES):
+        return True
+    for segment in SEGMENT_SPLIT.split(command):
+        tokens = split_tokens(segment)
+        if not tokens or not any(p in t for t in tokens[1:] for p in PROTECTED_FILES):
+            continue
+        prog = program(tokens)
+        in_place = prog in {"sed", "perl"} and any(
+            t.startswith("-i") or t == "--in-place" for t in tokens[1:]
+        )
+        if (
+            prog in WRITERS
+            or in_place
+            or (prog in {"python", "python3", "node"} and "-c" in tokens)
+        ):
+            return True
+    return False
+
+
 def check_bash(command: str, ctx: Mapping[str, Any]) -> Decision:
     cmd_lower = command.lower()
-    if any(name in command for name in PROTECTED_FILES) and WRITE_HINT.search(command):
+    if writes_protected(command):
         return ("deny", "changing the Claude settings or the permission gate is Quan's action")
     if re.search(r"(^|[\s/'\"])\.env(\.[\w.-]+)?($|[\s'\"])", command) and ".env.example" not in (
         command
