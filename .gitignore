@@ -25,6 +25,9 @@ node_modules/
 out/
 # Playwright CLI sessions, snapshots and screenshots (attach to PRs, never commit)
 .playwright-cli/
+# Playwright Test results and HTML report (`pnpm --dir app e2e`)
+test-results/
+playwright-report/
 
 # Editors and OS
 .vscode/
