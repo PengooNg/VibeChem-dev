@@ -29,7 +29,8 @@ import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -47,6 +48,15 @@ FORBIDDEN_SKILLS = frozenset(
         "canary",
         "crew",
         "setup-deploy",
+        "codex",
+        "scrape",
+        "skillify",
+        "sync-gbrain",
+        "benchmark-models",
+        "eval-plan",
+        "connect-chrome",
+        "open-gstack-browser",
+        "gstack-upgrade",
     }
 )
 ALLOWED_DOWNLOAD_HOSTS = (
@@ -86,6 +96,12 @@ PROTECTED_BRANCH = re.compile(r"^(refs/heads/)?(main|master|phase-\d+)$")
 REDIRECT = re.compile(r">>?\s*['\"]?([^\s'\";|&]+)")
 WINDOWS_PATH = re.compile(r"\b[A-Za-z]:\\[^\s'\"]*")
 WRITERS = frozenset({"tee", "mv", "cp", "rm", "truncate", "dd", "install", "ln"})
+SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "pwsh", "powershell", "cmd"})
+INNER = frozenset({"git", "gh", "rm", "eval"}) | SHELLS  # checked again when wrapped
+SHELL_RUN_FLAGS = frozenset({"-c", "-command", "/c", "/k"})
+ENV_FILE = re.compile(r"\.env(\.[\w.-]+)?")
+MAX_DEPTH = 5
+GitRunner = Callable[..., tuple[int, str]]
 
 Decision = tuple[str, str]  # ("allow" | "deny", reason)
 ALLOW: Decision = ("allow", "inside the VibeChem realm")
@@ -103,19 +119,18 @@ def norm(path: str, home: str) -> str:
     m = re.match(r"^/([a-zA-Z])(/|$)", p)
     if m:
         p = f"{m.group(1)}:/{p[3:]}"
-    if re.match(r"^[a-zA-Z]:", p):
-        parts = PureWindowsPath(p).parts
-        resolved: list[str] = []
-        for part in parts[1:]:
-            if part == "..":
-                if resolved:
-                    resolved.pop()
-            elif part != ".":
-                resolved.append(part)
-        p = "/".join([parts[0].rstrip("\\/").replace("\\", "/"), *resolved])
-    else:
-        p = str(PurePosixPath(p))
-    return p.lower().rstrip("/")
+    drive = re.match(r"^([a-zA-Z]:)(.*)$", p)
+    head, rest = (drive.group(1), drive.group(2)) if drive else ("", p)
+    resolved: list[str] = []
+    for part in rest.split("/"):
+        if part == "..":
+            if resolved:
+                resolved.pop()
+        elif part not in {"", "."}:
+            resolved.append(part)
+    if drive or p.startswith("/"):
+        return (head + "/" + "/".join(resolved)).lower().rstrip("/") or "/"
+    return "/".join(resolved).lower()
 
 
 def roots(project: str, home: str, temp: str) -> list[str]:
@@ -126,8 +141,11 @@ def roots(project: str, home: str, temp: str) -> list[str]:
         norm(f"{home}/.claude", home),
         norm(f"{home}/.gstack", home),
         norm(f"{home}/.bun", home),
-        norm(f"{temp}/claude", home),
     ]
+    temps = [temp] if re.match(r"^[a-zA-Z]:", temp) else [temp, "/tmp"]
+    for t in temps:
+        found.append(norm(f"{t}/claude", home))
+        found.append(norm(f"{t}/claude", home) + "-")  # POSIX: /tmp/claude-<uid>
     parent, _, name = project_n.rpartition("/")
     found.append(f"{parent}/{name}-")  # sibling worktrees: c:/dev/vibechem-t0-06
     return found
@@ -209,14 +227,10 @@ def writes_protected(command: str) -> bool:
     return False
 
 
-def check_bash(command: str, ctx: Mapping[str, Any]) -> Decision:
+def check_bash(command: str, ctx: Mapping[str, Any], depth: int = 0) -> Decision:
     cmd_lower = command.lower()
     if writes_protected(command):
         return ("deny", "changing the Claude settings or the permission gate is Quan's action")
-    if re.search(r"(^|[\s/'\"])\.env(\.[\w.-]+)?($|[\s'\"])", command) and ".env.example" not in (
-        command
-    ):
-        return ("deny", ".env files are never read (CLAUDE.md §4)")
     for host in URL.findall(command):
         if re.search(r"\b(curl|wget|irm|iwr|invoke-webrequest|invoke-restmethod)\b", cmd_lower):
             bare = host.lower().split(":")[0]
@@ -226,19 +240,48 @@ def check_bash(command: str, ctx: Mapping[str, Any]) -> Decision:
         tokens = split_tokens(segment)
         if not tokens:
             continue
-        decision = check_segment(tokens, ctx)
+        decision = check_segment(tokens, ctx, depth)
         if decision[0] == "deny":
             return decision
     return ALLOW
 
 
-def check_segment(tokens: list[str], ctx: Mapping[str, Any]) -> Decision:
+def is_env_file(token: str) -> bool:
+    name = PurePosixPath(token.replace("\\", "/")).name
+    return bool(ENV_FILE.fullmatch(name)) and not name.startswith(".env.example")
+
+
+def shell_payload(args: list[str]) -> str | None:
+    """The command string a shell is asked to run (``bash -c '…'``), if any."""
+    for i, a in enumerate(args):
+        if a.lower() in SHELL_RUN_FLAGS:
+            return " ".join(args[i + 1 :])
+    return None
+
+
+def check_segment(tokens: list[str], ctx: Mapping[str, Any], depth: int = 0) -> Decision:
+    if depth > MAX_DEPTH:
+        return ("deny", "command nested too deeply to check")
     for token in tokens:
-        for part in token.split("=", 1)[-1:] if token.startswith("-") else [token]:
+        parts = [token, token.split("=", 1)[1]] if "=" in token else [token]
+        for part in parts:
             if looks_like_path(part) and not inside(part, ctx["roots"], ctx["home"], ctx["cwd"]):
                 return ("deny", f"path outside the project: {part}")
-    prog = PurePosixPath(tokens[0].replace("\\", "/")).name.lower().removesuffix(".exe")
+        if is_env_file(token):
+            return ("deny", ".env files are never read (CLAUDE.md §4)")
+    prog = program(tokens)
     args = tokens[1:]
+    if prog in SHELLS:
+        if any(a.lower() in {"-encodedcommand", "-enc", "-e"} for a in args) and prog in {
+            "pwsh",
+            "powershell",
+        }:
+            return ("deny", "encoded PowerShell commands cannot be checked")
+        payload = shell_payload(args)
+        if payload is not None:
+            return check_bash(payload, ctx, depth + 1)
+    if prog == "eval":
+        return check_bash(" ".join(args), ctx, depth + 1)
     if prog in SYSTEM_TOOLS:
         return ("deny", f"{prog} changes the machine, not the project")
     if prog in {"npm", "pnpm", "yarn", "bun"} and ({"-g", "--global"} & set(args)):
@@ -257,6 +300,9 @@ def check_segment(tokens: list[str], ctx: Mapping[str, Any]) -> Decision:
         return check_git(args, ctx)
     if prog == "gh":
         return check_gh(args)
+    for i, token in enumerate(args):  # env/time/nice/xargs/uv run … <git|gh|rm|shell>
+        if program([token]) in INNER:
+            return check_segment(args[i:], ctx, depth + 1)
     return ALLOW
 
 
@@ -264,10 +310,10 @@ def check_rm(args: list[str], ctx: Mapping[str, Any]) -> Decision:
     targets = [a for a in args if not a.startswith("-")]
     project = ctx["roots"][0]
     for t in targets:
-        if t in {"/", "*", ".", "~", "./", "/*"}:
-            return ("deny", f"rm {t} would delete the whole tree")
+        if t in {"/", "*", ".", "~", "./", "/*", ".*"} or "$" in t:
+            return ("deny", f"rm {t} could delete the whole tree")
         p = norm(t if is_absolute(t) else f"{ctx['cwd']}/{t}", ctx["home"])
-        if p in {project, f"{project}/.git"} or p.endswith("/.git"):
+        if p in {project, f"{project}/*", f"{project}/.*"} or p.endswith(("/.git", "/.git/*")):
             return ("deny", "rm of the project root or .git")
     return ALLOW
 
@@ -303,9 +349,16 @@ def check_git(args: list[str], ctx: Mapping[str, Any]) -> Decision:
 
 def check_push(rest: list[str], ctx: Mapping[str, Any]) -> Decision:
     for flag in rest:
-        if flag in {"-f", "--force", "--mirror", "--delete", "-d", "--prune"} or flag.startswith(
-            "--force-with-lease"
-        ):
+        if flag in {
+            "-f",
+            "--force",
+            "--mirror",
+            "--delete",
+            "-d",
+            "--prune",
+            "--all",
+            "--branches",
+        } or flag.startswith("--force-with-lease"):
             return ("deny", f"git push {flag} is not allowed (CLAUDE.md §4)")
     positional = [a for a in rest if not a.startswith("-")]
     refspecs = positional[1:]
@@ -315,6 +368,8 @@ def check_push(rest: list[str], ctx: Mapping[str, Any]) -> Decision:
         if spec.startswith("+"):
             return ("deny", "forced refspec push is not allowed")
         dest = spec.split(":")[-1]
+        if "*" in dest:
+            return ("deny", "wildcard refspecs can push main or phase-* branches")
         if dest == "HEAD":
             dest = ctx["branch"]()
         if PROTECTED_BRANCH.match(dest):
@@ -324,8 +379,22 @@ def check_push(rest: list[str], ctx: Mapping[str, Any]) -> Decision:
     return ALLOW
 
 
+def gh_positional(args: list[str]) -> list[str]:
+    """gh arguments without flags (and the values of -R/--repo/--hostname)."""
+    out: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a in {"-R", "--repo", "--hostname"}:
+            skip = True
+        elif not a.startswith("-"):
+            out.append(a)
+    return out
+
+
 def check_gh(args: list[str]) -> Decision:
-    group, sub = [*args, "", ""][:2]
+    group, sub = [*gh_positional(args), "", ""][:2]
     if group == "pr" and sub == "merge":
         return ("deny", "merge only through scripts/merge_step.py (CLAUDE.md §14.2)")
     if group == "repo" and sub in {"delete", "edit", "rename", "archive", "unarchive"}:
@@ -341,7 +410,7 @@ def check_gh(args: list[str]) -> Decision:
     if group == "release" and sub in {"delete", "delete-asset"}:
         return ("deny", "deleting releases is Quan's action")
     if group == "api":
-        return check_gh_api(args[1:])
+        return check_gh_api(args[args.index("api") + 1 :])
     return ALLOW
 
 
@@ -352,6 +421,8 @@ def check_gh_api(args: list[str]) -> Decision:
             method = args[i + 1].upper()
         elif a.startswith("--method="):
             method = a.split("=", 1)[1].upper()
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:].upper()
         elif a in {"-f", "-F", "--field", "--raw-field", "--input"} and method == "GET":
             method = "POST"
     endpoint = next((a for a in args if not a.startswith("-")), "")
@@ -365,14 +436,19 @@ def check_gh_api(args: list[str]) -> Decision:
 # --- other tools -----------------------------------------------------------
 
 
-def path_args(tool_input: Mapping[str, Any]) -> Iterable[str]:
+def path_args(tool: str, tool_input: Mapping[str, Any], cwd: str) -> list[tuple[str, str]]:
+    """(path, base folder) pairs to check; a Glob pattern counts, a Grep regex does not."""
+    found: list[tuple[str, str]] = []
     for key in ("file_path", "path", "notebook_path"):
         value = tool_input.get(key)
         if isinstance(value, str) and value:
-            yield value
+            found.append((value, cwd))
     pattern = tool_input.get("pattern")
-    if isinstance(pattern, str) and is_absolute(pattern):
-        yield pattern.split("*")[0] or pattern
+    if tool == "Glob" and isinstance(pattern, str) and pattern:
+        base = str(tool_input.get("path") or cwd)
+        prefix = re.split(r"[*?\[{]", pattern)[0] or "."
+        found.append((prefix, base))
+    return found
 
 
 def decide(event: Mapping[str, Any], ctx: Mapping[str, Any]) -> Decision:
@@ -388,54 +464,63 @@ def decide(event: Mapping[str, Any], ctx: Mapping[str, Any]) -> Decision:
     if tool == "Skill":
         name = str(tool_input.get("skill", "")).split(":")[-1].lower()
         if name in FORBIDDEN_SKILLS:
-            return ("deny", f"gstack /{name} ships or deploys; not used (TOOLS.md §2)")
+            return ("deny", f"gstack /{name} ships, deploys or leaves the project (TOOLS.md §2)")
         return ALLOW
     if tool in {"Bash", "PowerShell"}:
         return check_bash(str(tool_input.get("command", "")), ctx)
-    for p in path_args(tool_input):
-        if not inside(p, ctx["roots"], ctx["home"], ctx["cwd"]):
+    for p, base in path_args(tool, tool_input, ctx["cwd"]):
+        if not inside(p, ctx["roots"], ctx["home"], base):
             return ("deny", f"path outside the project: {p}")
         name = PurePosixPath(p.replace("\\", "/")).name
         if tool in {"Edit", "Write", "NotebookEdit"} and (
             name in PROTECTED_FILES and (".claude" in p or "scripts" in p)
         ):
             return ("deny", "changing the Claude settings or the permission gate is Quan's action")
-        if re.fullmatch(r"\.env(\.[\w.-]+)?", name) and name != ".env.example":
+        if is_env_file(name):
             return ("deny", ".env files are never read (CLAUDE.md §4)")
     return ALLOW
 
 
-def git_output(cwd: str, *args: str) -> str:
+def git_run(cwd: str, *args: str) -> tuple[int, str]:
+    """(return code, stdout) of a git command; any failure is a non-zero code."""
     try:
         out = subprocess.run(
             ["git", "-C", cwd, *args], capture_output=True, text=True, timeout=15, check=False
         )
     except (OSError, subprocess.SubprocessError):
-        return ""
-    return out.stdout.strip() if out.returncode == 0 else ""
+        return 1, ""
+    return out.returncode, out.stdout.strip()
+
+
+def remote_checker(run: GitRunner) -> Callable[[str], bool]:
+    """``remote_has(branch)``: True unless ls-remote *succeeds* and finds nothing (fail closed)."""
+
+    def remote_has(name: str) -> bool:
+        code, out = run("ls-remote", "--heads", "origin", name.removeprefix("refs/heads/"))
+        return code != 0 or bool(out)
+
+    return remote_has
 
 
 def make_context(event: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
     home = env.get("USERPROFILE") or env.get("HOME") or str(Path.home())
-    temp = env.get("TEMP") or env.get("TMP") or f"{home}/AppData/Local/Temp"
+    temp = env.get("TEMP") or env.get("TMP") or env.get("TMPDIR") or tempfile.gettempdir()
     project = env.get("CLAUDE_PROJECT_DIR") or str(PureWindowsPath(__file__).parents[1])
     cwd = str(event.get("cwd") or project)
 
-    def branch() -> str:
-        return git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD") or "main"
+    def run(*args: str) -> tuple[int, str]:
+        return git_run(cwd, *args)
 
-    def remote_has(name: str) -> bool:
-        short = name.removeprefix("refs/heads/")
-        return bool(git_output(cwd, "ls-remote", "--heads", "origin", short)) or not (
-            git_output(cwd, "remote")
-        )
+    def branch() -> str:
+        code, out = run("rev-parse", "--abbrev-ref", "HEAD")
+        return out if code == 0 and out else "main"
 
     return {
         "home": home,
         "cwd": cwd,
         "roots": roots(project, home, temp),
         "branch": branch,
-        "remote_has": remote_has,
+        "remote_has": remote_checker(run),
     }
 
 
