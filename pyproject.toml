@@ -20,6 +20,10 @@ dev = [
     "ruff",
 ]
 
+[tool.uv]
+# cloudpickle (from loky) 3.1.3 was released 2026-11-18, less than two weeks before T0.13.
+constraint-dependencies = ["cloudpickle<3.1.3"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
