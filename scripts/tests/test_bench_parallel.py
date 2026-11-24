@@ -50,7 +50,8 @@ def test_loky_workers_match_serial_and_limit_blas(matrix_path: str) -> None:
     tasks = bp.make_tasks(6, 7, matrix_path)
     serial = bp.run_serial("serial", tasks, 1, 1, "")
     pool = bp.run_loky("loky-2", tasks, 2, 1, 2, serial.digest)
-    assert pool.deterministic
+    assert pool.repeatable
+    assert pool.same_as_serial
     assert pool.digest == serial.digest
     assert 1 <= pool.distinct_pids <= 2
     assert pool.blas_threads_seen in ([1], [0])  # 0: no BLAS library reported
@@ -62,7 +63,8 @@ def test_record_flags_a_digest_that_differs_from_the_reference(matrix_path: str)
     results = [bp.run_task(t) for t in bp.make_tasks(2, 7, matrix_path)]
     config = bp.ConfigResult(name="x", workers=0, blas="1", startup_s=None)
     bp.record(config, 1.0, results, "not-the-reference")
-    assert not config.deterministic
+    assert config.repeatable
+    assert not config.same_as_serial
 
 
 def test_freeze_support_does_nothing_when_not_frozen(monkeypatch: pytest.MonkeyPatch) -> None:

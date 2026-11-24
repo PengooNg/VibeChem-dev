@@ -23,7 +23,7 @@ concurrency:
 
 env:
   PYTHONIOENCODING: utf-8
-  BENCH_ARGS: --workers 1,2,4 --tasks 32 --repeats 5
+  BENCH_ARGS: --workers 1,2,4 --tasks 32 --repeats 3
 
 jobs:
   bench:

@@ -14,14 +14,14 @@ one thread per worker with threadpoolctl (in the worker initializer); one root s
 ``SeedSequence.spawn`` per task; the input matrix saved once as ``.npy`` and opened by
 every worker with ``np.load(mmap_mode="r")``. Each task looks like one CV fold: draw 80 %
 of the rows with its own generator, simulate a response, solve ridge least squares
-(``X'X + λI``) — BLAS-bound, about 0.1 s on one core with the defaults.
+(``X'X + λI``) — BLAS-bound, roughly 0.05-0.1 s on one core with the defaults.
 
 Configurations: ``serial`` (in this process, BLAS = 1 thread; the reference results),
 ``serial-blas`` (in this process, BLAS at its default width), ``loky-N`` (N workers,
 BLAS = 1 each), and at the largest N ``loky-N-blas`` (BLAS default width in every worker:
 oversubscription) and ``loky-N-pickled`` (the matrix sent with every task instead of the
-memory-mapped file). Determinism: every configuration must return bit-identical per-task
-coefficients to ``serial``, in every repeat.
+memory-mapped file). Determinism: every configuration must give the same bits in every
+repeat, and every BLAS = 1 configuration the same per-task coefficients as ``serial``.
 
 loky in a frozen app needs ``loky_freeze_support()`` (below) before
 ``multiprocessing.freeze_support()``: neither PyInstaller nor the standard library knows the
@@ -101,7 +101,7 @@ def loky_freeze_support() -> None:
             loky.backend.popen_loky_win32.main(int(argv[2]), parent_pid=os.getppid())
     elif argv[1:3] == ["-m", "loky.backend.popen_loky_posix"]:
         sys.argv = [argv[0], *argv[3:]]
-        runpy.run_module("loky.backend.popen_loky_posix", run_name="__main__")
+        runpy.run_module(loky.backend.popen_loky_posix.__name__, run_name="__main__")
         sys.exit(0)
 
 
@@ -135,7 +135,8 @@ class ConfigResult:
     distinct_pids: int = 0
     blas_threads_seen: list[int] = field(default_factory=list[int])
     memmapped: bool = False
-    deterministic: bool = True
+    repeatable: bool = True  # every repeat gave the same bits
+    same_as_serial: bool = True  # ... and they equal the serial BLAS = 1 reference
     digest: str = ""
 
 
@@ -217,7 +218,8 @@ def record(config: ConfigResult, wall: float, results: list[TaskResult], referen
     config.memmapped = all(r.memmapped for r in results)
     digest = combined_digest(results)
     config.digest = config.digest or digest
-    config.deterministic = config.deterministic and digest == config.digest == (reference or digest)
+    config.repeatable = config.repeatable and digest == config.digest
+    config.same_as_serial = config.same_as_serial and digest == (reference or digest)
 
 
 def run_serial(
@@ -312,8 +314,8 @@ def markdown(report: dict[str, Any]) -> str:
             f"{report['loky_cpu_count']} CPUs ({report['loky_physical_cores']} physical)"
         ),
         "",
-        "| Config | Workers | BLAS | Start-up s | Median s | Speed-up | Task CPU s | PIDs | BLAS threads | memmap | Deterministic |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Config | Workers | BLAS | Start-up s | Median s | Speed-up | Task CPU s | PIDs | BLAS threads | memmap | Repeatable | Same bits as serial |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in report["configs"]:
         startup = "-" if c["startup_s"] is None else f"{c['startup_s']:.2f}"
@@ -321,7 +323,7 @@ def markdown(report: dict[str, Any]) -> str:
             f"| {c['name']} | {c['workers'] or 'in-process'} | {c['blas']} | {startup} | "
             f"{c['median_s']:.2f} | {c['speedup']:.2f}x | {c['task_s_sum']:.2f} | "
             f"{c['distinct_pids']} | {c['blas_threads_seen']} | {'yes' if c['memmapped'] else 'no'} | "
-            f"{'yes' if c['deterministic'] else '**NO**'} |"
+            f"{'yes' if c['repeatable'] else '**NO**'} | {'yes' if c['same_as_serial'] else 'no'} |"
         )
     lines.append(f"\nReference digest (serial): `{report['configs'][0]['digest'][:16]}`")
     return "\n".join(lines)
@@ -332,7 +334,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--workers", default="1,2,4", help="comma-separated worker counts")
     parser.add_argument("--tasks", type=int, default=32)
     parser.add_argument("--rows", type=int, default=4000)
-    parser.add_argument("--cols", type=int, default=500)
+    parser.add_argument("--cols", type=int, default=1000)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20261124)
     parser.add_argument("--json", type=Path, help="write the report as JSON here")
@@ -356,7 +358,10 @@ def main(argv: list[str]) -> int:
         args.json.write_text(json.dumps(report, indent=2), encoding="utf-8")
     # BLAS at full width may change the bits (it splits the sums differently); only the
     # one-thread configurations must match the serial reference.
-    return 0 if all(c["deterministic"] for c in report["configs"] if c["blas"] == "1") else 1
+    ok = all(
+        c["repeatable"] and (c["same_as_serial"] or c["blas"] != "1") for c in report["configs"]
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
