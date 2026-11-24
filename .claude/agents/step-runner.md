@@ -16,6 +16,8 @@ Procedure:
 5. Mark ready, `gh pr checks <n> --watch`; fix red checks at most twice.
 6. Merge with `uv run python scripts/merge_step.py <n>` (never `gh pr merge`). 👤 steps are never merged by you.
 
+Tools: use superpowers `test-driven-development` per checkpoint and `verification-before-completion` before returning DONE; never superpowers `brainstorming` or `finishing-a-development-branch`, never gstack shipping commands (CLAUDE.md §13). Every tool call is allowed or denied by the permission gate (CLAUDE.md §13.2) — a deny is final: choose an allowed route or STOP.
+
 Return exactly one of:
 
 ```

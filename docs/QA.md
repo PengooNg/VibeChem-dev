@@ -36,7 +36,7 @@
 | API contract | Engine responses match DATA_MODEL.md / OpenAPI | `packages/engine/tests/api/` | `/blocks` schema validation |
 | UI unit | Components behave | `app/renderer/src/**/*.test.tsx` | Inspector renders int param with min/max |
 | End-to-end | Real user flows in the desktop app (`@playwright/test`, from T0.10) | `app/e2e/` | Import CSV → build PLS → run → see metrics |
-| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui |
+| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui (+ gstack `/qa`, `/design-review` as extra reviewers) |
 | Installer smoke | App starts after install | `installers.yml`, nightly | Install, launch, `/health` = ready, quit |
 | Performance | No speed regressions | `scripts/bench.py`, nightly | Preview < 300 ms; speed-up ≥ 4× on 8 cores |
 
