@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Installer builds (TECH_STACK.md §8). Skeleton from T0.06: until T0.11 adds
-# electron-builder + the PyInstaller engine and the `/health` smoke test, the
-# build job only bundles the app (`pnpm --dir app build`) on 3 OS.
+# Installer builds (TECH_STACK.md §8, TASKS.md T0.11): on 3 OS, freeze the engine with
+# PyInstaller (scripts/build_engine.py), build the installers with electron-builder
+# (app/electron-builder.yml), then smoke-test the packaged output:
+#   1. the bundled engine announces port + token and `/health` is ready (scripts/smoke_engine.py);
+#   2. the packaged app runs the skeleton pipeline from app://vibechem (app/e2e/packaged.spec.ts).
+# Installer sizes go to the job summary. Unsigned builds (D-015).
 # Runs on PRs that touch packaging paths or carry the `build-installers` label,
 # and on pushes to `phase-*` that touch those paths.
 name: installers
@@ -16,6 +19,9 @@ on:
       - "app/**"
       - "packages/engine/**"
       - "packages/native/**"
+      - "scripts/build_engine.py"
+      - "scripts/smoke_engine.py"
+      - "uv.lock"
       - ".github/workflows/installers.yml"
 
 permissions:
@@ -24,6 +30,10 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  PYTHONIOENCODING: utf-8
 
 jobs:
   gate:
@@ -48,7 +58,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
-          if printf '%s\n' "$files" | grep -Eq '^(app/|packages/engine/|packages/native/|\.github/workflows/installers\.yml$)'; then
+          if printf '%s\n' "$files" | grep -Eq '^(app/|packages/engine/|packages/native/|scripts/build_engine\.py$|scripts/smoke_engine\.py$|uv\.lock$|\.github/workflows/installers\.yml$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -64,11 +74,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux, os: ubuntu-latest }
-          - { name: windows, os: windows-latest }
-          - { name: macos, os: macos-latest }
+          # resources: electron-builder's unpacked app resources folder; app: its executable.
+          - name: linux
+            os: ubuntu-latest
+            resources: app/dist/linux-unpacked/resources
+            app: app/dist/linux-unpacked/vibechem
+            engine: vibechem-engine
+          - name: windows
+            os: windows-latest
+            resources: app/dist/win-unpacked/resources
+            app: app/dist/win-unpacked/VibeChem.exe
+            engine: vibechem-engine.exe
+          - name: macos
+            os: macos-latest
+            resources: app/dist/mac-arm64/VibeChem.app/Contents/Resources
+            app: app/dist/mac-arm64/VibeChem.app/Contents/MacOS/VibeChem
+            engine: vibechem-engine
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           package_json_file: app/package.json
@@ -77,11 +104,49 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - run: pnpm --dir app install --frozen-lockfile
-      - name: Bundle the app (installer + smoke test arrive in T0.11)
-        run: pnpm --dir app build
+      - name: Install Python workspace (builds the native extension)
+        run: uv sync --locked
+      - name: Install app dependencies
+        run: pnpm --dir app install --frozen-lockfile
+      - name: Freeze the engine (PyInstaller one-folder)
+        run: uv run python scripts/build_engine.py
+      - name: Build installers (electron-builder)
+        run: pnpm --dir app dist
+      - name: Smoke test — bundled engine /health is ready
+        run: >-
+          uv run python scripts/smoke_engine.py --bundle-dir "${{ matrix.resources }}/engine"
+          -- "${{ matrix.resources }}/engine/${{ matrix.engine }}"
+          --testdata-dir "${{ matrix.resources }}/testdata"
+      - name: Smoke test — packaged app runs the skeleton pipeline
+        env:
+          VIBECHEM_PACKAGED_APP: ${{ github.workspace }}/${{ matrix.app }}
+        run: |
+          cd app
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm exec playwright test e2e/packaged.spec.ts
+          else
+            pnpm exec playwright test e2e/packaged.spec.ts
+          fi
+      - name: Installer sizes
+        run: |
+          {
+            echo "### Installer sizes (${{ matrix.name }})"
+            echo '| File | MB |'
+            echo '|---|---|'
+            for f in app/dist/*.exe app/dist/*.dmg app/dist/*.AppImage app/dist/*.deb; do
+              [ -f "$f" ] || continue
+              bytes=$(wc -c < "$f")
+              echo "| $(basename "$f") | $(( (bytes + 524288) / 1048576 )) |"
+            done
+            echo "| engine bundle (unpacked) | $(du -sm "${{ matrix.resources }}/engine" | cut -f1) |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: app-bundle-${{ matrix.name }}
-          path: app/out/
+          name: installers-${{ matrix.name }}
+          path: |
+            app/dist/*.exe
+            app/dist/*.dmg
+            app/dist/*.AppImage
+            app/dist/*.deb
+          if-no-files-found: error
           retention-days: 14
