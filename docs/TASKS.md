@@ -1,6 +1,7 @@
 # VibeChem — Tasks
 
-> Status: v0.5 · Last updated: 2026-11-23
+> Status: v0.6 · Last updated: 2026-11-25
+> v0.6: T1.00 Quasar port inventory — Phase 1 and Phase 6 reuse lines name the Quasar/Orange module to port or the library to wrap (TECH_STACK.md §11.1); **T1.06b vendor readers** *proposed (T1.00)* — Quan approves by merging the T1.00 PR, or deletes the T1.06b row and block.
 > v0.5: Playwright CLI + design skills installed in T0.04; first Electron e2e test in T0.10; every `app/` step has a visual check (CLAUDE.md §13.1); 👤 glyph-set step added to Phase 4.
 > v0.4: **phase mode** — Quan types `/phase N`; Claude Code runs the steps below in order, each step = one PR merged into branch `phase-N`, until the gate or a stop condition (CLAUDE.md §14). Phases run in numeric order; K joins at demo v0 (= Beta, end of Phase 6) and reviews the backlog then. 👤 steps are prepared by Claude Code and finished/merged by Quan.
 > Phases 0–2 are detailed. Later phases are outlines, detailed at the previous phase gate.
@@ -38,13 +39,14 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.06 Full CI + rulesets 👤 | [ ] T1.04 METHODS.md part 1 👤 | [ ] T2.06 Cache |
 | [x] T0.07 QA tooling | [ ] T1.05 CSV/Excel readers | [ ] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [ ] T1.06 JCAMP/SPC readers | [ ] T2.08 Scheduler |
-| [x] T0.09 Skeleton engine | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.09 Crash recovery |
-| [x] T0.10 Skeleton UI | [ ] T1.08 Savitzky–Golay | [ ] T2.10 CV / nested CV / search |
-| [x] T0.11 Skeleton shell + installers | [ ] T1.09 Scaling blocks | [ ] T2.11 Python API + CLI |
-| [x] T0.12 Spike: transport | [ ] T1.10 KS, SPXY, random split | [ ] T2.12 Benchmarks + profiling |
-| [x] T0.13 Spike: parallel | [ ] T1.11 CV fold generators | [ ] T2.13 Golden pipeline |
-| [x] T0.14 Port-type design 👤 | [ ] T1.12a PLS: NIPALS wrap + LV sweep | [ ] T2.14 Phase gate 👤 |
-| [x] T0.15 Phase gate 👤 | [ ] T1.12b PLS: SIMPLS + VIP | |
+| [x] T0.09 Skeleton engine | [ ] T1.06b Vendor readers *(proposed)* | [ ] T2.09 Crash recovery |
+| [x] T0.10 Skeleton UI | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |
+| [x] T0.11 Skeleton shell + installers | [ ] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
+| [x] T0.12 Spike: transport | [ ] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
+| [x] T0.13 Spike: parallel | [ ] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
+| [x] T0.14 Port-type design 👤 | [ ] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
+| [x] T0.15 Phase gate 👤 | [ ] T1.12a PLS: NIPALS wrap + LV sweep | |
+| | [ ] T1.12b PLS: SIMPLS + VIP | |
 | | [ ] T1.13 PLS-DA | |
 | | [ ] T1.14 Metrics | |
 | | [ ] T1.15 Reproduce published result + gate 👤 | |
@@ -201,33 +203,41 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.05 · CSV/TSV and Excel readers · K · Size M
 - **Read:** DATA_MODEL.md §2.5; TECH_STACK.md §1.2
-- **Reuse:** pyarrow CSV reader, openpyxl (or pandas) — write only role detection and validation
+- **Reuse:** pyarrow CSV reader, openpyxl (or pandas) — write only role detection and validation. Quasar's `io/ascii.py` (`AsciiColReader`) is not ported; its rules (`;` comment lines, headerless two-column files such as Bruker `.dpt`) become test cases, with osp `datasets/peach_juice.dpt` as a sample (GPL test data, TECH_STACK.md §11.1 rule 4)
 - **Files:** `vibechem_core/io/table.py`
 - **Do:** read, detect roles (sample ID, groups, Y, spectral columns + axis), warnings (duplicate IDs, non-numeric).
 - **Done when:** tests on reference data and malformed files.
 
 ### T1.06 · JCAMP-DX and SPC readers · Q · Size M
 - **Read:** DATA_MODEL.md §2.5; TECH_STACK.md §1.2, §11
-- **Reuse:** `jcamp` (approved); **search for maintained SPC readers first**; Orange-Spectroscopy readers (GPL, port)
+- **Reuse:** `jcamp` (approved). SPC: **port** osp `io/omnic.py` `SPCReader` + `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, pure `struct` + NumPy — recommended) or wrap `spc-io` (MIT; pandas + pydantic; last release 2025-04) — compare both in the plan. Multi-file behaviour (axis union, file-name column) from osp `widgets/owmultifile.py` (spec only). Sample files: osp `datasets/m_xyxy.spc`, `rohanisaac/spc` `test_data/` (several instruments), `nzhagen/jcamp` `data/` (JCAMP-DX) — licences per TECH_STACK.md §11.1 rule 4
 - **Files:** `vibechem_core/io/jcamp.py`, `io/spc.py`
 - **Do:** readers behind the same interface; multi-file concatenation with axis check. Sample files from two vendors: use public ones with a redistributable licence; if none found → `MISSING_INPUT`.
 - **Done when:** tests on sample files from at least two instrument vendors.
 
+### T1.06b · Vendor readers: Bruker OPUS, Thermo OMNIC SPA, PerkinElmer .sp, Renishaw WDF · Q · Size M · depends T1.06 · *proposed (T1.00)*
+*(Proposed by T1.00 from the Quasar inventory; catalog row "Bruker OPUS" is P1 and the other three are proposed P1 rows. Approve by merging the T1.00 PR; to reject, delete this block and its status row — the readers then wait for v1.1.)*
+- **Read:** DATA_MODEL.md §2.5; TECH_STACK.md §11, §11.1 (readers table, port recipe, rule 4); `vibechem_core/io/` (T1.06 interface)
+- **Reuse:** OPUS → wrap `brukeropus` (MIT, candidate; Quasar's `opusFC` is rejected); SPA → port osp `io/omnic.py` `SPAReader`; PerkinElmer → port osp `io/perkinelmer.py` + `utils/specio/` (BSD-3 notice kept); WDF → wrap `renishawWiRE` (MIT, candidate; vendor it if still unmaintained)
+- **Files:** `vibechem_core/io/{opus,spa,perkinelmer,wdf}.py`
+- **Do:** readers behind the T1.06 interface; OPUS data-block choice (absorbance / sample / reference) as a reader option. Sample files from osp `datasets/` (`peach_juice.0`, `sample1.spa`, `perkinelmer/single_PE_spectrum.sp`, `renishaw_test_files/*.wdf`) if Quan accepts them as GPL test data; otherwise `MISSING_INPUT`.
+- **Done when:** each reader has a test on a sample file with an independently known value (axis range, point count, one intensity read with the vendor's software or a second reader); new dependencies approved with K backlog rows.
+
 ### T1.07 · Preprocessing A: cut, SNV, MSC, detrend · Q · Size M · depends T1.04
 - **Read:** METHODS.md (these entries); CLAUDE.md §5; `block.py`; TECH_STACK.md §11
-- **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code
+- **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3)
 - **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`
 - **Done when:** unit, property and reference tests pass (also for wrapped methods); MSC is `fitted` (reference spectrum learned).
 
 ### T1.08 · Savitzky–Golay smoothing and derivatives · Q · Size S · depends T1.04
 - **Read:** METHODS.md (SG entry); `block.py`
-- **Reuse:** `scipy.signal.savgol_filter` (wrap; do not reimplement); pengoo SG options if Quan provides them
+- **Reuse:** `scipy.signal.savgol_filter` (wrap; do not reimplement); pengoo SG options if Quan provides them. Quasar's `SavitzkyGolayFiltering` wraps the same call — its NaN and unsorted-axis handling is the behaviour reference, not ported
 - **Files:** `blocks/preprocess/savgol.py`
 - **Done when:** matches SciPy within tolerance and an independent reference (hand-computed or published); edge handling documented.
 
 ### T1.09 · Scaling: mean-centre, autoscale, Pareto · Q · Size S · depends T1.04
 - **Read:** METHODS.md; `block.py`
-- **Reuse:** scikit-learn `StandardScaler`; `chemotools` scalers (Pareto)
+- **Reuse:** scikit-learn `StandardScaler`; `chemotools` scalers (Pareto). Orange3 `preprocess` `Normalize`/`Scale` are not ported (Table/Domain transformations around the same arithmetic)
 - **Files:** `blocks/preprocess/scaling.py`
 - **Done when:** all `fitted`; apply on new data uses training statistics only (test proves it).
 
@@ -239,14 +249,14 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.11 · CV fold generators · Q · Size S · depends T1.04
 - **Read:** METHODS.md; `block.py`
-- **Reuse:** scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold`; own code only for venetian blinds and contiguous blocks
+- **Reuse:** scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold`; own code only for venetian blinds and contiguous blocks. Orange3 `evaluation/testing.py` (incl. `CrossValidationFeature` = grouped CV) wraps the same splitters — not ported
 - **Files:** `blocks/validate/folds.py`
 - **Done when:** property tests: folds partition samples; groups never split.
 
 ### T1.12a · PLS: NIPALS wrap, outputs, LV sweep (PLS1/PLS2) · Q · Size M · depends T1.04
 *(T1.12 split at the Phase 0 gate; same total scope as the former T1.12.)*
 - **Read:** METHODS.md (PLS); `block.py`
-- **Reuse:** scikit-learn `PLSRegression` (NIPALS)
+- **Reuse:** scikit-learn `PLSRegression` (NIPALS). Quasar/Orange PLS (`models/pls.py`, o3 `regression/pls.py`) wraps the same class — not ported here; its DModX/residual code is ported in Phase 6 diagnostics
 - **Files:** `blocks/model/pls.py`
 - **Do:** fit/apply, scores, loadings, weights, coefficients; LV sweep from one fit; PLS1 and PLS2.
 - **Done when:** predictions match scikit-learn within tolerance and an independent reference; LV sweep equals separate fits.
@@ -266,7 +276,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.14 · Metrics · Q · Size S · depends T1.04
 - **Read:** METHODS.md (metrics); PRD.md F-44
-- **Reuse:** scikit-learn metrics for R², confusion matrix, ROC-AUC; own code for RMSEC/CV/P, SEP, bias, slope, RPD, RPIQ
+- **Reuse:** scikit-learn metrics for R², confusion matrix, ROC-AUC; own code for RMSEC/CV/P, SEP, bias, slope, RPD, RPIQ. Orange3 `evaluation/scoring.py` wraps the same scikit-learn metrics — not ported
 - **Files:** `vibechem_core/metrics.py`
 - **Done when:** each metric has a hand-computed test; values in original Y units.
 
@@ -375,7 +385,7 @@ T4.01 full engine server (DATA_MODEL §2; remove the skeleton endpoint) · T4.02
 T5.01 production Electron shell + supervision · T5.02 engine bundle size budget · T5.03 installers + first-launch guide (EN/JA/VI) · T5.04 update check + diagnostics · T5.05 e2e tests (Playwright) for core flows · T5.06 S5 usability test 👤 · T5.07 phase gate 👤 (= Alpha; details Phase 6).
 
 ## Phase 6 — P0 breadth · Beta = demo v0 (outline; detailed at the Phase 5 gate)
-One step per catalog P0 group (≈ 15–20 steps: remaining preprocessing — reuse chemotools/pybaselines/Orange-Spectroscopy first; baselines; normalisations; splits; validation extras; variable selection; regression models — reuse scikit-learn; classification; statistics — reuse SciPy/statsmodels if approved; plots; model package + predict mode; reports + citations; Python export; templates; guided mode; tooltip content) · S6/S7 studies 👤 · **demo v0 gate 👤**: Beta release build + **K handover package** (PROGRESS.md K review backlog grouped by area, open ADRs, architecture changes since Phase 0, native kernels from Phase 3).
+One step per catalog P0 group (≈ 15–20 steps: remaining preprocessing — reuse chemotools/pybaselines first, then **port from Quasar** (TECH_STACK.md §11.1): Gaussian smoothing (wrap SciPy), `Despike`, `EMSC`, `Absorbance`/`Transmittance`, `PCADenoising`, `ShiftAndScale`, `Integrate` (band integration, *proposed* catalog row); baselines — `pybaselines` for ALS/airPLS/polynomial, port osp `RubberbandBaseline` + `LinearBaseline`; normalisations — port osp `Normalize` + `NormalizeReference`; data handling — port osp `Interpolate` + NaN helpers, `owaverage`; exploration — scikit-learn PCA, port osp `owsnr` (SNR, *proposed* catalog row); diagnostics — port o3 `regression/pls.py` DModX; splits; validation extras — port o3 `owpermutationplot.permutation()` logic for the permutation test; variable selection; regression models — reuse scikit-learn; classification; statistics — reuse SciPy/statsmodels if approved; plots; model package + predict mode; reports + citations; Python export; templates; guided mode; tooltip content) · S6/S7 studies 👤 · **demo v0 gate 👤**: Beta release build + **K handover package** (PROGRESS.md K review backlog grouped by area, open ADRs, architecture changes since Phase 0, native kernels from Phase 3).
 
 ## Phase 7 — v1.0 release (outline)
 T7.01 release workflow + Zenodo · T7.02 docs site · T7.03 feedback channels · T7.04 JOSS paper draft 👤 · T7.05 SignPath application 👤 · T7.06 release checklist (QA §9.2) 👤 · S8 analysis.
