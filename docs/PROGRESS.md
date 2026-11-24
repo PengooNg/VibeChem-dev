@@ -6,11 +6,11 @@
 ## Now
 | Phase | Branch | Phase PR | Last merged step | Next step | Updated | Machine |
 |---|---|---|---|---|---|---|
-| 0 | `phase-0` | #8 | T0.14 | T0.15 gate (👤 gate report PR ready; Quan does the manual gate and merges `phase-0 → main`) | 2026-11-24 | laptop |
+| 0 | `phase-0` | #8 | T0.15 | Quan merges `[T0.15] Gate decisions`, then #8 `phase-0 → main`; Phase 1 starts with T1.00 | 2026-11-24 | laptop |
 
 ## Needs you
 <!-- One line per open item: date · step · stop code · exact action · PR. Remove the line when resolved (move it to Stops with "resolved"). -->
-- 2026-11-24 · T0.15 · HUMAN_STEP · Phase 0 gate: install test + QA §9.1 items, risk review, ADR-003…009 decisions, Phase 1 size proposals (see "Phase gates" below); merge #23 into `phase-0`, then merge #8 `phase-0 → main` (merge commit) · #23, #8
+- 2026-11-24 · T0.15 · HUMAN_STEP · gate decisions recorded (see "Phase gates"); merge `[T0.15] Gate decisions` into `phase-0`, then #8 `phase-0 → main` (merge commit) · #8
 - 2026-11-24 · tools · QUESTION · apply the gate fix patch (false denies on `'\n'` and on commands that only *mention* the gate), install Bun, run gstack `./setup` + config on each machine — see the `[SYNC] Tools + permission gate` PR
 
 ## Step log
@@ -114,6 +114,13 @@ Phase 1 steps are already detailed; no other TASKS.md change proposed.
 | ADR-008 Walking skeleton first | **Accept** (outcome achieved); action left: remove `/skeleton/run` in T4.01 | T0.09–T0.11: C++ stub → engine → API → canvas → Electron → installers on 3 OS in CI; packaging risks (freeze_support, size, `app://` origin) surfaced and fixed in Phase 0 |
 | ADR-009 Reuse first, build last | **Accept** | Reuse ratio 79 %; estimate accuracy 15/15 inside band; every build was justified in its plan |
 
+**Gate decisions (Quan, 2026-11-24)** — applied in `[T0.15] Gate decisions`
+- ADR-003…009: **Accepted (provisional — K to confirm)**, with the recommended actions; ADR-007 clarifying sentence added.
+- **Quasar port-max** (new, ADR-009): orange-spectroscopy + non-Qt Orange3 are the first port source for algorithms and readers; never a runtime dependency; Quasar as app base stays rejected. New step **T1.00 Quasar port inventory** runs first in Phase 1.
+- Phase 1 sizes: **approved** — T1.02 → T1.02a/b, T1.12 → T1.12a/b, T1.03 and T1.15 → M.
+- Gasoline dataset licence: **deferred** by Quan (stays open).
+- Install test (Windows, laptop, run 45396637325): installs, starts, skeleton run works, no engine process left after close (PR #23 comment). macOS/Linux not tested.
+
 **QA.md §9.1 items for this phase (Quan, on his machine, ≈ 30 min)**
 1. **Install** from the latest CI installer artifact of `phase-0`: `gh run download 45396637325 -n installers-windows` (or `-macos` / `-linux`); install (unsigned: SmartScreen → *More info* → *Run anyway*; macOS: right-click → *Open*, and note whether the dmg shows "damaged" — then the ad-hoc `identity: "-"` fallback is needed); the app window must appear within 5 s.
 2. **Run the skeleton pipeline:** click Run on the Dataset → SNV canvas; raw and SNV spectra of `gasoline_nir` (60 × 401) appear. There is no reference-report row for SNV yet (0/0), so the check is visual: SNV curves centred on 0 with similar spread.
@@ -134,6 +141,7 @@ Findings go into GitHub issues labelled `qa-gate`; S1/S2 block the phase merge.
 ## K review backlog (until demo v0 = Beta)
 | Step | PR | Area | What K should check | Done |
 |---|---|---|---|---|
+| T0.15 | `[T0.15] Gate decisions` | ADR | ADR-003…009 accepted provisionally by Quan (confirm or reopen each); ADR-007 in-memory loky pickling exception; ADR-009 Quasar port-max policy (port, never depend; reference tests stay independent of Quasar) | [ ] |
 | T0.14 | #22 | engine / formats / API | DATA_MODEL.md §4: type registry and fields (cache storage per type, `row_index`/`source_id` provenance, `fitted_rows` fingerprint), static compatibility rules and `/port-types` shape, new port declaration fields in `/blocks` (`requires`, `rows_match`, `axis_match`, `refit_per_fold`), `multiple: true` edge ordering by `edges` array, per-fold subgraph re-fit semantics vs. ARCHITECTURE §3.2, ImageCube tiling via `implicit_unfold`; new codes `PIPELINE_INPUT_MULTIPLE_EDGES`, `PIPELINE_FOLDS_SOURCE_MISMATCH`, `BLOCK_INPUT_*` | [ ] |
 | tools | `[SYNC] Tools + permission gate` | tooling / repo settings | `scripts/permission_gate.py` rules (realm roots incl. `~/.gstack`, `~/.bun`, sibling `vibechem-*` worktrees; Bash token scan is heuristic — `>` redirects to outside paths without a space are not caught; phase-branch creation allowed only when `git ls-remote` finds no remote branch); hook registration (`matcher: *`, `onFailure: block`, 20 s timeout, ~0.3 s per call on Windows); `defaultMode: acceptEdits` as the fall-back; superpowers SessionStart hook; gstack user-level hooks from its `./setup` | [ ] |
 | T0.13 | #20 | dependency / CI / packaging / ADR | Dev deps loky 3.7.0 + threadpoolctl 3.8.0 (root dev group, not yet engine runtime deps) and the root `[tool.uv] constraint-dependencies = ["cloudpickle<3.1.3"]` (remove when it is old enough); `loky_freeze_support()` in `scripts/bench_parallel.py` (relies on loky 3.7 internal command lines: resource-tracker `-c` regex, Windows `--multiprocessing-fork <handle>` with `os.getppid()`, POSIX `-m loky.backend.popen_loky_posix` via runpy) before it moves into the engine entry; `build_engine.py --entry/--name`; `spike-parallel.yml` (non-required, paths filter incl. `pyproject.toml`/`uv.lock`, no-shim control step with `continue-on-error`); ADR-004 recommendation in `docs/spikes/parallel.md` | [ ] |

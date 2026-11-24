@@ -261,8 +261,8 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | Baselines: AsLS, airPLS, arPLS, polynomial, SNIP… (Phase 6) | `pybaselines` (50+ algorithms) | BSD-3 | Almost all baseline methods | candidate |
 | Kennard–Stone split (T1.10) | `kennard-stone` | MIT | KS split; SPXY may still be ours | candidate |
 | CV splitters (T1.11) | scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold` | BSD-3 | Most fold generators (venetian/contiguous are small extras) | approved (scikit-learn in §1) |
-| PLS (T1.12) | scikit-learn `PLSRegression` (NIPALS) | BSD-3 | PLS1/PLS2 fit/predict; VIP and SIMPLS are small additions | approved |
-| EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port) |
+| PLS (T1.12a/b) | scikit-learn `PLSRegression` (NIPALS) | BSD-3 | PLS1/PLS2 fit/predict; VIP and SIMPLS are small additions | approved |
+| EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port); full Quasar/Orange inventory in T1.00 (ADR-009 port-max) |
 | Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) |
 | JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved |
 | SPC (T1.06) | Existing SPC readers on PyPI/GitHub — search first | to check | Reader | candidate (search; build only if none fit) |

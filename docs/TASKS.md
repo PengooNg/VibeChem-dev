@@ -30,21 +30,24 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
-| [x] T0.01 CI smoke 👤 | [ ] T1.01 SpectralDataset | [ ] T2.01 Port types |
-| [x] T0.02 Repo skeleton + legal + labels 👤 | [ ] T1.02 Block contract | [ ] T2.02 Pipeline graph |
-| [x] T0.03 Python workspace + check.py | [ ] T1.03 Parameter schema | [ ] T2.03 Pipeline file format |
-| [x] T0.04 App workspace | [ ] T1.04 METHODS.md part 1 👤 | [ ] T2.04 Graph compiler |
-| [x] T0.05 Native skeleton | [ ] T1.05 CSV/Excel readers | [ ] T2.05 Leakage rules + suite |
-| [x] T0.06 Full CI + rulesets 👤 | [ ] T1.06 JCAMP/SPC readers | [ ] T2.06 Cache |
-| [x] T0.07 QA tooling | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.07 Executor + seeds |
-| [x] T0.08 Reference datasets 👤 | [ ] T1.08 Savitzky–Golay | [ ] T2.08 Scheduler |
-| [x] T0.09 Skeleton engine | [ ] T1.09 Scaling blocks | [ ] T2.09 Crash recovery |
-| [x] T0.10 Skeleton UI | [ ] T1.10 KS, SPXY, random split | [ ] T2.10 CV / nested CV / search |
-| [x] T0.11 Skeleton shell + installers | [ ] T1.11 CV fold generators | [ ] T2.11 Python API + CLI |
-| [x] T0.12 Spike: transport | [ ] T1.12 PLS | [ ] T2.12 Benchmarks + profiling |
-| [x] T0.13 Spike: parallel | [ ] T1.13 PLS-DA | [ ] T2.13 Golden pipeline |
-| [x] T0.14 Port-type design 👤 | [ ] T1.14 Metrics | [ ] T2.14 Phase gate 👤 |
-| [x] T0.15 Phase gate 👤 | [ ] T1.15 Reproduce published result + gate 👤 | |
+| [x] T0.01 CI smoke 👤 | [ ] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
+| [x] T0.02 Repo skeleton + legal + labels 👤 | [ ] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
+| [x] T0.03 Python workspace + check.py | [ ] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
+| [x] T0.04 App workspace | [ ] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
+| [x] T0.05 Native skeleton | [ ] T1.03 Parameter schema | [ ] T2.05 Leakage rules + suite |
+| [x] T0.06 Full CI + rulesets 👤 | [ ] T1.04 METHODS.md part 1 👤 | [ ] T2.06 Cache |
+| [x] T0.07 QA tooling | [ ] T1.05 CSV/Excel readers | [ ] T2.07 Executor + seeds |
+| [x] T0.08 Reference datasets 👤 | [ ] T1.06 JCAMP/SPC readers | [ ] T2.08 Scheduler |
+| [x] T0.09 Skeleton engine | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.09 Crash recovery |
+| [x] T0.10 Skeleton UI | [ ] T1.08 Savitzky–Golay | [ ] T2.10 CV / nested CV / search |
+| [x] T0.11 Skeleton shell + installers | [ ] T1.09 Scaling blocks | [ ] T2.11 Python API + CLI |
+| [x] T0.12 Spike: transport | [ ] T1.10 KS, SPXY, random split | [ ] T2.12 Benchmarks + profiling |
+| [x] T0.13 Spike: parallel | [ ] T1.11 CV fold generators | [ ] T2.13 Golden pipeline |
+| [x] T0.14 Port-type design 👤 | [ ] T1.12a PLS: NIPALS wrap + LV sweep | [ ] T2.14 Phase gate 👤 |
+| [x] T0.15 Phase gate 👤 | [ ] T1.12b PLS: SIMPLS + VIP | |
+| | [ ] T1.13 PLS-DA | |
+| | [ ] T1.14 Metrics | |
+| | [ ] T1.15 Reproduce published result + gate 👤 | |
 
 Phases 3–7: outlines at the end of this file; their status rows are added when they are detailed.
 
@@ -149,6 +152,19 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ## Phase 1 — Core library (`vibechem_core`)
 **Exit:** `pip install vibechem-core` works on 3 OS; ~15 blocks pass reference tests; a published PLS result reproduced.
 
+### T1.00 · Quasar port inventory 👤 · Q + K · Size M
+- **Read:** ARCHITECTURE.md §7 ADR-009 (Quasar port-max); TECH_STACK.md §11; FUNCTION_CATALOG.md; PRD.md Appendix A
+- **Reuse:** `quasars/orange-spectroscopy` (GPL-3.0) at a pinned commit; `biolab/orange3` (GPL-3.0), non-widget code only. Read upstream with read-only `gh api`; never install either as a dependency.
+- **Files:** `docs/TECH_STACK.md` (§11.1 inventory + port recipe), `docs/FUNCTION_CATALOG.md` ("Likely source" notes), `docs/TASKS.md` (reuse lines; new steps if any), `THIRD_PARTY.md` (upstream commit pins), `docs/PROGRESS.md`
+- **Do:**
+  1. Inventory (TECH_STACK.md §11.1), one row per module: orange-spectroscopy `preprocess/`, `io/`, `irfft.py`, `models/`, and the useful non-Qt parts of Orange3 (preprocessors, PCA/HCA/k-Means, CV and permutation evaluation). Columns: our catalog function + F-ID · decision (port / wrap SciPy or another listed library instead / skip, with reason) · coupling to `Orange.data.Table` or Qt · its own third-party dependencies (e.g. `spectral`, `renishawWiRE`, `lmfit`) · upstream tests and sample data · target step.
+  2. Port recipe (TECH_STACK.md §11): `Orange.data.Table` → NumPy + `SpectralDataset`; source header with upstream path + commit; `THIRD_PARTY.md` row; block template (CLAUDE.md §5).
+  3. Reference-test rule: Quasar's own test values are not an independent reference for code ported from Quasar (CLAUDE.md §4); they are kept as extra regression checks only.
+  4. Sample data: check the licences of Quasar's test spectra (`datasets/`, `tests/`); list redistributable ones for T1.06 and later reader steps.
+  5. Rewrite reuse lines: FUNCTION_CATALOG.md "Likely source", TASKS.md Phase 1 steps (T1.06 first) and the Phase 6 outline. Scope changes (e.g. a new T1.06b vendor-reader step for OPUS/OMNIC/ENVI…, new dependency candidates in the §11 register) are proposed in the PR for Quan to approve.
+  6. Pin both upstream commits in `THIRD_PARTY.md`; K review backlog row for any new dependency candidate.
+- **Done when:** draft PR ready with every inventory row decided and given a target step; every P0/P1 catalog row with a Quasar/Orange source names it; Phase 1 and Phase 6 reuse lines updated. 👤 Quan approves the scope changes and merges. No code.
+
 ### T1.01 · SpectralDataset · K · Size M
 - **Read:** ARCHITECTURE.md §3.1; DATA_MODEL.md §2.5 (dataset fields); TECH_STACK.md §4
 - **Reuse:** — (own small dataclass; do not adopt a heavy data framework)
@@ -156,14 +172,22 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Do:** immutable typed dataset (X, axis + unit, signal unit, Y, classes, metadata, sample/group IDs, history); validation; `with_X()`; row subset by indices.
 - **Done when:** unit + property tests (shapes, immutability, subset consistency).
 
-### T1.02 · Block contract and registry · K · Size M
+### T1.02a · Block contract: base, ports, metadata, registry · K · Size M
+*(T1.02 split at the Phase 0 gate; same total scope as the former T1.02.)*
 - **Read:** ARCHITECTURE.md §3.1, §7 ADR-005/007; CLAUDE.md §5 (block template)
 - **Reuse:** scikit-learn's `fit`/`transform` conventions (so wrapped transformers fit naturally)
 - **Files:** `vibechem_core/block.py`, `registry.py`, `errors.py`
-- **Do:** `Block` base, `Param`, `port()`, metadata (id, version, class, icon, references, fitted, tier), `fit`/`apply` split, JSON + array state serialisation, error classes with codes, helper to wrap a scikit-learn-style transformer as a block.
-- **Done when:** a dummy fitted and a dummy stateless block round-trip state save/load; registry lists them; a wrapped scikit-learn transformer works as a block.
+- **Do:** `Block` base, `Param`, `port()`, metadata (id, version, class, icon, references, fitted, tier), `fit`/`apply` split, error classes with codes, registry.
+- **Done when:** a dummy fitted and a dummy stateless block run `fit`/`apply`; registry lists them with their metadata; error codes match DATA_MODEL.md §7.
 
-### T1.03 · Parameter schema · K · Size S
+### T1.02b · Block contract: state serialisation + scikit-learn wrapper · K · Size M · depends T1.02a
+- **Read:** ARCHITECTURE.md §7 ADR-007; `vibechem_core/block.py`
+- **Reuse:** scikit-learn's `fit`/`transform` conventions; NumPy `.npy` (`allow_pickle=False`)
+- **Files:** `vibechem_core/block.py` (state), `vibechem_core/wrap.py` (or inside `block.py` if small)
+- **Do:** JSON + array state serialisation for fitted blocks (no pickle); helper to wrap a scikit-learn-style transformer as a block.
+- **Done when:** the dummy fitted and stateless blocks round-trip state save/load; a wrapped scikit-learn transformer works as a block and round-trips its state.
+
+### T1.03 · Parameter schema · K · Size M
 - **Read:** DATA_MODEL.md §5, §2.3 (`/blocks/{id}` example)
 - **Reuse:** pydantic JSON Schema generation
 - **Do:** draft DATA_MODEL.md §5 (types, units, `visible_if`, constraints) in the same PR; implement schema export from `Param` definitions.
@@ -219,14 +243,22 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Files:** `blocks/validate/folds.py`
 - **Done when:** property tests: folds partition samples; groups never split.
 
-### T1.12 · PLS (NIPALS, SIMPLS; PLS1/PLS2) · Q · Size M · depends T1.04
+### T1.12a · PLS: NIPALS wrap, outputs, LV sweep (PLS1/PLS2) · Q · Size M · depends T1.04
+*(T1.12 split at the Phase 0 gate; same total scope as the former T1.12.)*
 - **Read:** METHODS.md (PLS); `block.py`
-- **Reuse:** scikit-learn `PLSRegression` (NIPALS); add own SIMPLS and VIP only
+- **Reuse:** scikit-learn `PLSRegression` (NIPALS)
 - **Files:** `blocks/model/pls.py`
-- **Do:** fit/apply, scores, loadings, weights, coefficients, VIP; LV sweep from one fit.
-- **Done when:** predictions match scikit-learn within tolerance; SIMPLS matches NIPALS for PLS1; VIP property tests.
+- **Do:** fit/apply, scores, loadings, weights, coefficients; LV sweep from one fit; PLS1 and PLS2.
+- **Done when:** predictions match scikit-learn within tolerance and an independent reference; LV sweep equals separate fits.
 
-### T1.13 · PLS-DA · Q · Size S · depends T1.12
+### T1.12b · PLS: own SIMPLS + VIP · Q · Size M · depends T1.12a
+- **Read:** METHODS.md (PLS, VIP); `blocks/model/pls.py`
+- **Reuse:** — (own SIMPLS and VIP; check the §12 search first)
+- **Files:** `blocks/model/pls.py`
+- **Do:** SIMPLS algorithm option; VIP scores.
+- **Done when:** SIMPLS matches NIPALS for PLS1; SIMPLS reference test against an independent source; VIP property tests.
+
+### T1.13 · PLS-DA · Q · Size S · depends T1.12a
 - **Read:** METHODS.md (PLS-DA); `blocks/model/pls.py`
 - **Reuse:** our PLS block + scikit-learn label encoding
 - **Files:** `blocks/model/plsda.py`
@@ -238,7 +270,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Files:** `vibechem_core/metrics.py`
 - **Done when:** each metric has a hand-computed test; values in original Y units.
 
-### T1.15 · Reproduce a published result + Phase 1 gate 👤 · Q + K · Size S
+### T1.15 · Reproduce a published result + Phase 1 gate 👤 · Q + K · Size M
 - **Read:** `testdata/datasets/PROVENANCE.md`; QA.md §4, §9.1; CLAUDE.md §14.4
 - **Do:** reference test reproducing the published PLS result; build `vibechem-core` wheel on 3 OS; gate report incl. estimate-vs-actual.
 - **Done when:** reference report shows the published value within tolerance; phase PR ready. 👤 Quan: gate review, merge `phase-1 → main`.
