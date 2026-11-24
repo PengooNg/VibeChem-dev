@@ -184,6 +184,89 @@ class BashTests(unittest.TestCase):
         self.assertEqual(bash("npx impeccable telemetry off"), "allow")
 
 
+class ReviewRegressionTests(unittest.TestCase):
+    """Bypasses and false denies found by code-review on PR #21."""
+
+    def test_wrapped_commands_are_checked(self) -> None:
+        for c in [
+            "bash -c 'git push --force origin phase-1'",
+            "sh -c 'gh pr merge 21'",
+            "env git push -f",
+            "env FOO=1 git push -f",
+            "time git rebase main",
+            "nice -n 5 git reset --hard",
+            "echo t1 | xargs git branch -D",
+            "eval 'git push origin main'",
+            "uv run --no-project git push origin main",
+            "pwsh -Command 'git push --force'",
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+    def test_push_all_and_wildcards_denied(self) -> None:
+        for c in [
+            "git push --all origin",
+            "git push --branches origin",
+            "git push origin 'refs/heads/*:refs/heads/*'",
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+    def test_ls_remote_failure_is_a_deny(self) -> None:
+        context = ctx()
+        context["remote_has"] = gate.remote_checker(lambda *_: (128, ""))
+        event = {"tool_name": "Bash", "tool_input": {"command": "git push origin phase-1"}}
+        self.assertEqual(gate.decide(event, context)[0], "deny")
+        context["remote_has"] = gate.remote_checker(lambda *_: (0, ""))
+        self.assertEqual(gate.decide(event, context)[0], "allow")
+
+    def test_rm_whole_tree_variants_denied(self) -> None:
+        for c in ["rm -rf ./*", 'rm -rf "$PWD"', "rm -rf ./.", "rm -rf scripts/../*", "rm -rf *"]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+        self.assertEqual(bash("rm -rf build/*"), "allow")
+
+    def test_gh_short_method_and_repo_flag(self) -> None:
+        for c in [
+            "gh api -XDELETE repos/o/r/git/refs/heads/phase-1",
+            "gh api -XPUT repos/o/r/pulls/21/merge",
+            "gh pr -R quan/VibeChem merge 21 --squash",
+            "gh --repo x/y pr merge 3",
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+        self.assertEqual(bash("gh pr -R quan/VibeChem view 21"), "allow")
+
+    def test_grep_pattern_is_not_a_path_but_glob_escapes_are(self) -> None:
+        self.assertEqual(tool("Grep", pattern="/api/v1/spike"), "allow")
+        self.assertEqual(tool("Grep", pattern="~/.claude"), "allow")
+        self.assertEqual(tool("Glob", pattern="../../**/id_rsa"), "deny")
+        self.assertEqual(tool("Glob", pattern="scripts/**/*.py"), "allow")
+
+    def test_env_check_is_per_token(self) -> None:
+        self.assertEqual(bash("cat .env .env.example"), "deny")
+        self.assertEqual(bash("cp .env.example .env.example.bak"), "allow")
+
+    def test_key_value_paths_checked(self) -> None:
+        for c in [
+            "dd if=build.bin of=/c/Users/quan/Documents/x.bin",
+            "git -c core.hooksPath=/c/evil commit -m x",
+            "make DESTDIR=/c/Program/Files install",
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+    def test_posix_temp_roots(self) -> None:
+        r = gate.roots("/Users/quan/dev/VibeChem", "/Users/quan", "/tmp")
+        posix_ctx = {**ctx(), "roots": r, "home": "/Users/quan", "cwd": "/Users/quan/dev/VibeChem"}
+        for p in ["/tmp/claude/abc/scratchpad/x.txt", "/tmp/claude-501/abc/x.txt"]:
+            with self.subTest(p=p):
+                event = {"tool_name": "Read", "tool_input": {"file_path": p}}
+                self.assertEqual(gate.decide(event, posix_ctx)[0], "allow")
+        event = {"tool_name": "Read", "tool_input": {"file_path": "/tmp/other/x"}}
+        self.assertEqual(gate.decide(event, posix_ctx)[0], "deny")
+
+
 class ToolTests(unittest.TestCase):
     def test_mcp(self) -> None:
         self.assertEqual(tool("mcp__context7__query-docs"), "allow")
