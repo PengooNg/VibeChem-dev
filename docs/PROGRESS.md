@@ -6,12 +6,12 @@
 ## Now
 | Phase | Branch | Phase PR | Last merged step | Next step | Updated | Machine |
 |---|---|---|---|---|---|---|
-| 1 | `phase-1` | — (opened after the first merged step) | — | Quan reviews and merges #28 `[T1.00] Quasar port inventory` (approve/reject proposed T1.06b and catalog rows); then `/phase 1` continues with T1.01 | 2026-11-25 | laptop |
+| 1 | `phase-1` | — (opened after the first merged step) | — | Quan merges #28 `[T1.00] Quasar port inventory` (answers applied); then `/phase 1` continues with T1.01 | 2026-11-25 | laptop |
 
 ## Needs you
 <!-- One line per open item: date · step · stop code · exact action · PR. Remove the line when resolved (move it to Stops with "resolved"). -->
-- 2026-11-25 · T1.00 · HUMAN_STEP · review the inventory (TECH_STACK.md §11.1); approve or reject: new step T1.06b (vendor readers), proposed catalog rows (band integration P0, SNR P0, SPA/PE/WDF readers P1), Quasar `datasets/` files as GPL test data, HCA/k-Means tier (catalog P1 vs PRD Appendix A v1.0 parity); then merge #28 · #28
-- 2026-11-24 · T0.15 · HUMAN_STEP · gate decisions recorded (see "Phase gates"); merge `[T0.15] Gate decisions` into `phase-0`, then #8 `phase-0 → main` (merge commit) · #8
+- 2026-11-25 · T1.00 · HUMAN_STEP · Quan answered (2026-11-25): Quasar `datasets/` as GPL test data **yes**; HCA + k-Means → **P0**; ME-EMSC `MieStd` origin **unknown** (not an independent reference). Merging #28 approves T1.06b and the proposed catalog rows · #28
+- 2026-11-25 · CI · noted · macOS jobs cancelled after about 15 min with no runner (PRs #8, #24, #28); workaround `gh run rerun <id> --failed`; marked by Quan for later · issue #29
 - 2026-11-24 · tools · QUESTION · apply the gate fix patch (false denies on `'\n'` and on commands that only *mention* the gate), install Bun, run gstack `./setup` + config on each machine — see the `[SYNC] Tools + permission gate` PR
 
 ## Step log

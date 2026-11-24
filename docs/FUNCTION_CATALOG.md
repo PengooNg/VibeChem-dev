@@ -55,7 +55,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Heat map, correlation matrix, correlation spectrum (X vs Y per wavelength) | P0 |
 | Publication figure presets (vector export, DPI, journal widths) | P0 |
 | SNR per group / position *(proposed (T1.00); PRD Appendix A parity)* | P0 |
-| Hierarchical clustering + dendrogram, k-Means | P1 |
+| Hierarchical clustering + dendrogram, k-Means | P0 (raised from P1 by Quan 2026-11-25, T1.00: v1.0 Quasar parity, PRD Appendix A) |
 | 2D correlation spectroscopy (2D-COS: synchronous/asynchronous) | P1 |
 | Band-assignment overlay (functional-group reference bands) | P1 |
 | t-SNE, UMAP, MDS, 3D scatter, parallel coordinates | P1 |
