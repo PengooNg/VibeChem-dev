@@ -23,6 +23,7 @@
 |---|---|
 | Base URL | `http://127.0.0.1:{port}/api/v1` — port chosen at random by the engine on start-up and passed to Electron |
 | Authentication | Header `Authorization: Bearer {session_token}` on every request; token generated per launch, never written to disk |
+| Start-up | `python -m vibechem_engine.api [--testdata-dir PATH]` binds `127.0.0.1` on a random free port, then writes **one JSON line** to stdout before serving: `{"event": "engine.listening", "port": 52114, "token": "…"}`. Electron reads port + token from it (T0.11). Until T4.01, `--testdata-dir` points at the repository `testdata/` folder used by §2.12 (default: found above the package) |
 | Origin check | Production: requests must come from the packaged app origin (exact value fixed in T0.11, e.g. `app://vibechem`) or have no Origin. Dev mode only (`VIBECHEM_DEV=1`): the Vite dev server origin (`http://localhost:<vite-port>`) is also allowed. All others → `403` |
 | Field naming | `snake_case` everywhere (JSON, files, Python). Generated TypeScript types keep `snake_case` — no renaming layer |
 | IDs | Prefixed ULIDs: `prj_…` project, `ds_…` dataset, `imp_…` import, `ppl_…` pipeline, `nd_…` node, `run_…` run, `exp_…` export, `prd_…` prediction |

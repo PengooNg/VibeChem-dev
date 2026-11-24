@@ -46,6 +46,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | ruff | Lint + format |
 | pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
 | pytest, pytest-cov, pytest-xdist | Tests, coverage (per-package thresholds in `check.py`), parallel tests |
+| httpx2 | HTTP client required by FastAPI's `TestClient` (engine API tests, T0.09) |
 | pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
@@ -173,7 +174,7 @@ pengoo is **not** stored in this repository. When a step ports pengoo code, Quan
 | Package | May import | Must never import |
 |---|---|---|
 | `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, `vibechem_native` (optional) | `vibechem_engine`, fastapi, anything UI |
-| `vibechem_engine` | `vibechem_core`, loky, fastapi, pyarrow | renderer code |
+| `vibechem_engine` | `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow | renderer code |
 | `vibechem_native` (Python wrapper) | numpy, `vibechem_core` reference functions (for fallback) | `vibechem_engine` |
 | `app/renderer` | engine **only via HTTP/WS API** | Node.js APIs (sandboxed) |
 | `app/main` | Electron, child-process control of engine | business logic |

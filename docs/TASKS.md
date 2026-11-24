@@ -38,7 +38,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.06 Full CI + rulesets 👤 | [ ] T1.06 JCAMP/SPC readers | [ ] T2.06 Cache |
 | [x] T0.07 QA tooling | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [ ] T1.08 Savitzky–Golay | [ ] T2.08 Scheduler |
-| [ ] T0.09 Skeleton engine | [ ] T1.09 Scaling blocks | [ ] T2.09 Crash recovery |
+| [x] T0.09 Skeleton engine | [ ] T1.09 Scaling blocks | [ ] T2.09 Crash recovery |
 | [ ] T0.10 Skeleton UI | [ ] T1.10 KS, SPXY, random split | [ ] T2.10 CV / nested CV / search |
 | [ ] T0.11 Skeleton shell + installers | [ ] T1.11 CV fold generators | [ ] T2.11 Python API + CLI |
 | [ ] T0.12 Spike: transport | [ ] T1.12 PLS | [ ] T2.12 Benchmarks + profiling |
