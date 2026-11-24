@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// app/electron.vite.config.ts — build config for the Electron main process and the React renderer.
+// app/electron.vite.config.ts — build config for the Electron main process, preload and React renderer.
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -11,6 +11,15 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: resolve(import.meta.dirname, "main/index.ts") },
+      },
+    },
+  },
+  preload: {
+    build: {
+      rollupOptions: {
+        input: { index: resolve(import.meta.dirname, "main/preload.ts") },
+        // A sandboxed preload cannot be an ES module: bundle it as CommonJS (out/preload/index.cjs).
+        output: { format: "cjs", entryFileNames: "[name].cjs" },
       },
     },
   },

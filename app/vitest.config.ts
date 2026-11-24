@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// app/vitest.config.ts — unit/component tests for the renderer (jsdom).
+// app/vitest.config.ts — unit/component tests for the renderer (jsdom) and main (node, per file).
 import { resolve } from "node:path";
 
 import react from "@vitejs/plugin-react";
@@ -10,6 +10,6 @@ export default defineConfig({
   resolve: { alias: { "@": resolve(import.meta.dirname, "renderer/src") } },
   test: {
     environment: "jsdom",
-    include: ["renderer/src/**/*.test.{ts,tsx}"],
+    include: ["renderer/src/**/*.test.{ts,tsx}", "main/**/*.test.ts"],
   },
 });
