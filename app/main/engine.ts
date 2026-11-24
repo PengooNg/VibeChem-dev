@@ -15,7 +15,9 @@ export interface EngineConnection {
   token: string;
 }
 
-const START_TIMEOUT_MS = 60_000;
+// A first launch of the frozen engine can be slow (virus scanners check its files); the
+// installer smoke test allows the same 120 s (scripts/smoke_engine.py).
+const START_TIMEOUT_MS = 120_000;
 
 /** Parse one stdout line; returns the connection for an `engine.listening` event, else null. */
 export function parseListeningLine(line: string): EngineConnection | null {

@@ -114,7 +114,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         print(smoke(args.command, bundle_dir=args.bundle_dir, timeout=args.timeout))
-    except (RuntimeError, OSError) as exc:
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         print(f"smoke test FAILED: {exc}", file=sys.stderr)
         return 1
     return 0

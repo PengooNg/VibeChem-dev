@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "VibeChem desktop app (Electron + React)",
+  "homepage": "https://github.com/PengooNg/VibeChem",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "out/main/index.js",

@@ -14,9 +14,12 @@ export default defineConfig({
   retries: process.env["CI"] ? 1 : 0,
   reporter: process.env["CI"] ? [["list"], ["html", { open: "never" }]] : "list",
   use: { trace: "retain-on-failure" },
-  webServer: {
-    command: `vite --config e2e/vite.renderer.config.ts --port ${String(RENDERER_PORT)} --strictPort`,
-    url: `http://localhost:${String(RENDERER_PORT)}`,
-    reuseExistingServer: !process.env["CI"],
-  },
+  // The packaged-app smoke test (e2e/packaged.spec.ts) loads app://vibechem and needs no Vite.
+  webServer: process.env["VIBECHEM_PACKAGED_APP"]
+    ? undefined
+    : {
+        command: `vite --config e2e/vite.renderer.config.ts --port ${String(RENDERER_PORT)} --strictPort`,
+        url: `http://localhost:${String(RENDERER_PORT)}`,
+        reuseExistingServer: !process.env["CI"],
+      },
 });

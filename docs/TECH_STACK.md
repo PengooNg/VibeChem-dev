@@ -67,7 +67,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | Package | Version line | Purpose |
 |---|---|---|
 | Electron | **45.x** | Desktop shell (supported until Apr 2027; upgrade every second major) |
-| electron-builder | latest | Installers: NSIS `.exe`, `.dmg` (arm64 + x64), AppImage/`.deb` |
+| electron-builder | 26.x (T0.11: 26.18.0, exact pin) | Installers: NSIS `.exe`, `.dmg` (arm64 + x64), AppImage/`.deb` |
 | TypeScript | **6.0.x** | Last JavaScript-based compiler; all tooling compatible. Re-evaluate TypeScript 7 at v1.1 |
 | React | 19.2.x | UI |
 | Vite | 7.x | Dev server + build |
@@ -216,14 +216,14 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 | `uv run python scripts/bench.py` | Speed-up and determinism benchmarks |
 | `pnpm --dir app dev` | Run UI + Electron in development |
 | `pnpm --dir app e2e` | Playwright end-to-end tests |
-| `pnpm --dir app dist` | Build installers locally |
+| `pnpm --dir app dist` | Build installers locally (`app/dist/`); first freeze the engine with `uv run python scripts/build_engine.py` (→ `build/engine/`) |
 Claude Code commands: `/phase N`, `/step T<x> [wait]`, `/resume [answer]`, `/status`, `/bug <issue>` (`.claude/skills/`).
 
 ## 8. CI workflows
 | Workflow | Trigger | Jobs | Target time |
 |---|---|---|---|
 | `ci.yml` | pull requests to `main` or `phase-*`; pushes to `phase-*` | `check --fast` + Electron e2e (`pnpm --dir app e2e`) on Windows, macOS (arm64), Linux; native wheels build; sanitizer job (Linux) | < 15 min |
-| `installers.yml` | PRs touching `app/`, `packages/engine/`, `packages/native/`, packaging config; or label `build-installers`; pushes to `phase-*` that touch those paths | Installers for 3 OS + smoke test (`/health` = ready); artifacts kept 14 days | < 30 min |
+| `installers.yml` | PRs touching `app/`, `packages/engine/`, `packages/native/`, `testdata/`, packaging config (`scripts/build_engine.py`, `scripts/smoke_engine.py`, `pyproject.toml`, `uv.lock`); or label `build-installers`; pushes to `phase-*` that touch those paths | Installers for 3 OS (PyInstaller engine + electron-builder) + smoke tests: bundled engine `/health` = ready (`scripts/smoke_engine.py`) and the packaged app runs the skeleton pipeline (`app/e2e/packaged.spec.ts`); sizes in the job summary; artifacts kept 14 days | < 30 min |
 | `nightly.yml` | daily on `main` and the newest `phase-*` branch | Full `check` incl. slow tests, benchmarks, determinism 1 vs N cores, e2e on 3 OS, installers incl. **macOS Intel**; opens an `S2` issue on failure | — |
 | `release.yml` | version tag | Installers (Windows x64, macOS arm64 + x64, Linux x64) + checksums → GitHub Release → Zenodo | — |
 
@@ -253,7 +253,7 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | approved (T0.05: nanobind_example / nanobind packaging-guide configuration — stable ABI `cp312`, `build-dir`, `wheel.packages`; `uv init --build-backend=scikit` rejected: pybind11 scaffold) |
 | Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | approved (T0.04: electron-vite 5 with the layout of its react-ts template; shadcn config written by hand from its manual-install guide because `shadcn init` does not detect electron-vite; electron-forge rejected: its packaging overlaps electron-builder) |
 | Canvas, plots, binary previews, API types (T0.10) | `@xyflow/react`, `uplot`, `apache-arrow`, `@tanstack/react-query`, `openapi-typescript` | MIT / MIT / Apache-2.0 / MIT / MIT | Pipeline canvas, spectra plots, Arrow decoding, server state, generated API types | approved (T0.10: exact pins 12.12.1, 1.6.32, 21.2.0, 5.107.1, 7.13.0; `openapi-fetch` not used — a small typed `fetch` client is enough) |
-| Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |
+| Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | approved (T0.11: PyInstaller 6.21 one-folder `vibechem-engine` built by `scripts/build_engine.py` — `--collect-submodules uvicorn`, native `_core` added as a binary because the editable install hides it; electron-builder 26.18.0 `extraResources` → `<resources>/engine` + `<resources>/testdata`; renderer served from `app://vibechem`) |
 | Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | approved (T0.07: `data_regression` stores the per-node hash file and handles `--force-regen`; `num_regression` available for metric tables in T2.13) |
 | Reference datasets (T0.08) | `rdata` (reads R `.RData`/`.rds` without R) | MIT | Converting R package datasets | not a dependency (T0.08: used once in a throwaway `uv run --no-project --isolated` env to convert `gasoline.RData` to CSV; loaders use stdlib `csv` + numpy) |
 | Preprocessing: MSC, SG derivatives, scaling, smoothing, some baselines (T1.07–T1.09, Phase 6) | `chemotools` (scikit-learn-style transformers) | MIT | Large part of P0 preprocessing | candidate |

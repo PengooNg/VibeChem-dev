@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,10 @@ import smoke_engine
 DEV_ENGINE = [sys.executable, "-m", "vibechem_engine.api"]
 
 
-def test_smoke_passes_against_the_dev_engine() -> None:
+def test_smoke_passes_against_the_dev_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    # On the Linux/macOS runners sys.executable is the base interpreter, not the venv one:
+    # hand the child this process's import path so it finds vibechem_engine.
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(p for p in sys.path if p))
     summary = smoke_engine.smoke(DEV_ENGINE, bundle_dir=None, timeout=120)
     assert "'status': 'ready'" in summary
 

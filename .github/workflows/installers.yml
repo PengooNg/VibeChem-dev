@@ -21,6 +21,8 @@ on:
       - "packages/native/**"
       - "scripts/build_engine.py"
       - "scripts/smoke_engine.py"
+      - "testdata/**"
+      - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/installers.yml"
 
@@ -58,7 +60,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
-          if printf '%s\n' "$files" | grep -Eq '^(app/|packages/engine/|packages/native/|scripts/build_engine\.py$|scripts/smoke_engine\.py$|uv\.lock$|\.github/workflows/installers\.yml$)'; then
+          if printf '%s\n' "$files" | grep -Eq '^(app/|packages/engine/|packages/native/|scripts/build_engine\.py$|scripts/smoke_engine\.py$|testdata/|pyproject\.toml$|uv\.lock$|\.github/workflows/installers\.yml$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

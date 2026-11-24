@@ -6,7 +6,7 @@
 **Purpose:** runs pipelines. It covers port types, the pipeline graph and file format, the compiler, cache, executor, scheduler, runners, projects, the local HTTP/WebSocket API and the CLI.
 
 **Public API:**
-- `python -m vibechem_engine.api [--testdata-dir PATH]` — start the HTTP API (DATA_MODEL.md §1 "Start-up"); `VIBECHEM_DEV=1` allows the Vite dev server origin.
+- `python -m vibechem_engine.api [--testdata-dir PATH]` — start the HTTP API (DATA_MODEL.md §1 "Start-up"); `VIBECHEM_DEV=1` allows the Vite dev server origin. The desktop app ships this entry point frozen with PyInstaller (`scripts/build_engine.py` → `vibechem-engine[.exe]`; `__main__` calls `multiprocessing.freeze_support()` first).
 - `vibechem_engine.api.create_app(token, *, testdata_dir, dev=False)` — the FastAPI app: `/api/v1/health`, `/api/v1/blocks` (static SNV entry), temporary `/api/v1/skeleton/run` (§2.12, removed in T4.01).
 
 Later: the Python API and CLI (T2.11) and the rest of the HTTP/WS API in `docs/DATA_MODEL.md`.
