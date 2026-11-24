@@ -36,13 +36,15 @@
 | API contract | Engine responses match DATA_MODEL.md / OpenAPI | `packages/engine/tests/api/` | `/blocks` schema validation |
 | UI unit | Components behave | `app/renderer/src/**/*.test.tsx` | Inspector renders int param with min/max |
 | End-to-end | Real user flows in the desktop app (`@playwright/test`, from T0.10) | `app/e2e/` | Import CSV → build PLS → run → see metrics |
-| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui |
+| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui (+ gstack `/qa`, `/design-review` as extra reviewers) |
 | Installer smoke | App starts after install | `installers.yml`, nightly | Install, launch, `/health` = ready, quit |
 | Performance | No speed regressions | `scripts/bench.py`, nightly | Preview < 300 ms; speed-up ≥ 4× on 8 cores |
 
 **Reference tests for reused code:** when a block wraps a library (e.g. chemotools, pybaselines, scikit-learn), the reference value must come from somewhere *other* than that same library — a published value, a hand calculation, or a second implementation — otherwise the test only proves the library agrees with itself.
 
-**Coverage targets** (enforced from Phase 1; Phase 0 only needs the smoke tests): `vibechem_core` ≥ 90 % · `vibechem_engine` ≥ 85 % · renderer ≥ 70 % · every block has ≥ 1 reference or property test (mandatory, regardless of coverage).
+**Helpers** (`vibechem_core.testing`, T0.07): `assert_close(actual, expected, rtol=, atol=)` for every numeric comparison (tolerances always explicit, from METHODS.md); `assert_reference(method=, dataset=, actual=, expected=, rtol=, atol=, source=)` for reference tests — each call becomes a row of `reports/reference_report.md`; `node_hash` + `check_golden(data_regression, hashes, path)` for golden node snapshots (pytest-regressions; `--force-regen` rewrites them, a red flag in §4); `load_hypothesis_profile()` in each package's `tests/conftest.py` (`ci` profile: derandomized, 200 examples). Package boundaries are import-linter contracts in the root `pyproject.toml`.
+
+**Coverage targets** (enforced by `check.py` from T0.07; line coverage, floored to whole percent): `vibechem_core` ≥ 90 % · `vibechem_engine` ≥ 85 % · renderer ≥ 70 % · every block has ≥ 1 reference or property test (mandatory, regardless of coverage).
 
 ## 4. Health signals and red flags
 `scripts/check.py` prints this summary; Claude Code pastes it into every step PR and the gate report:

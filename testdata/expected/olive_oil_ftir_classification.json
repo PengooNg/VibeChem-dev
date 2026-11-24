@@ -1,0 +1,24 @@
+{
+  "dataset": "olive_oil_ftir",
+  "method": "PLS on the whole spectrum, then distance-based LDA on the PLS scores (PLS-LDA); classes = country of origin (4)",
+  "source": "Tapp HS, Defernez M, Kemsley EK (2003) FTIR spectroscopy and multivariate analysis can distinguish the geographic origin of extra virgin olive oils. J Agric Food Chem 51(21):6110-6115, doi:10.1021/jf030232s, abstract",
+  "protocol": {
+    "status": "published, protocol unverified",
+    "known": "cross-validation success rate; duplicate spectra of 60 oils",
+    "unknown": "number of PLS components, preprocessing, whether both duplicates of an oil were left out together"
+  },
+  "tolerance": {
+    "check": "cv_accuracy >= cv_accuracy_min",
+    "status": "proposed, Quan to confirm",
+    "note": "Loose check because the protocol is not known in detail. Sanity check (PROVENANCE.md): leave-one-oil-out PLS-LDA gave 0.88-0.93 for 5-15 components, so the 0.90 floor holds only for some component counts under grouped CV; Quan to confirm the floor and the protocol it applies to."
+  },
+  "values": {
+    "cv_accuracy_published": 0.96,
+    "cv_accuracy_min": 0.9,
+    "ga_lda_cv_accuracy_published": 1.0
+  },
+  "notes": [
+    "ga_lda_cv_accuracy_published (GA variable selection, 8 variates, then LDA) is recorded for completeness; it is not a planned reference test.",
+    "Cross-validation must keep both spectra of one oil (same 'oil' id, loader 'groups') in the same fold, otherwise the duplicate leaks into training."
+  ]
+}

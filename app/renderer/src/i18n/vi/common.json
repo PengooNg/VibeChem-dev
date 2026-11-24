@@ -1,0 +1,53 @@
+{
+  "app": {
+    "name": "VibeChem"
+  },
+  "pipeline": {
+    "skeleton": "Khung chạy thử · Bộ dữ liệu → SNV"
+  },
+  "toolbar": {
+    "run": "Chạy",
+    "running": "Đang chạy…"
+  },
+  "canvas": {
+    "label": "Khung vẽ quy trình",
+    "data_here": "Dữ liệu ở đây · {{rows, number}} × {{cols, number}}"
+  },
+  "state": {
+    "idle": "Chưa chạy",
+    "running": "Đang chạy",
+    "done": "Xong",
+    "error": "Lỗi"
+  },
+  "blocks": {
+    "data": {
+      "dataset": {
+        "title": "Bộ dữ liệu"
+      }
+    },
+    "preprocess": {
+      "snv": {
+        "title": "SNV",
+        "summary": "từng phổ",
+        "tip": "Biến chuẩn hóa chuẩn tắc: trừ trung bình và chia cho độ lệch chuẩn của từng phổ. Dùng để loại bỏ tán xạ và độ lệch đường nền trong phổ NIR."
+      }
+    }
+  },
+  "datasets": {
+    "gasoline_nir": "Xăng NIR"
+  },
+  "plots": {
+    "raw": "Phổ gốc",
+    "snv": "Sau SNV",
+    "empty": "Nhấn Chạy để xem phổ.",
+    "wavelength_nm": "Bước sóng (nm)",
+    "log_inv_r": "log(1/R)",
+    "snv_value": "Giá trị SNV"
+  },
+  "errors": {
+    "engine": {
+      "unreachable": "Không kết nối được với engine. Hãy kiểm tra engine đang chạy.",
+      "request_failed": "Engine trả về lỗi (HTTP {{status}})."
+    }
+  }
+}

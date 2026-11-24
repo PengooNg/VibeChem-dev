@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Transport spike (TASKS.md T0.12, ARCHITECTURE.md ADR-003): preview round-trip timing
+# on 3 OS. Not a required check. Runs only when the spike files change, or by hand.
+name: spike-transport
+
+on:
+  pull_request:
+    branches: [main, "phase-*"]
+    paths:
+      - scripts/bench_transport.py
+      - app/scripts/bench-transport-client.mjs
+      - .github/workflows/spike-transport.yml
+      - packages/engine/src/vibechem_engine/api/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONIOENCODING: utf-8
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # the Node client needs apache-arrow, not Electron
+
+jobs:
+  bench:
+    name: transport (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - name: Install the engine (no native build needed)
+        run: uv sync --locked --package vibechem-engine
+      - name: Install app dependencies
+        run: pnpm --dir app install --frozen-lockfile
+      - name: Benchmark 2,000 x 2,000 preview round-trip
+        shell: bash
+        run: |
+          uv run --no-sync python scripts/bench_transport.py --node --repeats 20 \
+            --json "reports/transport-${{ matrix.name }}.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: transport-${{ matrix.name }}
+          path: reports/transport-${{ matrix.name }}.json
+          retention-days: 30

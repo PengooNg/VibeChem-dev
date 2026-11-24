@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Nightly checks (TECH_STACK.md §8, QA.md §2 L3) on `main` and the newest `phase-*` branch.
+# Skeleton from T0.06: full check.py (incl. slow tests) on Windows, macOS arm64,
+# macOS Intel and Linux; Electron e2e tests on Windows, macOS and Linux (T0.10). Later steps
+# add their jobs here: installers incl. macOS Intel (T0.11), benchmarks + determinism 1 vs N
+# cores (T2.12). ci.yml also runs the e2e tests on every PR (job `check`).
+# Any failure opens (or comments on) one `S2` issue.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 19 * * *" # 19:17 UTC = 04:17 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  refs:
+    name: pick branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      refs: ${{ steps.pick.outputs.refs }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Newest phase-* branch = highest phase number
+          phase=$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100" --paginate \
+            --jq '.[].name | select(startswith("phase-"))' | sort -V | tail -n 1)
+          if [ -n "$phase" ]; then
+            echo "refs=[\"main\",\"$phase\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'refs=["main"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    name: full check (${{ matrix.ref }}, ${{ matrix.name }})
+    needs: refs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.refs.outputs.refs) }}
+        name: [linux, windows, macos, macos-intel]
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+          - { name: macos-intel, os: macos-26-intel }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: uv sync --locked
+      - run: pnpm --dir app install --frozen-lockfile
+      - name: check.py (full, incl. slow tests)
+        run: uv run python scripts/check.py --verbose
+
+  e2e:
+    name: e2e (${{ matrix.ref }}, ${{ matrix.name }})
+    needs: refs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.refs.outputs.refs) }}
+        name: [linux, windows, macos]
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: uv sync --locked
+      - run: pnpm --dir app install --frozen-lockfile
+      - name: Playwright e2e (Electron)
+        if: runner.os != 'Linux'
+        run: pnpm --dir app e2e
+      - name: Playwright e2e (Electron, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm --dir app e2e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-report-${{ matrix.name }}-${{ strategy.job-index }}
+          path: |
+            app/playwright-report/
+            app/test-results/
+          retention-days: 14
+
+  report:
+    name: open S2 issue on failure
+    needs: [refs, check, e2e]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly CI failing"
+          body="Nightly run failed: $RUN_URL (branches: main and the newest phase-* branch). Triage per QA.md §10."
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label S2 --state open \
+            --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label S2 --body "$body"
+          fi

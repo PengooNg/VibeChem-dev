@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* app/renderer/src/ui/tokens.css — design tokens from docs/UI_GUIDE.md §2–3. Change values there first. */
+
+:root {
+  /* §2.1 Neutrals (Tailwind zinc), light */
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --primary: #18181b;
+  --focus: #6366f1;
+
+  /* §2.2 Block classes (icon tint + 3px stripe, never a block fill) */
+  --block-data: #0ea5e9;
+  --block-explore: #8b5cf6;
+  --block-preprocess: #14b8a6;
+  --block-split: #f59e0b;
+  --block-select: #ec4899;
+  --block-model: #6366f1;
+  --block-transfer: #f97316;
+  --block-stats: #84cc16;
+  --block-imaging: #06b6d4;
+  --block-deploy: #64748b;
+
+  /* §2.3 Run states */
+  --state-done: #16a34a;
+  --state-stale: #d97706;
+  --state-error: #dc2626;
+
+  /* §3 Typography, spacing, radius */
+  --font-ui: "Inter Variable", "Noto Sans JP Variable", system-ui, sans-serif;
+  --font-numbers: "JetBrains Mono Variable", ui-monospace, monospace;
+  --space-unit: 4px;
+  --radius-card: 8px;
+  --radius-control: 6px;
+}
+
+.dark {
+  /* §2.1 Neutrals, dark */
+  --bg: #09090b;
+  --surface: #18181b;
+  --surface-2: #27272a;
+  --border: #3f3f46;
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --primary: #fafafa;
+  --focus: #818cf8;
+}

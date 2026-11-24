@@ -1,7 +1,8 @@
 # VibeChem — Claude Code skills, plugins and tools
 
-> v0.3 · 2026-11-23 · Read by Claude Code when planning a step (CLAUDE.md §3, §13). Humans install these once per machine (Quan's setup guide).
+> v0.4 · 2026-11-24 · Read by Claude Code when planning a step (CLAUDE.md §3, §13). Humans install these once per machine (Quan's setup guide).
 > v0.3: Playwright **CLI** replaces the Playwright MCP server; GitHub MCP removed (`gh` only); design set = Impeccable + ui-ux-pro-max + four of Emil Kowalski's skills (frontend-design and Taste Skill dropped); Humanizer for prose; visual check on UI steps.
+> v0.4: superpowers (plugin) and gstack (user skills, review helpers only) added; Impeccable and the knowledge-work engineering/design skills are **vendored skills** instead of plugins (the plugins ship hooks or remote MCP servers); permission gate (CLAUDE.md §13.2).
 > All of these are **development tools only**. They never become app/engine dependencies (CLAUDE.md §4) and never override the project docs: METHODS.md for algorithms, DATA_MODEL.md for fields, UI_GUIDE.md for design, QA.md for quality.
 
 ## 1. Where each tool comes from
@@ -14,13 +15,16 @@
 | Playwright Test | npm dev dependency | `@playwright/test` in `app/` (e2e tests) | Apache-2.0 | repo |
 | ui-ux-pro-max | skill | `.claude/skills/ui-ux-pro-max/` (nextlevelbuilder/ui-ux-pro-max-skill) | MIT | repo (committed) |
 | break-ui, prototype, review-animations, animation-performance | skills | vendored from `emilkowalski/skills` at a pinned commit into `.claude/skills/` (T0.04; commit hash in THIRD_PARTY.md) | MIT | repo (committed) |
-| Impeccable | plugin | `pbakaus/impeccable` marketplace | Apache-2.0 | each machine (plugin only — no hook, telemetry off) |
+| Impeccable | skill | vendored from `pbakaus/impeccable` (`plugin/skills/impeccable/`) into `.claude/skills/impeccable/` at a pinned commit (THIRD_PARTY.md). The plugin is **not** installed: it registers SessionStart/PostToolUse/Stop hooks | Apache-2.0 | repo (committed); telemetry off via `.impeccable/config.json` and `DO_NOT_TRACK=1` in `.claude/settings.json` |
 | Humanizer | plugin | `blader/humanizer` marketplace (Claude Code ≥ 2.1.142) | MIT | each machine |
 | code-review | plugin | Claude Code plugin marketplace | — | each machine |
-| engineering (testing-strategy, architecture, debug, deploy-checklist, documentation) | plugin | `anthropics/knowledge-work-plugins` | — | each machine |
-| design (accessibility-review, ux-copy) | plugin | `anthropics/knowledge-work-plugins` | — | each machine |
+| testing-strategy, architecture, debug, deploy-checklist, documentation | skills | vendored from `anthropics/knowledge-work-plugins` `engineering/skills/` (THIRD_PARTY.md). The plugin is not installed: it adds remote MCP servers (Slack, Linear, GitHub MCP, …) | Apache-2.0 | repo (committed) |
+| accessibility-review, ux-copy | skills | vendored from `anthropics/knowledge-work-plugins` `design/skills/` (same reason) | Apache-2.0 | repo (committed) |
+| superpowers | plugin | `superpowers@claude-plugins-official` (obra/superpowers) | MIT | repo: `enabledPlugins` in `.claude/settings.json` (project scope); its SessionStart bootstrap hook is accepted |
+| gstack | user skills | `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack`, then, with Bun ≥ 1.4.2 and Node on PATH (`export PATH="$HOME/.bun/bin:$PATH" && eval "$(fnm env --shell bash)"`; on Windows its browser needs Node), `./bin/gstack-config set destructive_guard off` (its guard answers "ask", which breaks the no-prompt gate; the gate covers those commands), `./bin/gstack-config set update_check false`, `./bin/gstack-config set codex_reviews disabled`, telemetry off, then `./setup` (re-run after every `git pull` there). No team mode, no CLAUDE.md section from its installer | MIT | each machine (Quan runs the commands with `!`) |
+| Permission gate | hook | `scripts/permission_gate.py`, registered in `.claude/settings.json` (CLAUDE.md §13.2) | ours | repo (committed) |
 | `/review`, `/security-review` | built-in command | Claude Code | — | — |
-Not used: Playwright MCP and GitHub MCP (token cost; `playwright-cli` and `gh` cover them) · frontend-design (Impeccable is built on it) · Taste Skill (aimed at marketing websites with downloaded photos/fonts; candidate later for the docs site, T7.02) · Headroom (optional owner-side trial outside the repo; Claude Code never runs it).
+Not used: Playwright MCP and GitHub MCP (token cost; `playwright-cli` and `gh` cover them) · the Impeccable plugin and the knowledge-work plugins (hooks / remote MCP servers; their skills are vendored instead) · `hamzafarooq/claude-code-starter` deploy-checklist (checks Vercel/Fly web apps calling the Claude API — not this desktop app) · gstack `/browse`, `/ship`, `/land-and-deploy`, `/modernize`, `/crew`, `/canary`, `/setup-deploy`, `/pair-agent`, `/ubicloud`, `/setup-gbrain`, `/sync-gbrain`, `/setup-browser-cookies`, `/codex`, `/scrape`, `/skillify`, `/connect-chrome`, `/open-gstack-browser`, `/benchmark-models`, `/eval-plan`, `/gstack-upgrade` (denied by the gate: they ship, deploy, send code to other services, use your signed-in browser, spend on paid models or update gstack itself) · frontend-design (Impeccable is built on it) · Taste Skill (aimed at marketing websites with downloaded photos/fonts; candidate later for the docs site, T7.02) · Headroom (optional owner-side trial outside the repo; Claude Code never runs it).
 
 ## 2. What each tool is for
 | Tool | Use it when | Rules |
@@ -41,15 +45,17 @@ Not used: Playwright MCP and GitHub MCP (token cost; `playwright-cli` and `gh` c
 | **testing-strategy** | Planning QA tooling, leakage suite, golden tests, e2e tests | Output becomes the plan's checkpoints; QA.md levels and tolerances win. |
 | **architecture** | Spikes, port-type design, phase gates, any new pattern | Writes ADRs in ARCHITECTURE.md §7 format; Quan accepts at the gate. |
 | **debug** | Any bug, alongside CLAUDE.md §7 | CLAUDE.md §7 order wins. |
+| **superpowers** | `test-driven-development` for each checkpoint (failing test → code → green → commit); `systematic-debugging` with CLAUDE.md §7; `verification-before-completion` before DONE, "ready" or "fixed"; `writing-plans`/`executing-plans` only as help for the §3 plan, which still lives in `docs/handoff/<step>.md`; `dispatching-parallel-agents` only when the phase runner asks | Never `brainstorming` in phase mode (stop with `QUESTION` instead); `using-git-worktrees` only under `.claude/worktrees/`; never `finishing-a-development-branch` (merge = `merge_step.py`). Commit messages follow CLAUDE.md §3 step 5. |
+| **gstack** | `/plan-eng-review` (and `/plan-design-review` for UI) on the plan of M/L steps, spikes and phase gates; `/qa`, `/design-review` on 👁 steps next to the visual check; `/cso` next to `/security-review` on 🔒 steps; `/review` as a second opinion after code-review; `/careful` guard stays on | Review and report only: when a gstack skill offers to fix, commit or push, follow CLAUDE.md §3 instead. Forbidden list above (gate-enforced). Outside reviews (Codex) and the update check are off. |
 | **deploy-checklist** | Installer, release and phase-gate steps | Merge its items into QA.md §9 checklists; don't replace them. |
 | **documentation** | READMEs, docs site, first-launch guide text | Facts come from the docs; then Humanizer. |
 
 ## 3. Step map
-🔒 = also run `/security-review`. 👁 = visual check (CLAUDE.md §13.1: Playwright CLI screenshots + Impeccable critique/audit + break-ui + accessibility-review).
+🔒 = also run `/security-review` (+ gstack `/cso`). 👁 = visual check (CLAUDE.md §13.1: Playwright CLI screenshots + Impeccable critique/audit + break-ui + accessibility-review; + gstack `/qa` and `/design-review`).
 
 | Steps | Tools |
 |---|---|
-| Every step that writes code | code-review |
+| Every step that writes code | code-review + superpowers `test-driven-development` + `verification-before-completion` |
 | Every bug fix | debug + code-review (+ Playwright CLI to reproduce UI bugs) |
 | T0.01, T0.06 (CI) | Context7 (GitHub Actions, cibuildwheel) · `gh run view --log-failed` for CI logs |
 | T0.02 (repo skeleton, legal, merge script) | documentation + Humanizer (README, CONTRIBUTING) |
@@ -59,9 +65,9 @@ Not used: Playwright MCP and GitHub MCP (token cost; `playwright-cli` and `gh` c
 | T0.09 (engine skeleton) 🔒 | Context7 (FastAPI) |
 | T0.10 (skeleton UI) 👁 | Context7 + Impeccable + first `@playwright/test` Electron e2e test |
 | T0.11 (shell + installers) 🔒 | Context7 (Electron, electron-builder, PyInstaller) + deploy-checklist |
-| T0.12, T0.13 (spikes) | architecture (ADR update) + Context7 |
+| T0.12, T0.13 (spikes) | architecture (ADR update) + Context7 + gstack `/plan-eng-review` |
 | T0.14 (port-type design) | architecture |
-| Phase gates | architecture + deploy-checklist |
+| Phase gates | architecture + deploy-checklist + gstack `/plan-eng-review` |
 | T1.01–T1.03 (dataset, block contract, schema) | Context7 (pydantic, scikit-learn API conventions) |
 | T1.05, T1.06 (readers) 🔒 | Context7 (pyarrow, openpyxl, jcamp) |
 | T1.07–T1.14 (blocks, metrics) | Context7 (scikit-learn, SciPy, chemotools) |

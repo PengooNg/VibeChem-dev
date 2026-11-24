@@ -161,48 +161,48 @@ Format: Status · Date · Context · Options · Decision · Consequences · Acti
 **Consequences:** Reviewers work in their strongest language; C++ wheel builds and memory-safety discipline required (sanitizers, clang-tidy).
 
 ### ADR-003 UI ↔ engine transport — local HTTP + WebSocket
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17)
 **Context:** Commands, frequent progress events and large numeric arrays; reuse for web Lite.
 **Options:** A. HTTP + WS on 127.0.0.1 (debuggable, web-reusable, local port) · B. stdio JSON-RPC via Electron main (no port, poor for binary, no web reuse) · C. ZeroMQ/gRPC (more complex).
 **Decision:** A, hardened with random port, per-launch token, Origin check; binary endpoints for arrays.
 **Consequences:** Engine testable from pytest/curl; OpenAPI → generated TS types. Revisit B as fallback transport if loopback servers are blocked by antivirus in user reports.
-**Actions:** transport spike (T0.12): 2,000 × 2,000 preview < 300 ms on 3 OS.
+**Actions:** transport spike (T0.12): 2,000 × 2,000 preview < 300 ms on 3 OS — done: worst 207 ms (`docs/spikes/transport.md`). Phase 4: vectorised/native decimation (≤ 50 ms server time), one list column for many lines, density layout into DATA_MODEL.md §2.8. stdio stays the documented fallback.
 
 ### ADR-004 Parallel execution — own scheduler over a process pool
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17)
 **Context:** Nested, embarrassingly parallel work; determinism; 8 GB laptops; C++ kernels may want threads.
 **Options:** A. own scheduler + loky (full control, small) · B. Dask local (heavier, partial budget control) · C. Ray (large install) · D. raw multiprocessing (more code).
 **Decision:** A, behind an executor interface so Dask/Ray/HPC executors can be added later.
 **Consequences:** Exact control of core budget, memory guard and seeds; scheduler code is ours to maintain with high test coverage. This is a deliberate "build" under ADR-009: the budget/memory/seed requirements are the differentiator and no existing library meets them without heavy wrapping.
-**Actions:** parallel spike (T0.13) incl. Windows spawn; determinism test in nightly CI.
+**Actions:** parallel spike (T0.13) incl. Windows spawn — done: 2.1–2.2× at 4 workers, bit-identical to serial on 3 OS and frozen (`docs/spikes/parallel.md`). Executor step: `loky_freeze_support()` in the engine entry (frozen loky fails without it), loky `>=3.7,<3.8`, frozen executor test in `installers.yml`, fixed BLAS width per task, memmap above a size threshold, `VECLIB_MAXIMUM_THREADS=1` on macOS, cross-machine checks by tolerance. Determinism test in nightly CI.
 
 ### ADR-005 Blocks define the UI (schema-driven, optional custom panels)
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17); review again at the Phase 4 gate
 **Context:** ~90 P0 blocks, mostly AI-generated; hand-built UI per block would not scale.
 **Options:** fully schema-driven · hand-built panel per block · hybrid.
 **Decision:** Hybrid — inspector generated from block metadata; custom React panel only for interactions forms can't express (ROI drawing, peak picking, range brushing).
 **Consequences:** Adding a block is Python-only; schema must be expressive (DATA_MODEL.md §5). If > 10 % of blocks need custom panels, extend the schema instead.
 
 ### ADR-006 Project storage — folder + content-addressed cache, no database
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17)
 **Options:** project folder (inspectable, git-friendly, per-file corruption) · single SQLite file · single HDF5 file.
 **Decision:** Project folder; `.vcz` zip export for sharing.
 **Consequences:** Relative paths only; revisit single-file default if users ask for it.
 
 ### ADR-007 No pickle in any shareable file
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17)
 **Context:** Shared pickle files can execute code on load.
 **Decision:** Pipelines = schema-validated JSON; models = zip of `manifest.json` + `.npy` (`allow_pickle=False`); fitted block state must serialise to JSON + arrays (part of the block contract).
-**Consequences:** Safe sharing; every fitted block implements explicit state serialisation — including blocks that wrap library objects (e.g. a scikit-learn PLSRegression): their state is extracted to arrays, never pickled.
+**Consequences:** Safe sharing; every fitted block implements explicit state serialisation — including blocks that wrap library objects (e.g. a scikit-learn PLSRegression): their state is extracted to arrays, never pickled. In-memory pickling of task arguments sent to loky workers (cloudpickle IPC, never written to a project or shared file) is allowed.
 
 ### ADR-008 Walking skeleton before depth
-**Status:** Proposed · 2026-11-17
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-17); outcome achieved in Phase 0
 **Context:** Packaging Python + C++ + Electron was the riskiest integration and was scheduled late.
 **Decision:** Phase 0 builds one trivial block end-to-end (C++ stub → engine → API → canvas → Electron → installers for 3 OS in CI); later phases thicken one layer at a time.
 **Consequences:** Packaging problems surface in weeks, not months; Phase 0 grows by ~1 week. The temporary `/skeleton/run` endpoint (DATA_MODEL.md §2.12) is removed in T4.01.
 
 ### ADR-009 Reuse first, build last
-**Status:** Proposed · 2026-11-18
+**Status:** Accepted (provisional — K to confirm) · 2026-11-24 (proposed 2026-11-18)
 **Context:** ≈80–90 % of code is AI-generated. An AI agent tends to write everything from scratch, which wastes money and review time and produces less-tested code than mature libraries. Many needed pieces already exist under compatible licences (scikit-learn, SciPy, chemotools, pybaselines, kennard-stone, project templates, Orange-Spectroscopy).
 **Options:**
 | Option | Effort | Quality risk | Dependency risk |
@@ -212,11 +212,13 @@ Format: Status · Date · Context · Options · Decision · Consequences · Acti
 | C. Depend heavily on one big framework (e.g. Orange) | Low at first | Low | High — its architecture limits our differentiators |
 **Decision:** B. Before each step Claude Code searches for existing options, judges them (licence GPL-compatible, maintained, tested, size), and writes an estimate table (CLAUDE.md §12). Order of preference: **reuse** (call a library as is) > **wrap** (a block around a library call) > **port** (copy and adapt code with source header and `THIRD_PARTY.md` entry) > **build**. Building when a listed candidate exists needs Quan's approval. External chemometrics libraries are imported only inside block files (import-linter rule, TECH_STACK.md §3.1). Every wrapped function still gets a reference test whose expected value comes from an independent source (paper, other software, hand calculation).
 **Consequences:** Less code to write and review; faster phases; more dependencies to pin and watch (R-17); estimates become a tracked metric (QA.md health metrics). Some core pieces stay deliberately "build" because they are the differentiator (scheduler, graph compiler, leakage checks — ADR-004).
-**Actions:** reuse register in TECH_STACK.md §11; reuse scan + estimate in every plan; reuse ratio and estimate accuracy reviewed at each phase gate.
+**Quasar port-max (2026-11-24, Phase 0 gate):** Quasar (orange-spectroscopy + the non-Qt parts of Orange3, both GPL-3.0) is the **first port source** for spectroscopy algorithms and file readers. Every relevant Quasar/Orange function is inventoried (T1.00) and, where it fits, ported into our blocks: `Orange.data.Table` replaced by NumPy + `SpectralDataset`, source header + `THIRD_PARTY.md`, block template. Quasar/Orange is **never a runtime dependency** — orange-spectroscopy pulls in Orange3, AnyQt, pyqtgraph and network libraries (httpx, requests, serverfiles), which conflict with the no-network rule and the installer budget. Building on Quasar as the app base (§5 option F) stays rejected. Ported code still gets reference tests from an independent source; Quasar's own tests count only as extra regression checks.
+**Actions:** reuse register in TECH_STACK.md §11; reuse scan + estimate in every plan; reuse ratio and estimate accuracy reviewed at each phase gate; Quasar port inventory (TASKS.md T1.00).
 
 ## 8. Technical decision log (one line each, newest first)
 | ID | Date | Decision |
 |---|---|---|
+| D-022 | 2026-11-24 | Phase 0 gate: ADR-003…009 accepted (provisional — K to confirm); ADR-007 allows in-memory pickling to loky workers only; Quasar port-max under ADR-009 (port, never depend); Phase 1 sizes revised (T1.02, T1.12 split; T1.03, T1.15 → M); new step T1.00 Quasar port inventory |
 | D-021 | 2026-11-18 | Reuse first, build last (ADR-009, proposed); every step has a size (S/M/L) and reuse line in TASKS.md; PDF reports produced only by the desktop app |
 | D-020 | 2026-11-17 | Docs consolidated: ARCHITECTURE (incl. ADRs), TECH_STACK, DATA_MODEL, UI_GUIDE, QA, TASKS for building; PROJECT for planning |
 | D-019 | 2026-11-17 | Walking skeleton first (ADR-008, proposed) |

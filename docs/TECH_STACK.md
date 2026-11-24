@@ -44,8 +44,10 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | Tool | Purpose |
 |---|---|
 | ruff | Lint + format |
-| pyright (strict) | Type checking |
-| pytest, pytest-cov, pytest-xdist | Tests, coverage, parallel tests |
+| pyright (strict) | Type checking (installed as `pyright[nodejs]`, which brings a Node binary via `nodejs-wheel-binaries`, so no system Node is needed) |
+| pytest, pytest-cov, pytest-xdist | Tests, coverage (per-package thresholds in `check.py`), parallel tests |
+| httpx2 | HTTP client required by FastAPI's `TestClient` (engine API tests, T0.09) |
+| pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
 | pyinstaller 6.21.x | Engine bundle for the desktop app |
@@ -54,24 +56,25 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 ### 1.4 Native (C++)
 | Package | Version line | Purpose |
 |---|---|---|
-| nanobind | 2.x latest | C++ ↔ Python bindings |
-| scikit-build-core | 1.1.x | Build backend (CMake → wheel) |
+| nanobind | 2.x latest (T0.05: 2.9.2, pinned in `packages/native/pyproject.toml`) | C++ ↔ Python bindings |
+| scikit-build-core | 1.1.x (T0.05: 1.1.2, pinned in `packages/native/pyproject.toml`) | Build backend (CMake → wheel) |
 | cibuildwheel | latest | Wheels for Windows/macOS/Linux in CI |
 | Eigen | 3.4.x | Linear algebra in kernels (K may evaluate Eigen 5.x) |
-| Catch2 | 3.x | C++ unit tests (Python equivalence tests stay in pytest) |
+| Catch2 | 3.x (T0.05: v3.16.1 via CMake FetchContent in `packages/native/tests/cpp/`) | C++ unit tests (Python equivalence tests stay in pytest) |
 | clang-format, clang-tidy | latest | Formatting, static analysis |
 
 ### 1.5 Frontend and desktop
 | Package | Version line | Purpose |
 |---|---|---|
 | Electron | **45.x** | Desktop shell (supported until Apr 2027; upgrade every second major) |
-| electron-builder | latest | Installers: NSIS `.exe`, `.dmg` (arm64 + x64), AppImage/`.deb` |
+| electron-builder | 26.x (T0.11: 26.18.0, exact pin) | Installers: NSIS `.exe`, `.dmg` (arm64 + x64), AppImage/`.deb` |
 | TypeScript | **6.0.x** | Last JavaScript-based compiler; all tooling compatible. Re-evaluate TypeScript 7 at v1.1 |
 | React | 19.2.x | UI |
 | Vite | 7.x | Dev server + build |
+| electron-vite | 5.x | Runs Vite for the renderer and builds the Electron main process (`app/electron.vite.config.ts`); chosen in T0.04 over electron-forge, which brings its own packaging next to electron-builder |
 | @vitejs/plugin-react | matching Vite 7 | |
 | Tailwind CSS | 4.x | Styling (UI_GUIDE.md tokens) |
-| shadcn/ui | CLI latest (copies components into repo) | Component primitives (Radix) |
+| shadcn/ui | CLI latest (copies components into repo) | Component primitives (Radix); `app/components.json`, `cn` helper from `clsx` 2.x + `tailwind-merge` 3.x |
 | @xyflow/react | 12.x (not 13 pre-release) | Pipeline canvas (keep its attribution; MIT) |
 | uPlot | 1.6.x | Fast line plots for spectra; density mode drawn on canvas |
 | zustand | 5.x | UI state |
@@ -80,14 +83,14 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | apache-arrow (JS) | latest, matching pyarrow format | Binary previews |
 | openapi-typescript | latest | Generate TS types from the engine's OpenAPI |
 | lucide-react | latest | Base icons (custom glyphs in `app/renderer/src/ui/glyphs`) |
-Fonts Inter, JetBrains Mono, Noto Sans JP: SIL Open Font Licence, bundled locally (no web fonts).
+Fonts Inter, JetBrains Mono, Noto Sans JP: SIL Open Font Licence, bundled locally (no web fonts) through the `@fontsource-variable/*` 5.x npm packages; Vite copies the font files into the build.
 
 ### 1.6 Frontend dev tools
 | Tool | Purpose |
 |---|---|
-| ESLint 9 (flat config) + typescript-eslint | Lint |
+| ESLint 9 (flat config) + typescript-eslint, eslint-plugin-react-hooks, eslint-plugin-react-refresh | Lint |
 | Prettier 3 | Format |
-| Vitest + Testing Library | Component/unit tests |
+| Vitest 4 + Testing Library + jsdom | Component/unit tests |
 | `@playwright/test` (Electron mode) | End-to-end tests of the desktop app |
 | `@playwright/cli` | Agent browser control for visual checks (token-efficient; replaces Playwright MCP) |
 
@@ -97,7 +100,7 @@ GitHub Actions standard runners (`ubuntu-latest`, `windows-latest`, `macos-lates
 ## 2. Developer setup (Windows first; macOS/Linux equivalents in brackets)
 1. Install **Git for Windows** (Claude Code on Windows uses its Bash), **GitHub CLI** (`winget install GitHub.cli`, then `gh auth login`), **Visual Studio 2022 Build Tools** with "Desktop development with C++" [macOS: `xcode-select --install`; Linux: `build-essential`].
 2. Install **uv**: `winget install astral-sh.uv` [macOS/Linux: official install script].
-3. Install **Node 24 LTS** (`winget install OpenJS.NodeJS.LTS` or fnm/nvm) and run `corepack enable`.
+3. Install **Node 24 LTS** (`winget install OpenJS.NodeJS.LTS` or fnm/nvm) and run `corepack enable`, then `corepack install -g pnpm@10.34.9` (the version in `app/package.json`; without it, `pnpm --dir app …` run from the repo root picks Corepack's default pnpm and refuses to run).
 4. Install **Claude Code** (official installer) and sign in.
 5. Clone the repo, then from the repo root (after T0.04 also `pnpm --dir app exec playwright install chromium`):
    - `uv python install 3.14`
@@ -171,7 +174,7 @@ pengoo is **not** stored in this repository. When a step ports pengoo code, Quan
 | Package | May import | Must never import |
 |---|---|---|
 | `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, `vibechem_native` (optional) | `vibechem_engine`, fastapi, anything UI |
-| `vibechem_engine` | `vibechem_core`, loky, fastapi, pyarrow | renderer code |
+| `vibechem_engine` | `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow | renderer code |
 | `vibechem_native` (Python wrapper) | numpy, `vibechem_core` reference functions (for fallback) | `vibechem_engine` |
 | `app/renderer` | engine **only via HTTP/WS API** | Node.js APIs (sandboxed) |
 | `app/main` | Electron, child-process control of engine | business logic |
@@ -192,7 +195,7 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 
 ## 5. C++ conventions
 - SPDX header as above. C++20, Eigen; no raw `new`/`delete`; `std::span` for views; RAII.
-- Every exported function: doc comment with the matching Python reference function and METHODS.md section.
+- Every exported function: doc comment with the matching Python reference function and METHODS.md section. (The T0.05 stub `row_mean` has no core counterpart; its reference is `vibechem_native/_reference.py`.)
 - Accept `n_threads` (default 1); release the GIL in bindings.
 - clang-format (repo config), clang-tidy clean, warnings as errors.
 
@@ -213,14 +216,14 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 | `uv run python scripts/bench.py` | Speed-up and determinism benchmarks |
 | `pnpm --dir app dev` | Run UI + Electron in development |
 | `pnpm --dir app e2e` | Playwright end-to-end tests |
-| `pnpm --dir app dist` | Build installers locally |
+| `pnpm --dir app dist` | Build installers locally (`app/dist/`); first freeze the engine with `uv run python scripts/build_engine.py` (→ `build/engine/`) |
 Claude Code commands: `/phase N`, `/step T<x> [wait]`, `/resume [answer]`, `/status`, `/bug <issue>` (`.claude/skills/`).
 
 ## 8. CI workflows
 | Workflow | Trigger | Jobs | Target time |
 |---|---|---|---|
-| `ci.yml` | pull requests to `main` or `phase-*`; pushes to `phase-*` | `check --fast` on Windows, macOS (arm64), Linux; native wheels build; sanitizer job (Linux) | < 15 min |
-| `installers.yml` | PRs touching `app/`, `packages/engine/`, `packages/native/`, packaging config; or label `build-installers`; pushes to `phase-*` that touch those paths | Installers for 3 OS + smoke test (`/health` = ready); artifacts kept 14 days | < 30 min |
+| `ci.yml` | pull requests to `main` or `phase-*`; pushes to `phase-*` | `check --fast` + Electron e2e (`pnpm --dir app e2e`) on Windows, macOS (arm64), Linux; native wheels build; sanitizer job (Linux) | < 15 min |
+| `installers.yml` | PRs touching `app/`, `packages/engine/`, `packages/native/`, `testdata/`, packaging config (`scripts/build_engine.py`, `scripts/smoke_engine.py`, `pyproject.toml`, `uv.lock`); or label `build-installers`; pushes to `phase-*` that touch those paths | Installers for 3 OS (PyInstaller engine + electron-builder) + smoke tests: bundled engine `/health` = ready (`scripts/smoke_engine.py`) and the packaged app runs the skeleton pipeline (`app/e2e/packaged.spec.ts`); sizes in the job summary; artifacts kept 14 days | < 30 min |
 | `nightly.yml` | daily on `main` and the newest `phase-*` branch | Full `check` incl. slow tests, benchmarks, determinism 1 vs N cores, e2e on 3 OS, installers incl. **macOS Intel**; opens an `S2` issue on failure | — |
 | `release.yml` | version tag | Installers (Windows x64, macOS arm64 + x64, Linux x64) + checksums → GitHub Release → Zenodo | — |
 
@@ -246,24 +249,27 @@ Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` 
 Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **approved** (in §1) · **rejected** (reason recorded).
 | Area / step | Candidate | Licence | What it could save | Status |
 |---|---|---|---|---|
-| Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | candidate |
-| C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | candidate |
-| Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | candidate |
-| Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | candidate |
-| Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | candidate |
+| Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | approved (T0.03: cookie's ruff/pytest settings adopted in root `pyproject.toml`; `uv_build` src layout as from `uv init --lib`; the full copier template was not used — no nox/docs/CI) |
+| C++ extension scaffold (T0.05) | `nanobind_example` (wjakob); `uv init --lib --build-backend=scikit` | BSD-3 / — | Working CMake + scikit-build-core + nanobind + cibuildwheel setup | approved (T0.05: nanobind_example / nanobind packaging-guide configuration — stable ABI `cp312`, `build-dir`, `wheel.packages`; `uv init --build-backend=scikit` rejected: pybind11 scaffold) |
+| Electron + Vite + React scaffold (T0.04) | `create-vite` React-TS template; electron-vite or electron-forge templates | MIT | Dev server + Electron wiring | approved (T0.04: electron-vite 5 with the layout of its react-ts template; shadcn config written by hand from its manual-install guide because `shadcn init` does not detect electron-vite; electron-forge rejected: its packaging overlaps electron-builder) |
+| Canvas, plots, binary previews, API types (T0.10) | `@xyflow/react`, `uplot`, `apache-arrow`, `@tanstack/react-query`, `openapi-typescript` | MIT / MIT / Apache-2.0 / MIT / MIT | Pipeline canvas, spectra plots, Arrow decoding, server state, generated API types | approved (T0.10: exact pins 12.12.1, 1.6.32, 21.2.0, 5.107.1, 7.13.0; `openapi-fetch` not used — a small typed `fetch` client is enough) |
+| Process pool, BLAS limits (T0.13) | `loky` 3.7.0 + `threadpoolctl` 3.8.0 (both §1); joblib `Parallel` | BSD-3 / BSD-3 / BSD-3 | Reusable warm pool, worker initializer, BLAS thread limits | approved (T0.13: dev-group deps for the spike only — the executor step moves them into `vibechem-engine` and adds threadpoolctl to §3.1; transitive cloudpickle constrained `<3.1.3` in the root `pyproject.toml` until 3.1.3 is two weeks old; joblib rejected: its auto-memmapping is a one-line `np.load(mmap_mode="r")` and its backend layer is what ADR-004's own scheduler replaces; loky in a frozen bundle needs the `loky_freeze_support()` shim from `scripts/bench_parallel.py`, see `docs/spikes/parallel.md`) |
+| Python sidecar packaging (T0.11) | electron-builder `extraResources` + PyInstaller one-folder (common pattern) | MIT / GPL-with-exception | Bundling the engine | approved (T0.11: PyInstaller 6.21 one-folder `vibechem-engine` built by `scripts/build_engine.py` — `--collect-submodules uvicorn`, native `_core` added as a binary because the editable install hides it; electron-builder 26.18.0 `extraResources` → `<resources>/engine` + `<resources>/testdata`; renderer served from `app://vibechem`) |
+| Golden-file tests (T0.07) | `pytest-regressions` | MIT | Golden data/num regression fixtures | approved (T0.07: `data_regression` stores the per-node hash file and handles `--force-regen`; `num_regression` available for metric tables in T2.13) |
+| Reference datasets (T0.08) | `rdata` (reads R `.RData`/`.rds` without R) | MIT | Converting R package datasets | not a dependency (T0.08: used once in a throwaway `uv run --no-project --isolated` env to convert `gasoline.RData` to CSV; loaders use stdlib `csv` + numpy) |
 | Preprocessing: MSC, SG derivatives, scaling, smoothing, some baselines (T1.07–T1.09, Phase 6) | `chemotools` (scikit-learn-style transformers) | MIT | Large part of P0 preprocessing | candidate |
 | Baselines: AsLS, airPLS, arPLS, polynomial, SNIP… (Phase 6) | `pybaselines` (50+ algorithms) | BSD-3 | Almost all baseline methods | candidate |
 | Kennard–Stone split (T1.10) | `kennard-stone` | MIT | KS split; SPXY may still be ours | candidate |
 | CV splitters (T1.11) | scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold` | BSD-3 | Most fold generators (venetian/contiguous are small extras) | approved (scikit-learn in §1) |
-| PLS (T1.12) | scikit-learn `PLSRegression` (NIPALS) | BSD-3 | PLS1/PLS2 fit/predict; VIP and SIMPLS are small additions | approved |
-| EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port) |
+| PLS (T1.12a/b) | scikit-learn `PLSRegression` (NIPALS) | BSD-3 | PLS1/PLS2 fit/predict; VIP and SIMPLS are small additions | approved |
+| EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port); full Quasar/Orange inventory in T1.00 (ADR-009 port-max) |
 | Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) |
 | JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved |
 | SPC (T1.06) | Existing SPC readers on PyPI/GitHub — search first | to check | Reader | candidate (search; build only if none fit) |
 Add a row whenever a step finds a new candidate, even if rejected — it prevents the same search next time.
 
 ## 12. Known packaging pitfalls (check in T0.11, T0.13)
-- **PyInstaller + process pools:** frozen apps must call `multiprocessing.freeze_support()` and use the spawn start method; loky workers inside a frozen bundle must be tested on Windows in the walking skeleton.
+- **PyInstaller + process pools:** frozen apps must call `multiprocessing.freeze_support()` and use the spawn start method; loky workers inside a frozen bundle must be tested on Windows in the walking skeleton. T0.13: loky 3.7 workers do **not** start in a PyInstaller bundle with `freeze_support()` alone (workers die at start-up on all three OS); the entry script must first route loky's worker and resource-tracker command lines (`loky_freeze_support()` in `scripts/bench_parallel.py`, `docs/spikes/parallel.md`).
 - **Installer size:** Electron (~100 MB) + Python + NumPy/SciPy/scikit-learn + pyarrow can approach the 400 MB budget. Measure in T0.11; options: exclude tests/docs from wheels, drop pandas, use pyarrow's CSV reader.
 - **macOS:** build arm64 and x64 separately; unsigned apps need the first-launch guide (D-015).
 - **Windows long paths:** keep install paths short; avoid deep cache paths (a problem already seen with numba caches).

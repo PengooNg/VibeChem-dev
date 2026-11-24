@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Step and phase CI (TECH_STACK.md §8, QA.md §2 L2/L2b).
+# Patterns from scientific-python/cookie and cibuildwheel's example workflow.
+# Job names are the required status checks of the `main` and `phase-*` rulesets:
+# keep them stable, and tell Quan when one changes.
+name: ci
+
+on:
+  pull_request:
+    branches: [main, "phase-*"]
+  push:
+    branches: ["phase-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  check:
+    name: check (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - name: Install Python workspace (builds the native extension)
+        run: uv sync --locked
+      - name: Install app dependencies
+        run: pnpm --dir app install --frozen-lockfile
+      - name: check.py --fast
+        run: uv run python scripts/check.py --fast --verbose
+      - name: Playwright e2e (Electron)
+        if: runner.os != 'Linux'
+        run: pnpm --dir app e2e
+      - name: Playwright e2e (Electron, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm --dir app e2e
+      - name: Catch2 tests (packages/native)
+        run: |
+          cmake -S packages/native -B build/native-tests -DVIBECHEM_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-tests --config Release --parallel
+          ctest --test-dir build/native-tests -C Release --output-on-failure
+
+  wheels:
+    name: wheels (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and test the native wheel
+        uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
+        with:
+          package-dir: packages/native
+          output-dir: wheelhouse
+        env:
+          # One stable-ABI (cp312) wheel per OS, 64-bit only (pyproject: wheel.py-api = "cp312")
+          CIBW_BUILD: "cp312-*"
+          CIBW_SKIP: "*-musllinux_*"
+          CIBW_ARCHS: auto64
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {package}/tests/python -p no:cacheprovider
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-${{ matrix.name }}
+          path: wheelhouse/*.whl
+          retention-days: 14
+
+  sanitizer:
+    name: sanitizer (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Catch2 tests with AddressSanitizer + UndefinedBehaviorSanitizer
+        env:
+          SAN_FLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          cmake -S packages/native -B build/native-asan -DVIBECHEM_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_FLAGS="$SAN_FLAGS" \
+            -DCMAKE_EXE_LINKER_FLAGS="$SAN_FLAGS"
+          cmake --build build/native-asan --parallel
+          ctest --test-dir build/native-asan --output-on-failure

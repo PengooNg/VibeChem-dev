@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# app/electron-builder.yml — desktop installers (TECH_STACK.md §1.5, §8; TASKS.md T0.11).
+# Build order: `uv run python scripts/build_engine.py` (PyInstaller engine → build/engine/),
+# then `pnpm --dir app dist`. Unsigned builds (D-015).
+appId: org.vibechem.app
+productName: VibeChem
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  output: dist
+# The renderer and main process are bundled by electron-vite; node_modules are not needed
+# (every package is a devDependency, so electron-builder copies none).
+files:
+  - out/**
+  - "!**/*.map"
+extraResources:
+  # One-folder PyInstaller engine, started by main/engine.ts packagedEngineCommand().
+  - from: ../build/engine/vibechem-engine
+    to: engine
+  # Reference datasets for the temporary /skeleton/run endpoint (until T4.01).
+  - from: ../testdata
+    to: testdata
+publish: null
+win:
+  target:
+    - target: nsis
+      arch: x64
+mac:
+  identity: null
+  target:
+    - target: dmg
+linux:
+  executableName: vibechem
+  category: Science
+  maintainer: VibeChem contributors
+  target:
+    - target: AppImage
+      arch: x64
+    - target: deb
+      arch: x64

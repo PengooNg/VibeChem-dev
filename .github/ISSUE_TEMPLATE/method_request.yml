@@ -1,0 +1,35 @@
+name: Method request
+description: Ask for a chemometrics method to be added as a block.
+labels: ["enhancement"]
+body:
+  - type: input
+    id: method
+    attributes:
+      label: Method name
+      placeholder: e.g. Extended multiplicative signal correction (EMSC)
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: The paper that defines the method (authors, year, journal, DOI).
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Which spectra (NIR, Raman, FTIR, hyperspectral) and what problem it solves for you.
+    validations:
+      required: true
+  - type: textarea
+    id: implementations
+    attributes:
+      label: Existing implementations
+      description: Libraries or code that already implement it, with their licence if you know it.
+  - type: textarea
+    id: reference-values
+    attributes:
+      label: Published reference values
+      description: A dataset with published results we could test against, if you know one.

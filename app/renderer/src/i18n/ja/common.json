@@ -1,0 +1,53 @@
+{
+  "app": {
+    "name": "VibeChem"
+  },
+  "pipeline": {
+    "skeleton": "ウォーキングスケルトン · データセット → SNV"
+  },
+  "toolbar": {
+    "run": "実行",
+    "running": "実行中…"
+  },
+  "canvas": {
+    "label": "パイプラインキャンバス",
+    "data_here": "データ位置 · {{rows, number}} × {{cols, number}}"
+  },
+  "state": {
+    "idle": "未実行",
+    "running": "実行中",
+    "done": "完了",
+    "error": "エラー"
+  },
+  "blocks": {
+    "data": {
+      "dataset": {
+        "title": "データセット"
+      }
+    },
+    "preprocess": {
+      "snv": {
+        "title": "SNV",
+        "summary": "スペクトルごと",
+        "tip": "標準正規変量変換：各スペクトルを中心化し、標準偏差が1になるようにスケーリングします。NIRスペクトルの散乱やベースラインのずれを除くときに使います。"
+      }
+    }
+  },
+  "datasets": {
+    "gasoline_nir": "ガソリン NIR"
+  },
+  "plots": {
+    "raw": "元のスペクトル",
+    "snv": "SNV 後",
+    "empty": "「実行」を押すとスペクトルが表示されます。",
+    "wavelength_nm": "波長 (nm)",
+    "log_inv_r": "log(1/R)",
+    "snv_value": "SNV 値"
+  },
+  "errors": {
+    "engine": {
+      "unreachable": "エンジンに接続できません。起動しているか確認してください。",
+      "request_failed": "エンジンがエラーを返しました（HTTP {{status}}）。"
+    }
+  }
+}

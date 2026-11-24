@@ -1,0 +1,7 @@
+out/
+# electron-builder output (pnpm dist)
+dist/
+pnpm-lock.yaml
+test-results/
+playwright-report/
+.playwright-cli/

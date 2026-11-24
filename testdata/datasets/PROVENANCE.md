@@ -1,0 +1,33 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+# Reference datasets: provenance
+
+Public datasets with published results, used by reference tests (QA.md §3) and the walking skeleton. Load them with `vibechem_core.reference_datasets.load_reference_dataset(name)`; expected values are in `testdata/expected/`. The data files must not be edited by hand. If one has to change, record the reason and the new SHA-256 here.
+
+**File format** (all datasets): one CSV per dataset, UTF-8, LF line endings, comma separated, one header row. Each row is one spectrum. The metadata columns come first, then one column per spectral axis value; the header of a spectral column is its axis value. Numbers are written so they read back exactly (shortest round-trip form, or the source text unchanged).
+
+| Name | File | Spectra × axis points | Axis | Target | Groups | Licence | Expected values |
+|---|---|---|---|---|---|---|---|
+| `gasoline_nir` | `gasoline_nir.csv` | 60 × 401 | 900–1700 nm, step 2 nm | `octane` (octane number, numeric) | none | factual data from a publication, credited (see below) | `expected/gasoline_nir_pls.json` |
+| `olive_oil_ftir` | `olive_oil_ftir.csv` | 120 × 570 | 798.892–1896.8085 cm⁻¹, step ≈ 1.9295 cm⁻¹ | `country` (Greece, Italy, Portugal, Spain) | `oil` (1–60, two spectra per oil) | CC0-1.0 | `expected/olive_oil_ftir_classification.json` |
+
+## gasoline_nir: NIR spectra and octane numbers of 60 gasoline samples
+- **What:** diffuse reflectance NIR spectra, log(1/R), 900–1700 nm in 2 nm steps (401 points), and the octane number of each sample.
+- **Columns:** `sample` (1–60, the row number in the source), `octane`, then `900` … `1700` (nm).
+- **Original source:** Kalivas JH (1997) Two data sets of near infrared spectra. *Chemometrics and Intelligent Laboratory Systems* 37(2):255–259. doi:10.1016/S0169-7439(97)00038-5.
+- **Copy used:** R package `pls` 2.9-0 from CRAN (`pls_2.9-0.tar.gz`, SHA-256 `fd99cba675b189bda7dbfe56ad2e3c187dc0942a0ac53839dccd64ddfae78e1f`), file `pls/data/gasoline.RData` (SHA-256 `fdfd17ff9a407d9ee04d0c966aab3e4f2e0390c39724cab99334c74b842acbdd`). The `pls` package is GPL-2. Only the measured values are taken; no code from the package is used.
+- **Licence:** treated as factual measurement data published with the Kalivas (1997) paper. It is bundled with credit to the author and the paper; see `THIRD_PARTY.md`. *Open for Quan to confirm.*
+- **Conversion (2026-11-23):** read once with `rdata` 0.11.2 (PyPI, MIT) in a throwaway environment (`uv run --no-project --isolated --with rdata==0.11.2`), so it is not a project dependency. The script checked: 60 × 401 matrix, row names 1–60, column names `900 nm` … `1700 nm`, all values finite. Values are written with Python `repr`, so they read back as the same float64 numbers.
+- **SHA-256 of `gasoline_nir.csv`:** `23bd7656dd4272be2d08d7dac049b7632065a04f9d61b00451f4609dddcef682`
+- **Published results:** Mevik B-H, Wehrens R (2007) The pls package: principal component and partial least squares regression in R. *Journal of Statistical Software* 18(2):1–23. doi:10.18637/jss.v018.i02. Training samples 1–50, test samples 51–60, PLS with 0–10 components, leave-one-out CV: CV and adjCV RMSEP, test RMSEP, % variance explained, test predictions with 2 components. All values are in `expected/gasoline_nir_pls.json`. They were read from the paper's PDF on 2026-11-23.
+- **Sanity check (2026-11-23, not a reference test):** scikit-learn 1.7.2 `PLSRegression(scale=False)` on this file, in a throwaway environment, reproduced every published CV RMSEP (0–10 components), the test RMSEP for 1–10 components, the cumulative X variance and the ten 2-component test predictions, at the printed precision. The only difference was the intercept-only test RMSEP: `pls` uses the test-set mean, so the paper prints 1.5114; predicting the training mean gives 1.5369. See `notes` in the expected file.
+
+## olive_oil_ftir: FTIR spectra of 60 extra virgin olive oils from four countries
+- **What:** mid-infrared (FTIR) spectra, 570 points from 798.892 to 1896.8085 cm⁻¹. Each of 60 authenticated extra virgin olive oils was measured twice (120 spectra). The oils came from the International Olive Oil Council: Greece 10 oils, Italy 17, Portugal 8, Spain 25.
+- **Columns:** `sample` (1–120, the column order in the source), `oil` (the source's "Sample Number", 1–60), `country`, then one column per wavenumber (cm⁻¹, written as in the source).
+- **Source:** GitHub `QIBChemometrics/FTIR-Spectra-Olive-Oils`, commit `3cde178f8e333aa832d31dbc384ade5486a1d7db` (2023-02-04), file `FTIR_Spectra_olive_oils.csv` (SHA-256 `be0ce80e0e8ab74173af7a56df038f7fa5bacf431bd675bc46d0370a9c64bbaf`). Quadram Institute Bioscience (formerly the Institute of Food Research, UK).
+- **Licence:** CC0-1.0 (the repository's `LICENSE` file, SHA-256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
+- **Citation:** Tapp HS, Defernez M, Kemsley EK (2003) FTIR spectroscopy and multivariate analysis can distinguish the geographic origin of extra virgin olive oils. *Journal of Agricultural and Food Chemistry* 51(21):6110–6115. doi:10.1021/jf030232s.
+- **Conversion (2026-11-23):** the source stores one spectrum per column, with header rows "Sample Number:", "Group Code:" and "Wavenumbers"/country. It was transposed to one spectrum per row with the Python standard library; number strings are copied unchanged. The script checked: 120 spectra × 570 points, all values numeric, group codes 1–4 = Greece, Italy, Portugal, Spain (the group code column is dropped because it only repeats `country`), and the two spectra of each oil are adjacent with the same country.
+- **SHA-256 of `olive_oil_ftir.csv`:** `b0f180fbb9598d841724174af79f4083dfbd0490a07815eecb1fabec50e04021`
+- **Published results:** the abstract reports 96 % cross-validation success for PLS followed by distance-based LDA on the PLS scores, and 100 % for GA-selected variables (8 variates) followed by LDA. The CV protocol (number of PLS components, preprocessing, whether both spectra of an oil were left out together) has not been checked against the full paper. Recorded as "published, protocol unverified" with a loose check (CV accuracy ≥ 0.90) in `expected/olive_oil_ftir_classification.json`.
+- **Sanity check (2026-11-23, not a reference test):** scikit-learn 1.7.2 PLS (one-hot classes, no scaling) then LDA on the scores, no preprocessing. Leave-one-oil-out CV gave 0.88–0.93 accuracy for 5–15 components. Leave-one-spectrum-out, which keeps the duplicate spectrum in training, gave 0.93–0.97. The published 96 % may therefore come from a protocol that left out single spectra.
