@@ -6,16 +6,17 @@
 ## Now
 | Phase | Branch | Phase PR | Last merged step | Next step | Updated | Machine |
 |---|---|---|---|---|---|---|
-| 0 | `phase-0` | #8 | T0.13 | T0.14 (👤 PR ready, Quan reviews §4 and merges) | 2026-11-24 | laptop |
+| 0 | `phase-0` | #8 | T0.14 | T0.15 gate (👤 gate report PR ready; Quan does the manual gate and merges `phase-0 → main`) | 2026-11-24 | laptop |
 
 ## Needs you
 <!-- One line per open item: date · step · stop code · exact action · PR. Remove the line when resolved (move it to Stops with "resolved"). -->
-- 2026-11-24 · T0.14 · HUMAN_STEP · review DATA_MODEL.md §4 port types (open points §4.7), then merge the T0.14 PR and run `/phase 0` · #22
+- 2026-11-24 · T0.15 · HUMAN_STEP · Phase 0 gate: install test + QA §9.1 items, risk review, ADR-003…009 decisions, Phase 1 size proposals (see "Phase gates" below); merge #23 into `phase-0`, then merge #8 `phase-0 → main` (merge commit) · #23, #8
 - 2026-11-24 · tools · QUESTION · apply the gate fix patch (false denies on `'\n'` and on commands that only *mention* the gate), install Bun, run gstack `./setup` + config on each machine — see the `[SYNC] Tools + permission gate` PR
 
 ## Step log
 | Date | Step | Result | PR | Size est → actual (cp) | Reuse decision | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-24 | T0.15 | Phase 0 gate report in "Phase gates": exit criteria with CI evidence (installers run 45396637325 green on 3 OS at `40f8ad2`), health summary, QA §11 metrics, estimate vs actual (15/15 in band), reuse ratio 79 %, ADR-003…009 recommendations, QA §9.1 items 1–2 (+ loopback/antivirus check), open risks, proposed Phase 1 size changes (T1.02 and T1.12 → L split, T1.03 and T1.15 → M). No code; Phase 1 already detailed | #23 | S → 1 | build — report assembled from existing logs, nothing to reuse | 👤 Quan: manual gate, ADR decisions, approve/reject size proposals, merge this PR and #8 |
 | 2026-11-24 | T0.14 | DATA_MODEL.md §4 drafted: 7 port types (Spectra, Table, Model, Transform, Folds, Results, ImageCube) with fields and `row_index` provenance; compatibility rules (Spectra→Table and Results→Table views, ImageCube→Spectra unfold; no Model↔Transform, nothing→Folds); port declaration fields `requires`, `rows_match`, `axis_match`, `refit_per_fold`; multi-input layouts (PDS/DS, apply transform, di-PLS, imaging); fold/refit and container semantics; 5 new error codes in §7. No code | #22 | S → 2 | build — design doc, nothing to reuse | 👤 Quan reviews §4 (open points §4.7: Transform shape, refit_per_fold vs container nodes, transfer_samples as Table) and merges |
 | 2026-11-24 | tools (Quan request, not a TASKS step) | Permission gate `scripts/permission_gate.py` (PreToolUse hook, allow/deny only, golden rule "outside the project = deny", CLAUDE.md §13.2) + tests; `ask` rules removed; superpowers plugin (project scope); Impeccable and 7 knowledge-work skills vendored; gstack cloned to `~/.claude/skills/gstack`; CLAUDE.md v0.9, TOOLS.md v0.4, step-runner, QA.md, THIRD_PARTY.md updated | this PR | — | reuse — superpowers, gstack, Impeccable, knowledge-work skills; build — gate (~450 lines stdlib, nothing off the shelf does path-scoped allow/deny) | Impeccable and knowledge-work **plugins** not installed (hooks / remote MCP servers) — skills vendored instead; hamzafarooq deploy-checklist not used (web-app specific); `defaultMode` kept `acceptEdits` so a broken hook falls back to prompts, not to allow-all; the gate protects itself, so its first bug fix is a patch for Quan |
 | 2026-11-24 | T0.13 | `scripts/bench_parallel.py`: loky 3.7 reusable pool (warm workers; initializer imports NumPy, then `threadpool_limits(1, "blas")`), `SeedSequence.spawn` per task, input as memory-mapped `.npy`; 32 ridge-fit tasks on 4,000 x 1,000; configs serial / serial-blas / loky-1,2,4 / loky-4-blas / loky-4-pickled; `loky_freeze_support()` shim for frozen apps; `scripts/build_engine.py --entry/--name` freezes it with the skeleton engine's PyInstaller options; non-required `spike-parallel.yml` on 3 OS (Python + frozen + no-shim control); results and ADR-004 recommendation in `docs/spikes/parallel.md` | #20 | S → 2 | wrap — loky + threadpoolctl (TECH_STACK §1, root dev group for now); joblib rejected (§11 row) | **Speed-up (CI, 2 physical cores / 4 vCPU):** 2 workers 1.77–1.89x, 4 workers 2.11–2.22x on Linux/Windows; macOS 3 cores 1.27–1.35x / 1.65–1.67x; frozen = Python. Cold start 0.17–0.36 s (macOS up to 0.9 s). **Determinism:** every BLAS = 1 config bit-identical to serial across 1/2/4 workers, repeats, memmap vs pickled, frozen vs Python, on all 3 OS; BLAS at default width changes the bits on OpenBLAS (repeatable); bits differ across OS. Oversubscription (4 workers x 4 BLAS threads) 8–10x slower than serial; pickling the 32 MB input per task 13–18 % slower (macOS 5–9x). **Frozen loky fails on all 3 OS without the shim** (`TerminatedWorkerError`) — the engine entry needs it in the executor step (TECH_STACK §12 updated). Accelerate (macOS) is invisible to threadpoolctl. **ADR-004: accept A** with actions: shim in the engine entry + loky pin `<3.8` + frozen executor test in `installers.yml`; fixed BLAS width per task; memmap above a size threshold; `VECLIB_MAXIMUM_THREADS` on macOS. cloudpickle constrained `<3.1.3` (3.1.3 < 2 weeks old) |
@@ -39,6 +40,96 @@
 
 ## Phase gates
 <!-- Gate report per CLAUDE.md §14.4: exit criteria + evidence, health summary, estimate accuracy, reuse ratio, ADR recommendations, QA §9.1 items, open issues, Quan's decision. -->
+
+### Phase 0 gate — Foundations + walking skeleton (prepared 2026-11-24, T0.15)
+**Quan's decision:** _pending_ (install test, QA §9.1 items 1–2, risk review, ADR decisions, merge `phase-0 → main`).
+
+**Exit criteria and evidence**
+| Criterion | Evidence | Met |
+|---|---|---|
+| CI green on 3 OS | Required checks `check (linux/windows/macos)`, `wheels (linux/windows/macos)`, `sanitizer (linux)` green on every step PR since T0.06; `ci` push run on `phase-0` at `cefe138` green (run 45389990577); phase PR #8 at `40f8ad2` green | yes |
+| Skeleton installers run SNV from the canvas | `installers` run 45396637325 on `phase-0` @ `40f8ad2`: build + bundled-engine smoke (`/health` = ready) + packaged-app e2e (Run from `app://vibechem`) green on Windows, macOS, Linux; artifacts `installers-windows/-macos/-linux` (kept until 2026-12-08) | yes in CI — **Quan's own install test pending** |
+| Spikes reported with numbers | `docs/spikes/transport.md` (all < 300 ms, worst 207 ms); `docs/spikes/parallel.md` (2.1–2.2× at 4 workers on 2-core runners, bit-identical to serial) | yes |
+| Conventions, legal files, merge tooling merged | T0.02 (#7) legal/community files, PR template, labels, `merge_step.py`; T0.03 `check.py`; T0.07 QA tooling; tools PR (permission gate) | yes |
+
+**Health summary** (`uv run python scripts/check.py --fast` on `t0-15-phase-gate` = `phase-0` @ `40f8ad2` + docs, Windows laptop)
+```
+VibeChem health summary
+format/lint ........ PASS
+types .............. PASS
+boundaries ......... PASS
+tests .............. PASS  (241 passed, 0 failed) (app: 29 passed, 0 failed)
+reference report ... PASS  (0/0 within tolerance)
+leakage suite ...... SKIP  (arrives in T2.05)
+golden pipeline .... SKIP  (arrives in T2.13)
+coverage ........... PASS  core 99% | engine 98% | native 87%
+```
+Reference report is 0/0 by design: no method blocks with reference tests exist yet (the skeleton SNV is a stand-in; first rows arrive with T1.07).
+
+**Health metrics (QA.md §11)**
+| Metric | Phase 0 value |
+|---|---|
+| Tests passing on 3 OS | yes (CI `check` jobs) |
+| Coverage | core 99 % · engine 98 % · native 87 % · app not measured (`@vitest/coverage-v8` not in TECH_STACK) |
+| Blocks with reference tests / total | 0 / 0 method blocks (skeleton SNV only) |
+| Open S1/S2 bugs | 0 (no open issues) |
+| Nightly pass rate | n/a — `nightly.yml` runs only once it is on `main` (starts after this gate) |
+| Speed-up | 8-core figure n/a (CI runners have 2 physical cores): 1.77–1.89× at 2 workers, 2.11–2.22× at 4 workers (Linux/Windows) |
+| Installer size | Windows NSIS 165 MB · macOS arm64 dmg 177 MB · Linux AppImage 212 MB / deb 172 MB (budget 400 MB) |
+| Estimate accuracy | 15/15 steps inside their size band; 0 over 1.5× (table below) |
+| Reuse ratio | 11/14 of T0.01–T0.14 reuse or wrap (79 %); 3 build (T0.08 loaders, T0.12 benchmark script, T0.14 design doc) |
+| Stops by code | HUMAN_STEP 6 (T0.01, T0.02, T0.06, T0.08, T0.14, T0.15) · MISSING_INPUT 1 (T0.08 datasets) · QUESTION 1 (tools: gate patch, open) |
+
+**Estimate vs actual (checkpoints)**
+| Step | Size | Actual cp | Step | Size | Actual cp |
+|---|---|---|---|---|---|
+| T0.01 | S | 2 | T0.09 | S | 2 |
+| T0.02 | M | 4 | T0.10 | M | 4 |
+| T0.03 | M | 3 | T0.11 | M | 4 |
+| T0.04 | M | 4 | T0.12 | S | 2 |
+| T0.05 | M | 4 | T0.13 | S | 2 |
+| T0.06 | M | 3 | T0.14 | S | 2 |
+| T0.07 | M | 4 | T0.15 | S | 1 |
+| T0.08 | S | 2 | | | |
+Pattern: every S step used 2 checkpoints and 6 of 8 M steps used 4 — estimates hold, but steps land at the top of their band, so any extra scope tips an M step into `ESTIMATE`.
+
+**Proposed size changes for Phase 1** (applied to TASKS.md only after Quan approves)
+| Step | Now | Proposed | Why |
+|---|---|---|---|
+| T1.02 Block contract and registry | M | **L → T1.02a** (Block, Param, ports, metadata, errors, registry) + **T1.02b** (JSON + array state serialisation, scikit-learn wrapper helper) | Six distinct deliverables; T0.x M steps with fewer parts already used 4 cp |
+| T1.03 Parameter schema | S | **M** | Drafts DATA_MODEL §5 *and* implements the export + validation |
+| T1.12 PLS | M | **L → T1.12a** (wrap scikit-learn NIPALS, scores/loadings/coefficients, LV sweep) + **T1.12b** (own SIMPLS + VIP) | Own SIMPLS + VIP each need reference and property tests |
+| T1.15 Reproduce + gate | S | **M** | Reference test, 3-OS wheel build and gate report are three checkpoints |
+| T1.06 JCAMP/SPC | M | M (keep) | Risk is input, not size: needs redistributable sample files from 2 vendors → likely `MISSING_INPUT`; Quan may want to supply files up front |
+Phase 1 steps are already detailed; no other TASKS.md change proposed.
+
+**ADR-003 … ADR-009 — recommendations** (ARCHITECTURE.md §7; all `Proposed`; Quan may set them to `Accepted (provisional — K to confirm)`)
+| ADR | Recommendation | Evidence / condition |
+|---|---|---|
+| ADR-003 Transport HTTP + WS on loopback | **Accept (provisional)**, add the spike's Phase 4 actions (vectorised/native decimation ≤ 50 ms server time; one list column for many lines; density layout into DATA_MODEL §2.8); keep stdio as documented fallback | T0.12: worst 207 ms vs 300 ms target on 3 OS; antivirus/loopback interference to be checked in Quan's install test |
+| ADR-004 Own scheduler over loky | **Accept (provisional)** with the spike's actions: `loky_freeze_support()` in the engine entry, loky `>=3.7,<3.8`, frozen executor test in `installers.yml`, fixed BLAS width per task, memmap above a size threshold, `VECLIB_MAXIMUM_THREADS=1` on macOS, cross-machine checks by tolerance | T0.13: speed-up and bit-identical results on 3 OS and frozen; frozen loky fails without the shim |
+| ADR-005 Schema-driven UI + optional panels | **Accept (provisional)**; review again at the Phase 4 gate (trigger: > 10 % of blocks need custom panels) | No Phase 0 evidence; schema drafted in T1.03, inspector in T4.07 |
+| ADR-006 Project folder + content-addressed cache | **Accept (provisional)** | No Phase 0 evidence; implemented in T2.03/T2.06; nothing in Phase 0 argues against it |
+| ADR-007 No pickle in shareable files | **Accept**, with one clarifying sentence: in-memory pickling of task arguments to loky workers (cloudpickle IPC, never written to a project or shared file) is allowed | Enforced so far by review; T2.03 adds a test scan; T0.13 relies on loky IPC pickling |
+| ADR-008 Walking skeleton first | **Accept** (outcome achieved); action left: remove `/skeleton/run` in T4.01 | T0.09–T0.11: C++ stub → engine → API → canvas → Electron → installers on 3 OS in CI; packaging risks (freeze_support, size, `app://` origin) surfaced and fixed in Phase 0 |
+| ADR-009 Reuse first, build last | **Accept** | Reuse ratio 79 %; estimate accuracy 15/15 inside band; every build was justified in its plan |
+
+**QA.md §9.1 items for this phase (Quan, on his machine, ≈ 30 min)**
+1. **Install** from the latest CI installer artifact of `phase-0`: `gh run download 45396637325 -n installers-windows` (or `-macos` / `-linux`); install (unsigned: SmartScreen → *More info* → *Run anyway*; macOS: right-click → *Open*, and note whether the dmg shows "damaged" — then the ad-hoc `identity: "-"` fallback is needed); the app window must appear within 5 s.
+2. **Run the skeleton pipeline:** click Run on the Dataset → SNV canvas; raw and SNV spectra of `gasoline_nir` (60 × 401) appear. There is no reference-report row for SNV yet (0/0), so the check is visual: SNV curves centred on 0 with similar spread.
+3. While installed: no antivirus or firewall prompt about the loopback engine (ADR-003 fallback trigger); closing the app leaves no `vibechem-engine` process running.
+Findings go into GitHub issues labelled `qa-gate`; S1/S2 block the phase merge.
+
+**Open issues and risks for the risk review** (no open GitHub issues)
+- Gasoline NIR dataset licence "open for Quan to confirm" (PROVENANCE.md) — it now ships inside the installers.
+- Olive oil expected value (Tapp et al. 2003) protocol unverified (T0.08).
+- `engine.listening` start-up line format awaiting Quan's confirmation (T0.11, DATA_MODEL §1).
+- Engine survives a hard-killed Electron main process; no restart after engine crash (Phase 4 T4.11 / Phase 5 T5.01).
+- macOS `identity: null` may give a "damaged" dmg (item 1 above).
+- DATA_MODEL §4 open points §4.7 (Transform shape, `refit_per_fold` vs container nodes, `transfer_samples` as Table) — decide before T2.01.
+- Permission-gate fix patch + Bun/gstack setup still with Quan (Needs you).
+- Small debts: `cloudpickle<3.1.3` constraint to drop; CITATION.cff lacks ORCID/DOI; ui-ux-pro-max vendored commit not in THIRD_PARTY.md; `errors.auth.*`/`errors.origin.*` keys missing in app locale files; check.py `UnicodeEncodeError` on cp932 consoles (workaround `PYTHONIOENCODING=utf-8`); TECH_STACK names VS 2022, laptop uses VS 2026; app coverage not measured; no clang-tidy job yet (T3.02).
+- K review backlog: 13 rows open (T0.01–T0.14 + tools), all for K at demo v0.
 
 ## K review backlog (until demo v0 = Beta)
 | Step | PR | Area | What K should check | Done |

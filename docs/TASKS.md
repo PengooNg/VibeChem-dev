@@ -44,7 +44,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.12 Spike: transport | [ ] T1.12 PLS | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [ ] T1.13 PLS-DA | [ ] T2.13 Golden pipeline |
 | [x] T0.14 Port-type design 👤 | [ ] T1.14 Metrics | [ ] T2.14 Phase gate 👤 |
-| [ ] T0.15 Phase gate 👤 | [ ] T1.15 Reproduce published result + gate 👤 | |
+| [x] T0.15 Phase gate 👤 | [ ] T1.15 Reproduce published result + gate 👤 | |
 
 Phases 3–7: outlines at the end of this file; their status rows are added when they are detailed.
 
