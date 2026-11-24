@@ -31,7 +31,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
-| [x] T0.01 CI smoke 👤 | [ ] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
+| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
 | [x] T0.02 Repo skeleton + legal + labels 👤 | [ ] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
 | [x] T0.03 Python workspace + check.py | [ ] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
 | [x] T0.04 App workspace | [ ] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
