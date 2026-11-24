@@ -1,6 +1,53 @@
 {
   "app": {
-    "name": "VibeChem",
-    "tagline": "Chemometrics for vibrational spectra"
+    "name": "VibeChem"
+  },
+  "pipeline": {
+    "skeleton": "Walking skeleton · Dataset → SNV"
+  },
+  "toolbar": {
+    "run": "Run",
+    "running": "Running…"
+  },
+  "canvas": {
+    "label": "Pipeline canvas",
+    "data_here": "Data here · {{rows, number}} × {{cols, number}}"
+  },
+  "state": {
+    "idle": "Not run yet",
+    "running": "Running",
+    "done": "Done",
+    "error": "Error"
+  },
+  "blocks": {
+    "data": {
+      "dataset": {
+        "title": "Dataset"
+      }
+    },
+    "preprocess": {
+      "snv": {
+        "title": "SNV",
+        "summary": "per spectrum",
+        "tip": "Standard normal variate: centres each spectrum and scales it to unit standard deviation. Use it to remove scatter and baseline offsets in NIR spectra."
+      }
+    }
+  },
+  "datasets": {
+    "gasoline_nir": "Gasoline NIR"
+  },
+  "plots": {
+    "raw": "Raw spectra",
+    "snv": "After SNV",
+    "empty": "Press Run to see the spectra.",
+    "wavelength_nm": "Wavelength (nm)",
+    "log_inv_r": "log(1/R)",
+    "snv_value": "SNV value"
+  },
+  "errors": {
+    "engine": {
+      "unreachable": "Cannot reach the engine. Check that it is running.",
+      "request_failed": "The engine returned an error (HTTP {{status}})."
+    }
   }
 }
