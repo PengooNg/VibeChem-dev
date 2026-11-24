@@ -18,6 +18,14 @@ Libraries installed as dependencies (PyPI, npm) are not listed here; they are de
 
 None yet.
 
+### Pinned port sources (no code copied yet)
+Quasar is the first port source for spectroscopy algorithms and readers (ARCHITECTURE.md ADR-009, port-max). These commits were inventoried in T1.00 (`docs/TECH_STACK.md` §11.1); every later port names its upstream path and one of these commits in its source header and adds a row to the table above. A port from a newer commit updates the pin here in the same PR.
+
+| Source | Commit | Licence | Notes |
+|---|---|---|---|
+| https://github.com/quasars/orange-spectroscopy | `df9246d7d6d7537b18ef5852e30c6ce212ebc92c` (release 0.9.4, 2026-11-20) | GPL-3.0-or-later (Copyright: Canadian Light Source, Biolab UL, Soleil, Elettra and contributors) | Code it vendors keeps its own licence and must be credited too: `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, commit f35b90f), `utils/specio/` (BSD-3, Guillaume Lemaitre 2017 + Diamond Light Source), `utils/pymca5/` (MIT, ESRF), `utils/skimage/` (BSD-3, scikit-image 0.25.2), `preprocess/als/baseline.py` (LGPL-3.0-or-later, M. Wieser / irfpy — not ported, wrapped `pybaselines` instead) |
+| https://github.com/biolab/orange3 | `562b03c91319acd75282799edfd33bd01231bef6` (2026-11-20) | GPL-3.0+ (Copyright (c) 2016 Bioinformatics Laboratory, University of Ljubljana, Faculty of Computer and Information Science) | Non-widget code only, plus the compute function `permutation()` in `Orange/widgets/evaluate/owpermutationplot.py` |
+
 ## Bundled assets (fonts, icons, data)
 
 | Component | Source | Version / commit | Licence | Location |
