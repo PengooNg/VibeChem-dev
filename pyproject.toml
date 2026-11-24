@@ -12,6 +12,7 @@ dev = [
     "hypothesis",
     "import-linter",
     "pre-commit",
+    "pyinstaller>=6.21,<6.22",
     "pyright[nodejs]",
     "pytest",
     "pytest-cov",

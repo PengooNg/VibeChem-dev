@@ -9,12 +9,17 @@ Electron main process (DATA_MODEL.md §1 "Start-up"):
 
 The token is generated per launch and never written to disk. ``VIBECHEM_DEV=1``
 enables dev mode (Vite dev server origin allowed).
+
+This file is also the entry script of the PyInstaller engine bundle that the desktop
+app ships (``scripts/build_engine.py``, TASKS.md T0.11), so it calls
+``multiprocessing.freeze_support()`` first (TECH_STACK.md §12).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 import socket
 import sys
@@ -70,4 +75,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # A frozen bundle re-runs this script in spawned worker processes; let them start.
+    multiprocessing.freeze_support()
     sys.exit(main())
