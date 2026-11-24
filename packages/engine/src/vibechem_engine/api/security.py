@@ -34,7 +34,10 @@ __all__ = [
 ]
 
 APP_ORIGIN = "app://vibechem"
-"""Origin of the packaged app. Placeholder until T0.11 fixes the exact value."""
+"""Origin of the built renderer, served by Electron main from a custom scheme (T0.11).
+
+Must equal ``APP_ORIGIN`` in ``app/main/appOrigin.ts``.
+"""
 
 DEV_ORIGIN_REGEX = r"http://localhost:\d+"
 """Vite dev server origin, allowed only in dev mode (``VIBECHEM_DEV=1``)."""
