@@ -51,6 +51,12 @@ jobs:
         run: pnpm --dir app install --frozen-lockfile
       - name: check.py --fast
         run: uv run python scripts/check.py --fast --verbose
+      - name: Playwright e2e (Electron)
+        if: runner.os != 'Linux'
+        run: pnpm --dir app e2e
+      - name: Playwright e2e (Electron, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm --dir app e2e
       - name: Catch2 tests (packages/native)
         run: |
           cmake -S packages/native -B build/native-tests -DVIBECHEM_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release

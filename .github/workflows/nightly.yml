@@ -3,7 +3,7 @@
 # Skeleton from T0.06: full check.py (incl. slow tests) on Windows, macOS arm64,
 # macOS Intel and Linux; Electron e2e tests on Windows, macOS and Linux (T0.10). Later steps
 # add their jobs here: installers incl. macOS Intel (T0.11), benchmarks + determinism 1 vs N
-# cores (T2.12). A manual run can test one branch instead (input `ref`, e.g. a step branch).
+# cores (T2.12). ci.yml also runs the e2e tests on every PR (job `check`).
 # Any failure opens (or comments on) one `S2` issue.
 name: nightly
 
@@ -11,11 +11,6 @@ on:
   schedule:
     - cron: "17 19 * * *" # 19:17 UTC = 04:17 JST
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "Test only this branch (default: main and the newest phase-* branch)"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -35,12 +30,7 @@ jobs:
       - id: pick
         env:
           GH_TOKEN: ${{ github.token }}
-          REF: ${{ inputs.ref }}
         run: |
-          if [ -n "$REF" ]; then
-            echo "refs=[\"$REF\"]" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           # Newest phase-* branch = highest phase number
           phase=$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100" --paginate \
             --jq '.[].name | select(startswith("phase-"))' | sort -V | tail -n 1)
@@ -130,8 +120,7 @@ jobs:
   report:
     name: open S2 issue on failure
     needs: [refs, check, e2e]
-    # A manual run of one branch (input `ref`) reports in its own run, not as an S2 issue.
-    if: failure() && inputs.ref == ''
+    if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
