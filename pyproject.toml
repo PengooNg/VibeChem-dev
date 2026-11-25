@@ -93,10 +93,10 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "core"
-name = "vibechem_core never imports vibechem_engine or fastapi (TECH_STACK.md 3.1)"
+name = "vibechem_core never imports vibechem_engine, fastapi or pyarrow (TECH_STACK.md 3.1)"
 type = "forbidden"
 source_modules = ["vibechem_core"]
-forbidden_modules = ["vibechem_engine", "fastapi"]
+forbidden_modules = ["vibechem_engine", "fastapi", "pyarrow"]
 
 [[tool.importlinter.contracts]]
 id = "native"

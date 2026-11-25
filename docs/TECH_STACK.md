@@ -28,9 +28,9 @@
 | numpy | 2.5.x | Arrays, linear algebra |
 | scipy | 1.18.x | Signal processing, statistics, optimisation |
 | scikit-learn | 1.9.x | PLS, CV splitters, reference implementations, some models |
-| pyarrow | latest | CSV/Parquet reading, Arrow IPC to the UI |
+| pyarrow | latest | Parquet, Arrow IPC to the UI (engine only; CSV/TSV is read in core with stdlib `csv` + NumPy since T1.05) |
 | pandas | 2.x (latest) | Excel/CSV import convenience only; drop if installer size budget requires (§12) |
-| openpyxl | latest | Excel import/export |
+| openpyxl | 3.1.x | Excel import/export (`vibechem-core` runtime dependency since T1.05, imported lazily in `vibechem_core/io/table.py`) |
 | jcamp | latest | JCAMP-DX reader (wrapped behind our reader interface) |
 | loky | latest | Process-pool executor (ADR-004) |
 | threadpoolctl | ≥ 3.5 | BLAS thread limits per worker |
@@ -174,7 +174,7 @@ pengoo is **not** stored in this repository. When a step ports pengoo code, Quan
 ### 3.1 Dependency boundaries (enforced by import-linter in CI)
 | Package | May import | Must never import |
 |---|---|---|
-| `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, `vibechem_native` (optional) | `vibechem_engine`, fastapi, anything UI |
+| `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, file-format libraries listed in §1.2/§11 (openpyxl, jcamp; imported only inside `vibechem_core/io/`, decision by Quan in T1.05), `vibechem_native` (optional) | `vibechem_engine`, fastapi, pyarrow (T1.05: tables in core are column name → NumPy array mappings; the engine converts to Arrow), anything UI |
 | `vibechem_engine` | `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow | renderer code |
 | `vibechem_native` (Python wrapper) | numpy, `vibechem_core` reference functions (for fallback) | `vibechem_engine` |
 | `app/renderer` | engine **only via HTTP/WS API** | Node.js APIs (sandboxed) |
@@ -267,6 +267,7 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port) — T1.00: EMSC, spike removal, interpolation, rubber-band, normalisations, T↔A, PCA denoising → port (Phase 6); ALS/arPLS/airPLS → wrap `pybaselines` instead; full list in §11.1 |
 | Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) — T1.00b: pengoo provided (local `pengoo/`, git-excluded); per-function decisions for preprocessing, metrics, CV, LV rules, splits, grid search, variable selection and EDA in §11.2 |
 | Wavelet denoising (P1, pengoo `wavelet_denoise`) | `PyWavelets` | MIT | DWT/IDWT kernels | candidate (T1.00b; pengoo depends on it; check Python 3.14 wheels when the P1 step starts) |
+| CSV/TSV and Excel import (T1.05) | stdlib `csv` + NumPy; `openpyxl` 3.1.5 (+ `et-xmlfile`); pyarrow CSV; pandas | PSF / MIT / Apache-2.0 / BSD-3 | Parsing, quoting, delimiter sniffing; xlsx cells | approved (T1.05: stdlib `csv` + NumPy for text tables, `openpyxl` as a `vibechem-core` runtime dependency read with `read_only=True, data_only=True, keep_links=False`; pyarrow CSV rejected by Quan — core stays free of pyarrow; pandas not needed; no `defusedxml` — the bundled expat limits entity expansion, covered by a malformed-file test) |
 | JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved |
 | SPC (T1.06) | Existing SPC readers on PyPI/GitHub — search first | to check | Reader | candidate (T1.00: two options for T1.06 — **port** the SPC reader vendored in orange-spectroscopy `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, pure `struct` + NumPy; recommended), or `spc-io` (MIT; needs pandas + pydantic; last release 2025-04, borderline maintenance); `spc_spectra` rejected: last release 2018) |
 | Quasar / Orange port source (T1.00, ADR-009 port-max) | `quasars/orange-spectroscopy` + non-Qt `biolab/orange3` | GPL-3.0-or-later / GPL-3.0+ | Preprocessing, readers, interferogram FFT, permutation test, PLS diagnostics | **port source** (never a dependency); per-module decisions in §11.1, commits pinned in `THIRD_PARTY.md` |

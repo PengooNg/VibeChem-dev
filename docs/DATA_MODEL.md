@@ -247,7 +247,7 @@ Response:
   "warnings": [ { "code": "IMPORT_DUPLICATE_SAMPLE_IDS", "params": { "count": 3 } } ]
 }
 ```
-`format_hint`: `auto` | `csv` | `tsv` | `xlsx` | `jcamp` | `spc`. Multiple paths are concatenated (Multifile behaviour); axis mismatch → warning + `needs_interpolation: true`.
+`format_hint`: `auto` | `csv` | `tsv` | `xlsx` | `jcamp` | `spc`. Role suggestions and parsing rules for CSV/TSV/Excel (comment lines, headerless axis + spectra files, the spectral column run, the axis-unit guess) are documented in `vibechem_core/io/table.py` (T1.05); `axis_unit` is a guess the user confirms at commit. Multiple paths are concatenated (Multifile behaviour); axis mismatch → warning + `needs_interpolation: true`.
 
 **Step 2 — `POST /projects/{project_id}/imports/{import_id}/commit`** → `201` dataset
 ```json
@@ -525,7 +525,7 @@ Seven types in v1. Names are case-sensitive and appear as `port_type` in `/block
 | `name` | Carries | Python object (core) | `shape_icon` (UI_GUIDE §6) | `description_key` |
 |---|---|---|---|---|
 | `Spectra` | n samples × p variables on one spectral axis, plus sample annotations | `SpectralDataset` | `circle` | `ports.spectra` |
-| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | `pyarrow.Table` wrapper | `circle` | `ports.table` |
+| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | mapping column name → 1-D NumPy array, all of one length (no pyarrow in core, T1.05); the engine converts it to an Arrow table | `circle` | `ports.table` |
 | `Model` | Fitted state of a predictive block (regression, classification, projection, one-class) | `ModelState` | `diamond` | `ports.model` |
 | `Transform` | Fitted state of a non-predictive block that maps spectra to spectra (scaler, MSC reference, PDS/DS matrix, EPO projection) | `TransformState` | `diamond_outline` *(proposed; add to UI_GUIDE §6)* | `ports.transform` |
 | `Folds` | Row-index sets for validation: k folds, repeats, or one train/test hold-out | `FoldSet` | `triangle` | `ports.folds` |
@@ -741,8 +741,10 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `PROJECT_PATH_NOT_EMPTY` | 409 | `engine/project` | Create into a non-empty folder |
 | `PROJECT_PATH_NOT_WRITABLE` | 422 | `engine/project` | No write permission |
 | `PROJECT_ALREADY_OPEN` | 409 | `engine/project` | Another project is open |
-| `IMPORT_FORMAT_UNKNOWN` | 422 | `core/io` | File type not recognised |
-| `IMPORT_DUPLICATE_SAMPLE_IDS` | warning | `core/io` | Repeated sample IDs |
+| `IMPORT_FORMAT_UNKNOWN` | 422 | `core/io` | File type not recognised (`params.format`: the extension or `format_hint`) |
+| `IMPORT_FILE_INVALID` | 422 | `core/io` | The file cannot be read as a table: `params.reason` ∈ `encoding` (not UTF-8), `empty`, `no_spectra` (headerless file with one column), `row_length` (+ `row`, `expected`, `found`), `duplicate_column` (+ `column`), `corrupt` (unreadable Excel file) *(proposed T1.05)* |
+| `IMPORT_DUPLICATE_SAMPLE_IDS` | warning | `core/io` | Repeated sample IDs (`params.count`: number of IDs that occur more than once) |
+| `IMPORT_NON_NUMERIC_VALUES` | warning | `core/io` | Spectral cells that are empty or not finite numbers, read as NaN (`params.count`, `params.column`: the first such column) *(proposed T1.05)* |
 | `DATASET_IN_USE` | 409 | `engine/project` | Dataset referenced by a pipeline |
 | `PIPELINE_REVISION_CONFLICT` | 409 | `engine/api` | Stale `If-Match` revision |
 | `PIPELINE_PORT_TYPE_MISMATCH` | 422 | `engine/graph` | Incompatible edge |
