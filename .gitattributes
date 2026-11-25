@@ -16,6 +16,10 @@
 *.xlsx binary
 *.xls binary
 *.spc binary
+*.spa binary
+*.sp binary
+*.wdf binary
+*.0 binary
 *.parquet binary
 *.arrow binary
 *.npy binary

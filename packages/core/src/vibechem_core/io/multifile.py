@@ -9,7 +9,7 @@ file-name column, and the union of the spectral axes.
 Rules
 -----
 - Format from ``format_hint``, else from the extension: ``.jdx``, ``.dx``,
-  ``.jcamp`` → JCAMP-DX; ``.spc`` → SPC; anything else → ``read_table``
+  ``.jcamp`` → JCAMP-DX; ``.spc`` → SPC; ``.spa`` → OMNIC SPA; anything else → ``read_table``
   (CSV/TSV/Excel; it rejects unknown extensions with ``IMPORT_FORMAT_UNKNOWN``).
 - One path → that reader's result, unchanged.
 - Several paths → the rows of every file in path order and a text column
@@ -40,6 +40,7 @@ from numpy.typing import NDArray
 
 from vibechem_core.errors import VibeChemError
 from vibechem_core.io.jcamp import read_jcamp
+from vibechem_core.io.spa import read_spa
 from vibechem_core.io.spc import read_spc
 from vibechem_core.io.table import (
     IMPORT_AXIS_MISMATCH,
@@ -59,6 +60,7 @@ SOURCE_FILE = "source_file"
 
 _JCAMP_EXTENSIONS = {".jdx", ".dx", ".jcamp"}
 _SPC_EXTENSIONS = {".spc"}
+_SPA_EXTENSIONS = {".spa"}
 
 
 def read_file(path: str | Path, format_hint: str = "auto") -> TableImport:
@@ -69,6 +71,8 @@ def read_file(path: str | Path, format_hint: str = "auto") -> TableImport:
         return read_jcamp(path)
     if format_hint == "spc" or (format_hint == "auto" and ext in _SPC_EXTENSIONS):
         return read_spc(path)
+    if format_hint == "spa" or (format_hint == "auto" and ext in _SPA_EXTENSIONS):
+        return read_spa(path)
     return read_table(path, format_hint)
 
 

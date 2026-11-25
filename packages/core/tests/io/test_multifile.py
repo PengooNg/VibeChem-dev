@@ -40,7 +40,12 @@ def codes(warnings: tuple[ImportWarning, ...]) -> list[str]:
 
 @pytest.mark.parametrize(
     ("name", "fmt"),
-    [("ethanol2.jdx", "jcamp"), ("Ft-ir.spc", "spc"), ("peach_juice.dpt", "tsv")],
+    [
+        ("ethanol2.jdx", "jcamp"),
+        ("Ft-ir.spc", "spc"),
+        ("peach_juice.dpt", "tsv"),
+        ("sample1.spa", "spa"),
+    ],
 )
 def test_read_file_dispatches_by_extension(name: str, fmt: str) -> None:
     assert read_file(DATA / name).detected_format == fmt
