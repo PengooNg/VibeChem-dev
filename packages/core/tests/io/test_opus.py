@@ -12,6 +12,7 @@ brukeropus, so neither source shares its code.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -149,9 +150,41 @@ def test_series_only_file_is_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert exc.value.params == {"reason": "unsupported", "feature": "opus_series"}
 
 
+def test_auto_skips_interferograms_and_phases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    spectrum = SimpleNamespace(x=[1.0, 2.0], y=[3.0, 4.0], params=SimpleNamespace(dxu="WN"))
+
+    class File:
+        data_keys = ["igsm", "phsm", "sm"]  # noqa: RUF012
+        series_keys: list[str] = []  # noqa: RUF012
+        params = SimpleNamespace(snm="")
+        sm = spectrum
+
+        def __bool__(self) -> bool:
+            return True
+
+    def fake_read(_path: str) -> File:
+        return File()
+
+    monkeypatch.setattr("brukeropus.file.read_opus", fake_read)
+    path = tmp_path / "s.0"
+    path.write_bytes(b"")
+    _, y = matrix(read_opus(path))
+    np.testing.assert_array_equal(y, [[3.0, 4.0]])
+
+
 @pytest.mark.parametrize(
     ("ext", "expected"),
-    [(".0", True), (".12", True), (".9", True), (".", False), (".0a", False), (".spa", False)],
+    [
+        (".0", True),
+        (".12", True),
+        (".9", True),
+        (".", False),
+        (".0a", False),
+        (".spa", False),
+        (".²", False),  # superscript two: a Unicode digit, not ASCII
+    ],
 )
 def test_opus_extensions(ext: str, expected: bool) -> None:
     assert is_opus_extension(ext) is expected

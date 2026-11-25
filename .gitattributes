@@ -19,7 +19,8 @@
 *.spa binary
 *.sp binary
 *.wdf binary
-*.0 binary
+*.[0-9] binary
+*.[0-9][0-9] binary
 *.parquet binary
 *.arrow binary
 *.npy binary

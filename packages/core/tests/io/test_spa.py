@@ -130,8 +130,17 @@ def test_extended_directory(tmp_path: Path) -> None:
     np.testing.assert_array_equal(y[0], [1.0, 2.0])
 
 
+@pytest.mark.parametrize(("code", "unit"), [(1, "cm-1"), (32, "cm-1"), (3, "nm"), (4, "um")])
+def test_unit_codes(tmp_path: Path, code: int, unit: str) -> None:
+    # Raman shift (32) on an increasing axis below 2600 would be guessed as nm.
+    table = read_spa(write(tmp_path, spa_file([1.0, 2.0], 200.0, 2000.0, x_unit=code)))
+    spectral = table.suggested_roles["spectral_columns"]
+    assert spectral is not None
+    assert spectral["axis_unit"] == unit
+
+
 def test_empty_title_uses_file_name_and_other_unit_is_guessed(tmp_path: Path) -> None:
-    content = spa_file([1.0, 2.0], 1100.0, 1200.0, title=b"", x_unit=3)
+    content = spa_file([1.0, 2.0], 1100.0, 1200.0, title=b"", x_unit=7)
     table = read_spa(write(tmp_path, content, "my_spectrum.spa"))
     assert table.columns["title"].tolist() == ["my_spectrum"]
     spectral = table.suggested_roles["spectral_columns"]

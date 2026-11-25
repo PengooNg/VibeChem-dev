@@ -6,7 +6,7 @@
 # Original copyright: Canadian Light Source, Biolab UL, Soleil, Elettra and contributors.
 # Changes: byte parsing only; Orange Table replaced by `spectra_import`; bounds checks; a data
 # section whose length differs from the header's point count is corrupt (upstream: index axis);
-# title and axis unit read from the file.
+# title read from the file; axis unit codes from spectrochempy's documentation of the format.
 """Thermo OMNIC SPA reader (DATA_MODEL.md §2.5, ``format_hint`` ``spa``).
 
 Rules
@@ -21,8 +21,9 @@ Rules
   ``n`` values, is ``corrupt``.
 - Text column ``title``: the spectrum title (bytes 30–285, Latin-1), or the
   file name without extension when it is empty.
-- Axis unit from the header's x-unit code: 1 → ``cm-1``; others → guessed as
-  for CSV.
+- Axis unit from the header's x-unit byte (offset 8; codes as documented by
+  spectrochempy's OMNIC reader): 1 (wavenumber) and 32 (Raman shift) →
+  ``cm-1``, 3 → ``nm``, 4 → ``um``; others → guessed as for CSV.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from vibechem_core.io.table import IMPORT_FILE_INVALID, TableImport, spectra_imp
 
 _DIRECTORY = 304
 _HEADER_SECTION, _DATA_SECTION = 2, 3
-_UNITS = {1: "cm-1"}
+_UNITS = {1: "cm-1", 3: "nm", 4: "um", 32: "cm-1"}
 
 
 def read_spa(path: str | Path) -> TableImport:
@@ -66,7 +67,8 @@ def read_spa(path: str | Path) -> TableImport:
         raise _invalid("corrupt")
     # Step 2: spectrum header: point count, x unit, first and last x.
     offset, _ = sections[_HEADER_SECTION]
-    _, n, x_unit, _, first, last = struct.unpack_from("<iiiiff", _take(content, offset, 24))
+    # int32 data type, int32 n, uint8 x unit, 7 bytes (incl. the y unit), float32 first, last
+    _, n, x_unit, first, last = struct.unpack_from("<iiB7xff", _take(content, offset, 24))
     # Step 3: intensities, exactly n float32 values.
     offset, length = sections[_DATA_SECTION]
     if n < 1 or length != 4 * n:
