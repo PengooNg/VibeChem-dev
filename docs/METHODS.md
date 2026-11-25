@@ -45,9 +45,11 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 | N7 | Slope | **b in y = a + b·ŷ** (reference regressed on prediction) | ISO 12099:2010 §5.4.1 (checked in the preview). The predicted-vs-measured plot shows ŷ against y, so the plot's visual slope is the reverse regression; the UI labels it. |
 | N8 | RPD and RPIQ denominator (pengoo: RPD = SD/RMSE) | **SEP** for both, i.e. RPD = SD(y)/SEP, RPIQ = (Q3 − Q1)/SEP | Fearn 2002 and Bellon-Maurel et al. 2010 define the ratios with SEP (*to verify in both papers*). If Quan prefers RMSE (pengoo, many soil papers), change both together. |
 | N9 | Repeated k-fold RMSECV | pooled RMSECV **per repeat**, then mean and SD over repeats | One prediction per sample per repeat; pooling across repeats would count samples several times. |
+| N10 | Split / CV when the dataset has groups but the scheme ignores them | warning `VALIDATION_GROUPS_IGNORED` (already in DATA_MODEL.md §7) | Replicates in both training and validation inflate results (Esbensen & Geladi 2010). |
 | N11 | MSC with slope bᵢ ≤ 0 | node error, proposed code `BLOCK_MSC_SLOPE_INVALID` | Dividing by a negative or zero slope flips or explodes the spectrum; it means the reference does not fit that spectrum. |
-| N12 | Savitzky–Golay default window | **11 points**, polyorder 2 | Common starting value; no paper prescribes one. Quan may prefer a different default. |
-| N10 | Group-aware split / CV when the dataset has groups but the scheme ignores them | warning `VALIDATION_GROUPS_IGNORED` (already in DATA_MODEL.md §7) | Replicates in both training and validation inflate results (Esbensen & Geladi 2010). |
+| N12 | Defaults with no source: SG window 11 / polyorder 2; random split test fraction 0.25, 5 y-bins; k-fold k = 10; repeats 5 | as listed (marked *to confirm* in the entries) | Common starting values; no paper prescribes them. |
+| N13 | SPXY with all y equal | node error, proposed code `BLOCK_CONSTANT_RESPONSE` | max d_y = 0 makes the y term undefined; a silent fall-back to Kennard–Stone would hide it. |
+| N14 | New error codes | `BLOCK_MISSING_VALUES`, `BLOCK_AXIS_NOT_UNIFORM`, `BLOCK_MSC_SLOPE_INVALID`, `BLOCK_CONSTANT_RESPONSE` are **proposals only**; each implementing step adds its code to DATA_MODEL.md §7 in its own PR | CLAUDE.md §4: codes are added to DATA_MODEL.md first, not invented in code. This PR does not change DATA_MODEL.md. |
 
 ---
 
@@ -124,7 +126,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Definition.** Fit a polynomial of order P by least squares in a moving window of w points; the output is the fitted value (smoothing) or its d-th derivative at the window centre.
 - **Formula.** Output = convolution of each spectrum with the Savitzky–Golay coefficients for (w, P, d), times d!/Δλ^d for derivatives, where Δλ is the signed axis step (Q3). Edges by `mode` (Q2).
 - **Steps.** 1 check the axis is uniform (N4) and take Δλ = λ₂ − λ₁ · 2 validate w, P, d · 3 one `savgol_filter` call on the whole matrix (`axis=1`) with `delta = Δλ`.
-- **Parameters.** `window` w: odd, 3 ≤ w ≤ p, default 11 *(to confirm)*; `polyorder` P: 0 ≤ P < w, default 2; `deriv` d: 0 ≤ d ≤ P, default 0; `mode` ∈ {`interp`, `nearest`, `mirror`, `constant`, `wrap`}, default `interp`.
+- **Parameters.** `window` w: odd, 3 ≤ w ≤ p, default 11 (*to confirm*, N12); `polyorder` P: 0 ≤ P < w, default 2; `deriv` d: 0 ≤ d ≤ P, default 0; `mode` ∈ {`interp`, `nearest`, `mirror`, `constant`, `wrap`}, default `interp`.
 - **Edge cases.** w > p → `BLOCK_PARAM_INVALID` (`interp` needs w ≤ p). Even w → `BLOCK_PARAM_INVALID` (reason `odd`). Non-uniform axis → proposed `BLOCK_AXIS_NOT_UNIFORM` (N4). Derivative units: signal unit per axis unit to the power d.
 - **Reference values.** Coefficients published by Savitzky & Golay 1964 with the corrections of Steinier et al. 1972: 5-point quadratic smoothing (−3, 12, 17, 12, −3)/35 and 5-point first derivative (−2, −1, 0, 1, 2)/10 (interior points, `T-exact`). A polynomial of order ≤ P is reproduced exactly, and its d-th derivative equals the analytic one in physical units (`T-exact`, any mode on interior points, `interp` everywhere).
 - **Tolerance.** `T-exact` against the published coefficients; `T-lib` against `savgol_filter`.
@@ -169,3 +171,109 @@ All column scalings are **fitted**: x̄ⱼ and sⱼ come from the training rows 
 - **Definition.** The same fitted scalings applied to y; the block also offers the inverse transform, which the model applies to predictions before any metric, so metrics are in original Y units (replaces pengoo's hand-passed `y_sdev`).
 - **Reference values.** Round trip y → scaled → inverse = y (`T-exact`); metrics of a model trained on scaled y equal those of the same model with the scaling folded in.
 - **Note.** For PLS1, Y scaling does not change predictions (PLS is scale-equivariant in y). For PLS2 it changes the model and VIP (Q9).
+
+---
+
+## 4. Splits
+Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `train` and `test` spectra (DATA_MODEL.md §4.6). They select rows only; nothing is fitted on test rows. The test fraction (or count) is a parameter; selection methods below return an **order**, and the first n_train rows of the order form the training set.
+
+<a id="random-split"></a>
+### Random and stratified split (`split.random`) · T1.10
+- **Definition.** Draw the test rows at random; optionally stratified by class or by y quantile bins, so both sets cover the same range.
+- **Steps.** 1 strata = classes, or y binned into `n_bins` quantile bins (default 5, *to confirm*), or none · 2 within each stratum draw the test share with the Generator · 3 union.
+- **Parameters.** `test_fraction` (0 < f < 1, default 0.25 *to confirm*) or `n_test`; `stratify` ∈ {none, classes, y}; `rng`.
+- **Edge cases.** Fewer than 2 rows in a stratum → that stratum goes to training and a warning is logged. Groups present → group-aware selection (see below) or `VALIDATION_GROUPS_IGNORED` warning (N10).
+- **Reference values.** Properties: train ∪ test = all rows, disjoint, sizes as requested (± 1 per stratum), stratum shares kept; same seed → same split.
+- **Tolerance.** Exact.
+- **Implementation.** Wrap scikit-learn `train_test_split` (seed drawn from the Generator).
+
+<a id="kennard-stone"></a>
+### Kennard–Stone (`split.kennard_stone`) · T1.10
+- **Definition.** Select training samples that cover the X space uniformly: start with the two most distant samples, then repeatedly add the sample whose distance to its nearest selected sample is largest.
+- **Formula.** d(i, j) = ‖zᵢ − zⱼ‖₂, z = raw X rows (default) or PCA scores (Q5). Next k = argmax_{k ∉ S} min_{s ∈ S} d(k, s).
+- **Steps.** 1 distance space z (raw X, or PCA scores fitted on all rows of the split input — the split is a design step, not a model fit) · 2 distance matrix · 3 start pair = argmax d (N5) · 4 max–min loop until all rows are ordered · 5 first n_train rows of the order → training.
+- **Parameters.** `test_fraction`/`n_test`; `space` ∈ {`x`, `pca`}, default `x`; `n_components` or `variance` (for `pca`, default 0.99 as in pengoo).
+- **Edge cases.** Ties → lowest index. Duplicate spectra (d = 0) are fine. n ≤ 2 → order is the row order. Memory: the n × n matrix (n = 5 000 → 200 MB in float64) — above a size threshold compute the min-distance vector incrementally (O(n) memory).
+- **Reference values.** Hand-worked example of 6 points in 2-D with a unique order; cross-check with the `kennard-stone` package (same start rule, N5) on the gasoline data. Kennard & Stone 1969 printed example *to verify* as an extra reference.
+- **Tolerance.** Exact (orders equal).
+- **Implementation.** Port pengoo `_ks_order` (vectorised update of the min-distance vector instead of the Python `max(rest, key=…)` loop).
+- **Reference.** `kennard1969`, `daszykowski2002`.
+
+<a id="spxy"></a>
+### SPXY (`split.spxy`) · T1.10
+- **Definition.** Kennard–Stone on a joint distance in X and y.
+- **Formula.** d_xy(i, j) = d_x(i, j) / max d_x + d_y(i, j) / max d_y, with d_x as in Kennard–Stone and d_y(i, j) = ‖yᵢ − yⱼ‖₂ (|yᵢ − yⱼ| for one response).
+- **Steps.** 1 d_x · 2 d_y · 3 normalise each by its maximum · 4 sum · 5 Kennard–Stone order on d_xy.
+- **Parameters.** As Kennard–Stone; requires y (`requires: ["y"]`).
+- **Edge cases.** All y equal (max d_y = 0) → node error, proposed code `BLOCK_CONSTANT_RESPONSE` (N13); no silent fall-back to Kennard–Stone. NaN in y → N1.
+- **Reference values.** Hand-worked example (5 samples, 1 response) where SPXY and KS give different orders.
+- **Tolerance.** Exact (orders equal); distances `T-exact`.
+- **Implementation.** Port pengoo SPXY distance (`Dx/max + Dy/max`).
+- **Reference.** `galvao2005spxy`.
+
+<a id="duplex"></a>
+### Duplex (`split.duplex`) · T1.10 *(proposed (T1.00b) addition)*
+- **Definition.** Build training and test sets that both cover the X space: the two most distant samples go to training, the next two most distant (of the rest) to test, then the sets alternately take the remaining sample farthest from their own members.
+- **Steps.** 1 distance matrix (as KS) · 2 farthest pair → training · 3 farthest remaining pair → test · 4 alternate: each set takes the remaining sample with the largest min-distance to that set · 5 when the test set reaches n_test, the rest go to training.
+- **Edge cases.** As Kennard–Stone. Unequal set sizes: alternation stops for the full set.
+- **Reference values.** Hand-worked example (8 points in 2-D).
+- **Tolerance.** Exact.
+- **Implementation.** Port pengoo `_duplex_order`.
+- **Reference.** `snee1977duplex`, `daszykowski2002`.
+
+<a id="group-aware-split"></a>
+### Group-aware selection (option of all split blocks) · T1.10
+- **Definition.** Keep sampling units (replicate spectra of one sample, `group_ids`) whole: a unit is entirely in training or entirely in test.
+- **Steps.** 1 unit means of X (and y) · 2 run the selected method on the unit means · 3 expand selected units back to their rows.
+- **Edge cases.** Stratified random split with groups: strata are assigned per unit (majority class or unit-mean y).
+- **Reference values.** Property: no `group_id` appears in both sets; with one row per group, results equal the plain method.
+- **Implementation.** Port of the unit-preserving selection in pengoo `split_cal_test` (`rank_rotate` and `protect_extremes` are a proposed P1 row, not here).
+- **Reference.** `esbensen2010validation`.
+
+---
+
+## 5. Cross-validation folds
+Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the validation row indices; training = the other rows. Folds are made **once** and reused by every model and every LV count that is compared on them (pengoo `PredefinedFolds`). Common rules:
+- **Number of folds** k: 2 ≤ k ≤ n_units, where n_units = number of rows, or number of groups when grouped. k > n_units → `BLOCK_PARAM_INVALID` (reason `constraint`); no silent switch to LOO (Q8).
+- **Groups.** When the input has `group_ids`, a scheme that ignores them logs `VALIDATION_GROUPS_IGNORED` (N10). Grouped schemes never split a group (group-leak assertion ported from pengoo).
+- **Order-based schemes** (venetian blinds, contiguous blocks) use the row order of the input, which is the import order unless an upstream block sorted it.
+- **Reference values** for all schemes: property tests (Done when of T1.11) — validation sets partition the rows (each row validated exactly once per repeat), groups never split, sizes differ by at most one unit, same Generator seed → same folds; plus a hand-listed small case per scheme.
+
+<a id="k-fold"></a>
+### k-fold (`validate.kfold`) · T1.11
+- **Definition.** Rows (optionally shuffled with the Generator) are cut into k folds of near-equal size.
+- **Parameters.** `k` (default 10 *to confirm*), `shuffle` (default true), `rng`.
+- **Implementation.** Wrap scikit-learn `KFold`.
+- **Reference.** `stone1974cv`.
+
+<a id="venetian-blinds"></a>
+### Venetian blinds (`validate.venetian_blinds`) · T1.11
+- **Definition.** Row i (0-based, input order) goes to fold i mod k.
+- **Implementation.** Own code (one line of NumPy).
+- **Reference.** `eigenvector_cv` (*to verify*).
+
+<a id="contiguous-blocks"></a>
+### Contiguous blocks (`validate.contiguous_blocks`) · T1.11
+- **Definition.** Rows in input order are cut into k consecutive blocks of near-equal size (the first n mod k blocks one row larger).
+- **Implementation.** Own code, or scikit-learn `KFold(shuffle=False)`, which gives exactly these blocks (`T-lib` test).
+- **Reference.** `eigenvector_cv` (*to verify*).
+
+<a id="loo"></a>
+### Leave-one-out (`validate.loo`) · T1.11
+- **Definition.** n folds, one row each; with groups: leave-one-group-out.
+- **Implementation.** Wrap scikit-learn `LeaveOneOut` / `LeaveOneGroupOut`.
+- **Reference.** `stone1974cv`.
+
+<a id="repeated-k-fold"></a>
+### Repeated k-fold (`validate.repeated_kfold`) · T1.11
+- **Definition.** k-fold repeated r times with different shuffles; each repeat is a full partition.
+- **Parameters.** `k`, `repeats` (default 5 *to confirm*), `rng`.
+- **Metrics.** RMSECV per repeat, then mean and SD over repeats (N9).
+- **Implementation.** Wrap scikit-learn `RepeatedKFold`.
+
+<a id="group-k-fold"></a>
+### Group k-fold (`validate.group_kfold`) · T1.11
+- **Definition.** k-fold over groups: every group is in exactly one validation fold. Several group columns are combined into one label (`A|B`, as pengoo `validate_cv_groups`); a missing group label → node error (N1).
+- **Parameters.** `k`, `shuffle`, `rng`.
+- **Implementation.** Wrap scikit-learn `GroupKFold(shuffle=True, random_state=…)` (needs scikit-learn ≥ 1.6; we pin 1.9.x).
+- **Reference.** `esbensen2010validation`.
