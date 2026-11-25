@@ -676,6 +676,8 @@ To define: parameter types (`int`, `float`, `bool`, `enum`, `string`, `range`, `
 ## 6. File formats *(filled in by T2.03)*
 To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` (zip: `manifest.json` + `.npy`), `.vcz` project archive, cache index; versioning and migrations.
 
+**Fitted block state (T1.02b, proposal for T2.03 to adopt inside `.vcm` or change).** `vibechem_core.block.save_state` writes one directory per state: `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}` and `arrays/<i>.npy` for the i-th array name (files named by position, so names never become paths). `load_state` reads arrays with `allow_pickle=False`, rejects unknown keys, other `state_version`s, non-finite numbers and non-`.npy` files with `ValueError` (the engine reports `MODEL_PACKAGE_INVALID`, §7).
+
 ## 7. Error codes catalogue
 Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5).
 | Code | HTTP / where | Defined in | Meaning |

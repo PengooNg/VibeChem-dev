@@ -2,6 +2,7 @@
 # packages/core/tests/test_block.py
 """Tests for ``vibechem_core.block``: Param, port, State, Block metadata, fit/apply."""
 
+import json
 import pickle
 from dataclasses import FrozenInstanceError, dataclass
 from pathlib import Path
@@ -18,8 +19,10 @@ from vibechem_core.block import (
     ParamSpec,
     Port,
     State,
+    load_state,
     param_specs,
     port,
+    save_state,
 )
 from vibechem_core.data import Axis, SpectralDataset
 from vibechem_core.errors import message_key
@@ -244,6 +247,156 @@ def test_state_pickles_in_memory_for_worker_processes() -> None:
 def test_state_rejects_object_arrays() -> None:
     with pytest.raises(TypeError, match="dtype object"):
         State(arrays={"bad": np.array([{"a": 1}], dtype=object)})
+
+
+# ---- State save / load (T1.02b, Done when) ------------------------------------------
+
+
+def assert_same_state(actual: State, expected: State) -> None:
+    assert dict(actual.values) == dict(expected.values)
+    assert list(actual.arrays) == list(expected.arrays)
+    for name, array in expected.arrays.items():
+        loaded = actual.arrays[name]
+        assert loaded.dtype == array.dtype, name
+        assert loaded.shape == array.shape, name
+        np.testing.assert_array_equal(loaded, array)
+        assert not loaded.flags.writeable
+
+
+def test_fitted_dummy_block_round_trips_state(tmp_path: Path) -> None:
+    data = make_dataset([[1.0, 10.0], [3.0, 30.0], [100.0, 100.0]])
+    block = DummyCenter()
+    state = block.fit(spectra=data.subset([0, 1]), params=NoParams())
+    save_state(state, tmp_path / "center")
+    loaded = load_state(tmp_path / "center")
+    assert_same_state(loaded, state)
+    out = block.apply(spectra=data, params=NoParams(), state=loaded)
+    np.testing.assert_array_equal(out.X, [[-1.0, -10.0], [1.0, 10.0], [98.0, 80.0]])
+
+
+def test_stateless_dummy_block_has_empty_state_that_round_trips(tmp_path: Path) -> None:
+    save_state(State(), tmp_path)
+    loaded = load_state(tmp_path)
+    assert_same_state(loaded, State())
+    out = DummyOffset().apply(spectra=make_dataset([[1.0]]), params=DummyOffsetParams(2.0))
+    np.testing.assert_array_equal(out.X, [[3.0]])
+
+
+def test_state_round_trip_keeps_values_dtypes_shapes_and_names(tmp_path: Path) -> None:
+    values = {"n": 2**62, "flag": True, "zero": 0, "x": 0.1, "none": None, "s": "ü/é"}
+    values |= {"nested": {"lv": [1, 2.5, [False]], "info": {}}}
+    arrays = {
+        "mean": np.array([1.0, 2.0]),
+        "X_fit_": np.asfortranarray(np.arange(6, dtype=np.int32).reshape(2, 3)),
+        "Mean": np.float32(3.5),  # 0-d; differs from "mean" only by case
+        "a/../b": np.array([True, False]),  # names never become file names
+        "big_endian": np.array([1.5, -2.0], dtype=">f8"),
+        "complex": np.array([1 + 2j]),
+        "text": np.array(["ab", "cde"]),
+        "empty": np.zeros((0, 4)),
+    }
+    state = State(values, arrays)
+    save_state(state, tmp_path)
+    loaded = load_state(tmp_path)
+    assert_same_state(loaded, state)
+    assert type(loaded.values["flag"]) is bool
+    assert type(loaded.values["zero"]) is int
+
+
+def test_state_files_are_json_and_npy_without_pickle(tmp_path: Path) -> None:
+    save_state(State({"k": 1}, {"m": np.array([1.0, 2.0])}), tmp_path)
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*.*")) == [
+        "arrays/0.npy",
+        "state.json",
+    ]
+    doc = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert doc == {"state_version": 1, "values": {"k": 1}, "arrays": ["m"]}
+    np.testing.assert_array_equal(
+        np.load(tmp_path / "arrays" / "0.npy", allow_pickle=False), [1, 2]
+    )
+
+
+def write_state_json(directory: Path, text: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "state.json").write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("{not json", "state.json is not valid JSON"),
+        ('{"state_version": 1, "values": {"x": NaN}, "arrays": []}', "NaN is not JSON"),
+        ("[]", "must be a JSON object"),
+        ('{"state_version": 2, "values": {}, "arrays": []}', "state_version 2"),
+        ('{"values": {}, "arrays": []}', "state_version None"),
+        ('{"state_version": 1, "values": [], "arrays": []}', "'values' must be an object"),
+        ('{"state_version": 1, "values": {}, "arrays": [1]}', "'arrays' must be a list of str"),
+        ('{"state_version": 1, "values": {}, "arrays": ["a", "a"]}', "duplicate"),
+        ('{"state_version": 1, "values": {}, "arrays": [], "x": 1}', "unknown keys"),
+        ('{"state_version": 1.0, "values": {}, "arrays": []}', "state_version 1.0"),
+        ('{"state_version": true, "values": {}, "arrays": []}', "state_version True"),
+        ('{"state_version": 1, "values": {"x": 1e400}, "arrays": []}', "1e400 is not finite"),
+        (
+            '{"state_version": 1, "arrays": [], "values": {"x": '
+            + "[" * 100_000
+            + "]" * 100_000
+            + "}}",
+            "nested too deeply",
+        ),
+    ],
+)
+def test_load_state_rejects_invalid_state_json(tmp_path: Path, text: str, match: str) -> None:
+    write_state_json(tmp_path, text)
+    with pytest.raises(ValueError, match=match):
+        load_state(tmp_path)
+
+
+def test_load_state_never_unpickles(tmp_path: Path) -> None:
+    write_state_json(tmp_path, '{"state_version": 1, "values": {}, "arrays": ["bad"]}')
+    (tmp_path / "arrays").mkdir()
+    np.save(tmp_path / "arrays" / "0.npy", np.array([{"a": 1}], dtype=object), allow_pickle=True)
+    with pytest.raises(ValueError, match="allow_pickle=False"):
+        load_state(tmp_path)
+
+
+def test_load_state_rejects_npz_in_place_of_npy(tmp_path: Path) -> None:
+    write_state_json(tmp_path, '{"state_version": 1, "values": {}, "arrays": ["m"]}')
+    (tmp_path / "arrays").mkdir()
+    with (tmp_path / "arrays" / "0.npy").open("wb") as f:
+        np.savez(f, m=np.zeros(2))
+    with pytest.raises(ValueError, match=r"arrays/0.npy is not a \.npy array"):
+        load_state(tmp_path)
+
+
+def test_load_state_rejects_empty_npy(tmp_path: Path) -> None:
+    write_state_json(tmp_path, '{"state_version": 1, "values": {}, "arrays": ["m"]}')
+    (tmp_path / "arrays").mkdir()
+    (tmp_path / "arrays" / "0.npy").write_bytes(b"")
+    with pytest.raises(ValueError, match=r"arrays/0.npy is empty"):
+        load_state(tmp_path)
+
+
+def test_save_state_refuses_a_directory_that_holds_a_state(tmp_path: Path) -> None:
+    save_state(State(arrays={"a": [1], "b": [2]}), tmp_path / "one")
+    with pytest.raises(FileExistsError):
+        save_state(State(arrays={"a": [3]}), tmp_path / "one")
+    (tmp_path / "two" / "arrays").mkdir(parents=True)  # stale arrays without state.json
+    with pytest.raises(FileExistsError):
+        save_state(State(), tmp_path / "two")
+    assert list(load_state(tmp_path / "one").arrays) == ["a", "b"]
+
+
+def test_state_rejects_non_string_array_names() -> None:
+    with pytest.raises(TypeError, match="state array name 1 must be a str"):
+        State(arrays={1: [0.0]})  # type: ignore[dict-item]
+
+
+def test_load_state_reports_missing_files(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_state(tmp_path)
+    write_state_json(tmp_path, '{"state_version": 1, "values": {}, "arrays": ["m"]}')
+    with pytest.raises(FileNotFoundError):
+        load_state(tmp_path)
 
 
 # ---- metadata -----------------------------------------------------------------------
