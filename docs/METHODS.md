@@ -107,7 +107,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Definition.** Regress each spectrum on a reference spectrum m and remove the offset and the multiplicative effect. Fitted: m is learned in `fit`.
 - **Formula.** xᵢ = aᵢ + bᵢ·m + eᵢ, (aᵢ, bᵢ) by ordinary least squares over the p points; corrected x̃ᵢ = (xᵢ − aᵢ)/bᵢ. Default m = mean spectrum of the training rows.
 - **Steps.** `fit`: 1 m = column mean of training X (or the user reference). `apply`: 2 for each spectrum, least-squares fit of aᵢ + bᵢ·m · 3 reject bᵢ ≤ 0 or bᵢ = 0 · 4 x̃ᵢ = (xᵢ − aᵢ)/bᵢ.
-- **Parameters.** `reference`: `mean` (default) or a second input port with one spectrum on the same axis (`axis_match`).
+- **Parameters.** `reference`: `mean` (default) or a second input port with one spectrum on the same axis (`axis_match`). A reference input with more than one row is replaced by the mean of its rows (one row = that spectrum); the history entry records which option and how many rows were used.
 - **Edge cases.** **D1:** aᵢ, bᵢ come from one least-squares solve (`np.linalg.lstsq` on [1, m]), never from `cov(x, m)` (ddof 1) / `var(m)` (ddof 0). Constant reference (var(m) = 0) → `BLOCK_CONSTANT_SPECTRA`. bᵢ ≤ 0 (spectrum anti-correlated with the reference) → node error with its own code, proposed `BLOCK_MSC_SLOPE_INVALID` (N11; T1.07 adds it to DATA_MODEL.md §7). Applied to new data: m from training only (D2).
 - **Reference values.** Exact case xᵢ = a + b·m (a, b known, 50 points) → x̃ᵢ = m (`T-exact`; this is the D1 regression test). Hand calculation on 3 × 5. Cross-check: chemotools `MultiplicativeScatterCorrection` (`T-lib`, extra check only).
 - **Tolerance.** `T-exact`.
