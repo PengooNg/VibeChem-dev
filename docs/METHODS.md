@@ -68,7 +68,8 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
   | `T-exact` | closed-form hand calculation, algebraic identity | `rtol=1e-10, atol=1e-12` |
   | `T-lib` | our block vs the library it wraps, same algorithm | `rtol=1e-10, atol=1e-12` |
   | `T-iter` | iterative algorithm vs another implementation (NIPALS PLS2, SIMPLS vs NIPALS) | `rtol=1e-6, atol=1e-9` |
-  | `T-pub` | published values | the tolerance recorded in the `testdata/expected/` file (gasoline: `rtol=1e-3`, proposed in T0.07); otherwise half a unit of the last printed digit (`atol`), `rtol=0` |
+  | `T-pub` | published values | the tolerance recorded in the `testdata/expected/` file (gasoline: `rtol=1e-3`, proposed in T0.08); otherwise half a unit of the last printed digit (`atol`), `rtol=0` |
+- **Software and data cited by the entries:** scikit-learn `pedregosa2011sklearn`, SciPy `virtanen2020scipy`, gasoline data `kalivas1997`.
 - **Entry fields.** Definition · Formula · Steps (what `# Step N:` comments follow) · Parameters (defaults) · Edge cases · Reference values (independent, never pengoo or Quasar: TECH_STACK.md §11.1 rule 3, §11.2 rule 5) · Tolerance · Implementation · Library differences.
 
 ---
