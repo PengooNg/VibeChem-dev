@@ -64,7 +64,7 @@ IMPORT_NON_NUMERIC_VALUES = "IMPORT_NON_NUMERIC_VALUES"
 IMPORT_AXIS_MISMATCH = "IMPORT_AXIS_MISMATCH"
 """Warning: spectra on different axes were put on the union axis (missing points NaN); params ``axes``."""
 
-TableFormat = Literal["csv", "tsv", "xlsx", "jcamp", "spc"]
+TableFormat = Literal["csv", "tsv", "xlsx", "jcamp", "spc", "spa", "perkinelmer", "wdf", "opus"]
 
 _TEXT_EXTENSIONS = {".csv": None, ".txt": None, ".dpt": None, ".tsv": "\t", ".tab": "\t"}
 _EXCEL_EXTENSIONS = {".xlsx", ".xlsm"}
@@ -109,7 +109,7 @@ class TableImport:
 
     Attributes
     ----------
-    detected_format : {"csv", "tsv", "xlsx", "jcamp", "spc"}
+    detected_format : {"csv", "tsv", "xlsx", "jcamp", "spc", "spa", "perkinelmer", "wdf", "opus"}
         Format actually read (``tsv`` when the delimiter was a tab).
     columns : mapping of str to ndarray
         Column name → 1-D array (float64 or text), all of length ``n_rows``,
