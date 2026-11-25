@@ -83,7 +83,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Definition.** Keep the axis points that lie inside one or more ranges.
 - **Formula.** keep j ⇔ ∃ r: lo_r ≤ λⱼ ≤ hi_r (bounds inclusive).
 - **Steps.** 1 for each range, mark λⱼ with lo ≤ λⱼ ≤ hi (lo/hi may be given in either order) · 2 union of the marks · 3 reject an empty selection · 4 keep the marked columns in their original axis order.
-- **Parameters.** `ranges`: list of (lo, hi) in axis units, at least one.
+- **Parameters.** `ranges`: list of (lo, hi) in axis units, at least one (parameter type `wavelength_ranges`, DATA_MODEL.md §5.2). Default `[[-1e6, 1e6]]`: keeps every point (no-op until the user sets ranges) *(proposed T1.07)*.
 - **Edge cases.** Descending axis (wavenumbers): order kept. Overlapping ranges: union, no duplicate columns. No point selected → `BLOCK_PARAM_INVALID` (reason `constraint`). A range outside the axis selects nothing from that range (allowed if another range selects points).
 - **Reference values.** Hand-made axis with points exactly on the bounds.
 - **Tolerance.** Exact (index sets equal).
