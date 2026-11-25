@@ -1,6 +1,7 @@
 # VibeChem — Tech Stack, Repository Layout & Conventions
 
 > Status: v0.3 · Last updated: 2026-11-22 · Owner: K (until demo v0: Quan approves, K reviews the backlog later)
+> v0.5 (2026-11-25): §11.2 pengoo port inventory (T1.00b); PyWavelets candidate.
 > v0.4 (2026-11-23): `@playwright/cli` dev tool; GitHub/Playwright MCP removed; `GITHUB_PAT` no longer needed.
 > v0.3: branches and rulesets for phase mode (§8.1); CI triggers on `phase-*`; `.claude/`, `.mcp.json`, `PROGRESS.md`, `merge_step.py` in the layout; legal and citation files (§13, moved from the project plan); Claude Code in developer setup.
 > Rule: **no dependency may be added unless it is listed in §1 or approved from the reuse register (§11).** Exact patch versions live in the lock files (`uv.lock`, `pnpm-lock.yaml`); this file fixes the *version line*.
@@ -168,7 +169,7 @@ vibechem/
 ├─ scripts/                      check.py, merge_step.py, bench.py, release helpers
 └─ .github/                      workflows/, ISSUE_TEMPLATE/, PULL_REQUEST_TEMPLATE.md, CODEOWNERS, dependabot.yml
 ```
-pengoo is **not** stored in this repository. When a step ports pengoo code, Quan points Claude Code to his local copy; only the ported parts enter the repo (D-016).
+pengoo is **not** stored in this repository. When a step ports pengoo code, Quan points Claude Code to his local copy (since T1.00b: `pengoo/` at the repo root, excluded through `.git/info/exclude`); only the ported parts enter the repo (D-016). Inventory: §11.2.
 
 ### 3.1 Dependency boundaries (enforced by import-linter in CI)
 | Package | May import | Must never import |
@@ -263,7 +264,8 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | CV splitters (T1.11) | scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold` | BSD-3 | Most fold generators (venetian/contiguous are small extras) | approved (scikit-learn in §1) |
 | PLS (T1.12a/b) | scikit-learn `PLSRegression` (NIPALS) | BSD-3 | PLS1/PLS2 fit/predict; VIP and SIMPLS are small additions | approved |
 | EMSC, spike removal, ALS, interpolation (Phase 6) | Orange-Spectroscopy (port with header) | GPL-3.0 | Proven implementations | candidate (port) — T1.00: EMSC, spike removal, interpolation, rubber-band, normalisations, T↔A, PCA denoising → port (Phase 6); ALS/arPLS/airPLS → wrap `pybaselines` instead; full list in §11.1 |
-| Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) |
+| Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) — T1.00b: pengoo provided (local `pengoo/`, git-excluded); per-function decisions for preprocessing, metrics, CV, LV rules, splits, grid search, variable selection and EDA in §11.2 |
+| Wavelet denoising (P1, pengoo `wavelet_denoise`) | `PyWavelets` | MIT | DWT/IDWT kernels | candidate (T1.00b; pengoo depends on it; check Python 3.14 wheels when the P1 step starts) |
 | JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved |
 | SPC (T1.06) | Existing SPC readers on PyPI/GitHub — search first | to check | Reader | candidate (T1.00: two options for T1.06 — **port** the SPC reader vendored in orange-spectroscopy `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, pure `struct` + NumPy; recommended), or `spc-io` (MIT; needs pandas + pydantic; last release 2025-04, borderline maintenance); `spc_spectra` rejected: last release 2018) |
 | Quasar / Orange port source (T1.00, ADR-009 port-max) | `quasars/orange-spectroscopy` + non-Qt `biolab/orange3` | GPL-3.0-or-later / GPL-3.0+ | Preprocessing, readers, interferogram FFT, permutation test, PLS diagnostics | **port source** (never a dependency); per-module decisions in §11.1, commits pinned in `THIRD_PARTY.md` |
@@ -380,6 +382,85 @@ Catalog references are `C§<section> <function> · <tier>` (FUNCTION_CATALOG.md;
 | `collagen.csv` (1 MB), `small_Omnic.map`, `agilent/`, `photothermal/`, `matlab/` | FTIR table, OMNIC map, Agilent FPA, PTIR, .mat | P6/P2 | as above |
 | `Nea*`, `*.gsf`, `*.nxs`, `*.xim`, `Hermes_HDF5/`, `exafs-test.tab`, `polar/` | nano-IR, synchrotron, XAS, polarisation | — | not needed |
 Second SPC vendor for T1.06's "two instrument vendors": `rohanisaac/spc` `test_data/` (GPL-3.0 repo, same caveat) has SPC files from several instruments (`nir.spc`, `RAMAN.SPC`, `Ft-ir.spc`, `s_xy.spc`, `s_evenx.spc`, …). JCAMP-DX samples: `nzhagen/jcamp` `data/` (MIT repo; includes the jcamp-dx.org official test data and IR/Raman spectra) — licence of the individual files to check in T1.06.
+
+### 11.2 pengoo port inventory (T1.00b)
+Source: Quan's local copy of pengoo ("Spectroscopy Toolkit"), 7 modules, ~7,900 lines, read 2026-11-25. It lives in `pengoo/` at the repo root on Quan's machine and is excluded from git through `.git/info/exclude` (D-016: only ported parts enter the repo). A step that ports pengoo code needs that folder; if it is missing on the current machine → `MISSING_INPUT` (Quan copies it in). Owner's code, so there is no licence barrier. Ported files carry `# Ported from pengoo <module>.py (owner's code, relicensed GPL-3.0-or-later by the author).` below the SPDX line, and a `THIRD_PARTY.md` row is **not** needed. The port recipe of §11.1 applies otherwise (block template, Generator instead of global RNG, no `print`, no matplotlib).
+**Rule 5 — pengoo is not an independent reference** either: values pengoo produced only serve as extra regression checks (`test_*_pengoo_regression`), and only after the fixes below are applied. Reference values come from papers, other software or hand calculations (§11.1 rule 3).
+Decisions as in §11.1 (**port** / **wrap** / **skip**). **Fix** = a defect or convention clash found in pengoo that the port must not carry over; each one gets a test in the target step. Items marked **(T1.04)** are behaviour or default choices for Quan to settle in METHODS.md.
+
+**Defects confirmed by running pengoo** (2026-11-25, scratch script, not committed):
+- **D1 · MSC slope off by n/(n−1).** `msc()` divides `np.cov(x, ref)` (ddof = 1) by `ref.var()` (ddof = 0). On an exact case x = a + b·ref (50 points) the corrected spectrum should equal `ref`; pengoo is off by up to 0.013. `utils.residual()` has the same ddof mix.
+- **D2 · Per-fold preprocessing refits on the validation fold.** `calculate_cv_rmse(apply_preprocessing_in_cv=True)` runs the stateless pipeline separately on `X[val_idx]`: MSC takes the validation mean as its reference, MeanCenter/Autoscaling use validation statistics. With LOO, every validation spectrum becomes all zeros after MeanCenter/Autoscaling (checked), so the reported RMSECV is wrong without warning. The same applies to any test set passed through `apply_preprocessing_pipeline`. In VibeChem, fitted blocks `fit` on training rows and `apply` to the rest (CLAUDE.md §4; leakage rules T2.05), so this cannot happen by design, but results Quan produced earlier with pengoo + LOO + centring/scaling inside CV should be re-checked.
+
+**Preprocessing (`preprocessing.py`; needs SciPy, PyWavelets, pybaselines)**
+| pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
+|---|---|---|---|---|
+| `snv` | C§4 SNV · P0 | port (4 lines) | `+1e-10` silently maps a constant spectrum to 0: raise or return NaN with a warning; ddof (pengoo 0, skeleton engine 1) **(T1.04)** | T1.07 |
+| `msc(X, ref)` | C§4 MSC · P0 | port as a `fitted` block (reference = training mean, learned in `fit`); chemotools/EMSC order 0 as cross-check | D1: fit a + b·ref by least squares (`np.polyfit`/`lstsq`); optional user reference spectrum = second input port | T1.07 |
+| `perform_baseline_correction('Detrend')` (pybaselines `poly` on `x_data`) | C§4 detrend · P0 | wrap/port: polynomial fitted on the real axis, not the index | pengoo falls back to the index when no axis is given; ours always has `ds.axis` | T1.07 |
+| `perform_smoothing('Sav-Gol')` | C§4 Savitzky–Golay · P0 | wrap `scipy.signal.savgol_filter` (pengoo does the same) | pengoo uses `mode='nearest'`, SciPy's default is `'interp'` — default and the derivative `delta` (axis spacing) **(T1.04)**; one vectorised call instead of `apply_along_axis` | T1.08 |
+| `perform_scaling('MeanCenter', 'Autoscaling')` | C§4 Mean-centring, autoscaling · P0 | wrap `StandardScaler` as `fitted` blocks | D2 (statistics must come from training rows only) | T1.09 |
+| `perform_scaling('Normalization')` (per-sample min-max) | C§4 Normalisation: min-max · P0 | port into the osp `Normalize` block (it is a per-spectrum normalisation, not a column scaling) | — | P6 normalisations |
+| `als_baseline_correction` (banded Cholesky, `solveh_banded`) | C§4 Baseline: ALS · P0 | wrap `pybaselines` (T1.00); keep pengoo's banded solver as a speed reference for the native/benchmark work | fixed `niter=10`, no convergence test | P6 baselines; Phase 3 benchmark |
+| `perform_baseline_correction('SNIP')` (pybaselines `snip`) | no catalog row → proposed P0 mode "SNIP" of the baseline block | wrap `pybaselines` | — | P6 baselines |
+| `spike_removal` (Coca-Lopez 2024, peak width + interpolation) | C§4 Spike/cosmic-ray removal · P0 | port as a second method of the despike block (next to osp `Despike`, Whitaker–Hayes) | width threshold in points → axis units; vectorise over spectra | P6 preprocessing |
+| `wavelet_denoise` (batched DWT, universal/energy threshold, edge mask) | C§4 Wavelet denoising · P1 | port; needs PyWavelets (§11 candidate) | edge-zone warnings become a block warning, not strings per spectrum | v1.1+ (P1) |
+| `median_denoise` | no catalog row → proposed P0 mode "median" of the smoothing block | wrap `scipy.signal.medfilt` / `scipy.ndimage.median_filter` | — | P6 preprocessing |
+| `perform_*` dispatchers, `apply_preprocessing_pipeline` (fixed order scatter → baseline → denoise → smooth → scale) | — (plumbing) | skip (blocks + pipeline graph); the fixed order and the option lists become the T2.10b search space spec | unknown method names silently return a copy → our registry raises | T2.10b (spec) |
+
+**Model metrics, CV, LV choice, splits (`model_metrics.py`)**
+| pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
+|---|---|---|---|---|
+| `regression_metrics`, `calculate_metrics` (RMSE, Bias = mean(ŷ − y), SEP ddof 1, R², RPD with SD ddof 1) | F-44; T1.14 metrics | port the definitions (they match the module docstring) | missing RPIQ and slope (F-44); sign convention of bias **(T1.04)** | T1.14 |
+| `_y_scale`, `to_original_units`, `convert_y` | F-44 "original units" | port the idea: Y autoscaling is a `fitted` block whose inverse is applied to predictions before metrics | pengoo needs the user to pass `y_sdev` by hand | T1.09, T1.14 |
+| `validate_cv_groups`, `_split_group_variables` (several group columns combined as `A\|B`, NaN check) | C§6 Group k-fold · P0 | port | — | T1.11 |
+| `make_cv_splitter`, `PredefinedFolds`, `make_fixed_folds`, `get_cv_splits` (folds materialised once, group-leak assertion) | C§6 k-fold, LOO, group k-fold · P0 | port the behaviour on scikit-learn splitters; folds = the `Folds` port (DATA_MODEL §4) | fixed `random_state=69` → `Generator`; `GroupKFold(shuffle=True)` needs scikit-learn ≥ 1.6; "int ≥ n → LOO" rule **(T1.04)** | T1.11 |
+| `calculate_cv_rmse` (fold loop, `fold_mean` vs `pooled` RMSECV, per-fold SD/SE, PRESS) | C§6/§7; T2.10a CV runner | port the aggregation rules; the loop is our engine | D2; default RMSECV aggregation (pengoo `fold_mean`, chemometrics usually pooled) **(T1.04)** | T1.14 (formulas), T2.10a |
+| `_predict_pls_at_lv` (grid search), `_predict_at_lv` (variable selection) — predictions for every LV count from one fit | T1.12a "LV sweep from one fit" | port | two copies → one function; test "sweep = separate fits" | T1.12a |
+| `PLSRegression(n_components)` everywhere | C§9 PLS · P0 | — (T1.12a wraps scikit-learn) | scikit-learn's default `scale=True` autoscales X without telling: every pengoo PLS result was on autoscaled X. VibeChem default (mean-centre only, scaling as a visible block) **(T1.04)** | T1.12a |
+| `calculate_vip` | C§8 VIP · P0 | port (standard formula on `x_weights_`, `x_scores_`, `y_loadings_`) | PLS1 only; PLS2 VIP **(T1.04)**; independent reference value needed | T1.12b |
+| `calculate_selectivity_ratio` (target projection) | C§8 Selectivity ratio · P0 | port | `+1e-10` guards; check against Rajalahti et al. 2009 | P6 variable selection |
+| `_wold_r_criterion`, `select_n_components`, `check_selection_rule`, `find_knee` (global min, 1-SE, paired t-test, Wold R) | C§7 LV-number rules · P0 | port | t-test α fixed at 0.05 → parameter; unknown rule raises (keep); `1se`/`ttest` need per-fold errors (keep the check) | T2.10a |
+| `_ks_order`, SPXY distance (`Dx/max + Dy/max`), `_duplex_order` | C§5 Kennard–Stone, SPXY, Duplex · P0 | port (short); cross-check KS with the `kennard-stone` package | pengoo measures distances on PCA scores of unit means (99 % variance), the classic KS/SPXY use raw X **(T1.04)**; Duplex is in C§5 P0 but not in T1.10 — proposed addition | T1.10 |
+| `split_cal_test` (strata + sampling units kept whole, `rank_rotate`, `protect_extremes`) | C§5 by group, Y-stratified · P0 | port unit-preserving and stratified selection as T1.10's "group-aware option"; `rank_rotate` and `protect_extremes` → proposed P1 catalog row | `print` report → result table | T1.10; v1.1+ (P1) |
+| `validate_models` (ISO 12099 bias t-test and slope test, van der Voet randomisation test, Pitman–Morgan, F-test, Brown–Forsythe, Welch, bootstrap CI of ΔRMSEP, Holm, tests on unit means) | C§13 Model comparison (van der Voet) · P0; C§13 multiple-testing, bootstrap CIs · P1; proposed P0 row "Bias and slope tests (ISO 12099)" | port | `n_perm=9999`, `n_boot=2000` defaults **(T1.04 / P6)**; already uses `default_rng` (keep, pass a `Generator`) | P6 validation |
+
+**Preprocessing grid search (`grid_search.py`)**
+| pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
+|---|---|---|---|---|
+| `generate_all_method_combinations_optimized`, `count_combinations_per_step_type`, `_step_identity`, `_pipeline_sort_key` (fixed-order product, dedup, deterministic order) | C§7 Preprocessing chain grid search · P0 | port the logic; option lists become a default search-space file (JSON) built from registered blocks | pipeline identity = our content hash (T2.06) | T2.10b |
+| `pls_cv_score_single_pipeline`, `_evaluate_pipeline_chunk` (shared folds, LV sweep per fold, chunked) | C§7 · P0 | port the scoring; parallelism = our executor (T2.07, loky); joblib rejected (§11) | D2 | T2.10b |
+| `load_pipelines_from_excel` (`ast.literal_eval` of a params cell) | C§7 user-defined pipelines | port as an option reading a pipelines table through the T1.05 reader | JSON params instead of Python literals | T2.10b |
+| random subsample of pipelines (`max_combinations`) | C§7 Random search · P1 | port | global `np.random.seed(42)` → `Generator` | v1.1+ (P1) |
+| `save_results_to_file`, `save_checkpoint`, `load_checkpoint` | — | skip: pickle (CLAUDE.md §4) and a hard-coded user Desktop path; replaced by the cache (T2.06) and crash recovery (T2.09) | — | — |
+
+**Variable selection (`variable_selection.py`)** — all receive pengoo-preprocessed X; the module documents that preprocessing is fitted once on the whole training set before selection (optimistic RMSECV, deliberate). Whether VibeChem offers that mode next to selection inside CV is **(P6 step, Quan)**.
+| pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
+|---|---|---|---|---|
+| `SubsetCV`, `_make_scorer` (one fold set for all subsets, `n_components='auto'` per subset) | C§8 Selection inside CV · P0 | port as the shared scorer of the variable-selection blocks | — | P6 variable selection |
+| `vip_variable_selection` | C§8 VIP · P0 | port | — | P6 |
+| `jackknife_variable_selection` (Martens & Martens 2000) | C§8 Regression coefficients + jackknife · P0 | port | independent reference needed (Unscrambler or the paper) | P6 |
+| `successive_projections_algorithm` (Araújo 2001) | C§8 SPA · P0 | port | starts only from the variable with the largest \|r\| and has no validation of the subset size; the paper tries every start variable and picks by validation error — check and fix | P6 |
+| `competitive_adaptive_reweighted_sampling` | C§8 CARS · P0 | port | global `np.random.choice` → `Generator`; Monte-Carlo sample subsets and the exponential decay function of Li et al. 2009 are simplified — align with the paper | P6 |
+| `stepwise_selectivity_ratio` | C§8 SWSR · P1 | port | — | v1.1+ (P1) |
+| `sparse_pls_variable_selection` (Lê Cao 2008) | C§8 sPLS · P1 | port | — | v1.1+ (P1) |
+| `ant_colony_optimization_variable_selection`, `aco_with_convergence_detection` | C§8 ACO · P1 | port as one block with an early-stop option | global RNG → `Generator` | v1.1+ (P1) |
+| `synergy_interval_pls` (Nørgaard 2000) | C§8 siPLS · P1 (iPLS forward/backward P0 is not in pengoo — build) | port | — | v1.1+ (P1) |
+| `moving_window_pls` (Jiang et al. 2002) | no catalog row → proposed P1 row "MW-PLS" | port | — | v1.1+ (P1) |
+| `run_all_variable_selection_methods` | — (orchestration) | skip: the pipeline graph runs several blocks; the stability map is ours | global `np.random.seed` | — |
+
+**EDA, plotting, utilities (`eda_spectra.py`, `plotting.py`, `utils.py`)** — interactive `input()` + matplotlib code; nothing is ported as is, the compute parts are.
+| pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
+|---|---|---|---|---|
+| `_pearson_profile`, `_split_by_sign` | C§3 Correlation spectrum · P0 | port (r per wavelength) | — | P6 exploration |
+| `_plot_spectral_stats` (mean, SD, skewness, kurtosis per wavelength), `_plot_class_tests` (Shapiro, Levene, ANOVA, Kruskal per wavelength), `_plot_spectral_difference`, `_plot_sample_corr` | C§3 exploration; C§13 tests · P0 | port the computations into exploration/statistics blocks | per-wavelength tests need multiple-testing correction (C§13 P1) | P6 exploration / statistics |
+| `_fit_pca`, `_plot_outlier_diagnostics` (T², Q with Jackson–Mudholkar limit, leverage) | C§3 PCA · P0; C§14 T²/Q influence · P0 | port T²/Q/leverage | T² limit uses the new-observation F formula for calibration samples (should be the Beta-distribution limit); fall back to the 95th percentile silently → warning | P6 diagnostics |
+| `_compare_datasets` (train vs test distributions) | C§3 (no row) | spec only (comparison view) | — | P6 exploration (spec) |
+| `_export_report` (Markdown report) | C§16 report | spec only | — | P6 reporting (spec) |
+| `plot_measured_vs_predicted`, `draw_metrics_table`, `plot_residuals`, `plot_scree`, `plot_coefficients_vip_sr`, `plot_variable_selection_results` | C§14 plots · P0; C§3 publication presets · P0 | skip code (our plots are uPlot in the UI); layouts and metric tables are the UI spec | — | Phase 4 / P6 plot views (spec) |
+| `utils.colormap` (spectra coloured by Y) | C§3 spectra viewer: colour by variable · P0 | spec only | — | Phase 4 viewer (spec) |
+| `utils.stack_second_columns_to_dataframe` (folder of two-column `.txt` files → table) | C§1 Multi-file import + concatenate · P0 | spec for T1.06 multi-file | `os.listdir` order is unsorted and axes are not compared — ours sorts names and checks the axis | T1.06 (behaviour only) |
+| `utils._as_1d`, `standardize`, `residual`, `extract_features` | — | skip (covered by `SpectralDataset` validation and the blocks) | `residual` has D1's ddof mix | — |
 
 ## 12. Known packaging pitfalls (check in T0.11, T0.13)
 - **PyInstaller + process pools:** frozen apps must call `multiprocessing.freeze_support()` and use the spawn start method; loky workers inside a frozen bundle must be tested on Windows in the walking skeleton. T0.13: loky 3.7 workers do **not** start in a PyInstaller bundle with `freeze_support()` alone (workers die at start-up on all three OS); the entry script must first route loky's worker and resource-tracker command lines (`loky_freeze_support()` in `scripts/bench_parallel.py`, `docs/spikes/parallel.md`).
