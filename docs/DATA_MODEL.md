@@ -707,6 +707,7 @@ Optional fields, present only when set:
 | `string` | string | — | implemented |
 | `range` | `[low, high]` numbers, `low <= high` | `min`, `max`, `unit` | *reserved*: shape fixed, `Param` refuses it until the first block that needs it |
 | `wavelength_range` | `[low, high]` in the unit of the input spectral axis; checked against the axis at run time | — | *reserved* |
+| `wavelength_ranges` | `[[a, b], ...]`: at least one pair of finite numbers in the unit of the input spectral axis, each pair in either order (stored as `[min, max]` when parsed); checked against the axis at run time by the block: no axis point selected → `BLOCK_PARAM_INVALID` reason `constraint` | — | implemented *(T1.07)* |
 | `column_ref` | string: a column name of the input data | `roles`: subset of `y`, `class`, `group`, `metadata` the column may have | *reserved* |
 | `list` | array of scalars | `item_type` (`int`\|`float`\|`string`), `min_items`, `max_items` | *reserved* |
 A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
@@ -716,7 +717,7 @@ A reserved type is implemented (and this table updated to "implemented") in the 
 | `reason` | When |
 |---|---|
 | `unknown` | Key that is not a `param_id` of the block |
-| `type` | Value of the wrong JSON type, or a non-finite float |
+| `type` | Value of the wrong JSON type, or a non-finite float; for `wavelength_ranges` also an empty list or an item that is not a pair of finite numbers |
 | `below_min` / `above_max` | Outside `min` / `max` |
 | `not_odd` | `odd_only` and the value is even |
 | `not_a_choice` | `enum` value not in `choices` |

@@ -28,6 +28,7 @@ __all__ = [
     "ParamEntry",
     "StringParam",
     "VisibleIf",
+    "WavelengthRangesParam",
 ]
 
 type Scalar = str | int | float | bool
@@ -146,8 +147,20 @@ class EnumParam(_Param):
         )
 
 
+FiniteNumber = Annotated[float, Field(allow_inf_nan=False)]
+RangePair = Annotated[list[FiniteNumber], Field(min_length=2, max_length=2)]
+
+
+class WavelengthRangesParam(_Param):
+    """``[[a, b], ...]``: at least one pair in the input axis unit, either order (§5.2)."""
+
+    type: Literal["wavelength_ranges"]
+    default: Annotated[list[RangePair], Field(min_length=1)]
+
+
 ParamEntry = Annotated[
-    IntParam | FloatParam | BoolParam | EnumParam | StringParam, Field(discriminator="type")
+    IntParam | FloatParam | BoolParam | EnumParam | StringParam | WavelengthRangesParam,
+    Field(discriminator="type"),
 ]
 """One entry of ``params`` (§5.1, implemented types of §5.2)."""
 

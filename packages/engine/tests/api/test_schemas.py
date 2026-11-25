@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from vibechem_core.block import Block
 from vibechem_core.testing import DummyCenter, DummyOffset, DummySchema
-from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam
+from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, WavelengthRangesParam
 
 
 @pytest.mark.parametrize("block", [DummyOffset, DummyCenter, DummySchema])
@@ -26,7 +26,14 @@ def test_dummy_block_detail_is_valid_and_round_trips(block: type[Block]) -> None
 
 def test_every_implemented_type_is_covered_by_the_dummy_schema_block() -> None:
     model = BlockDetail.model_validate(DummySchema.metadata().to_detail_dict())
-    assert {p.type for p in model.params} == {"int", "float", "bool", "enum", "string"}
+    assert {p.type for p in model.params} == {
+        "int",
+        "float",
+        "bool",
+        "enum",
+        "string",
+        "wavelength_ranges",
+    }
     window = model.params[0]
     assert isinstance(window, IntParam)
     assert window.odd_only is True
@@ -68,6 +75,13 @@ def _param(detail: dict[str, Any], param_id: str) -> dict[str, Any]:
         ("label", {"visible_if": {"param_id": "mode", "values": ["max"]}}, "not valid"),
         ("label", {"visible_if": {"param_id": "clip", "values": [1]}}, "not valid"),
         ("polyorder", {"default": 20, "max": 30}, "defaults break"),
+        ("ranges", {"default": []}, "at least 1"),
+        ("ranges", {"default": [[900.0]]}, "at least 2"),
+        ("ranges", {"default": [[900.0, 1000.0, 1100.0]]}, "at most 2"),
+        ("ranges", {"default": [[900.0, "1700"]]}, "float"),
+        ("ranges", {"default": [[900.0, float("inf")]]}, "finite"),
+        ("ranges", {"default": [900.0, 1700.0]}, "list"),
+        ("ranges", {"unit": "nm"}, "Extra inputs"),
     ],
 )
 def test_invalid_param_entries_are_rejected(
@@ -115,5 +129,21 @@ def test_json_schema_has_one_entry_per_param_type() -> None:
     schema = BlockDetail.model_json_schema()
     params = schema["properties"]["params"]["items"]
     assert params["discriminator"]["propertyName"] == "type"
-    assert set(params["discriminator"]["mapping"]) == {"int", "float", "bool", "enum", "string"}
+    assert set(params["discriminator"]["mapping"]) == {
+        "int",
+        "float",
+        "bool",
+        "enum",
+        "string",
+        "wavelength_ranges",
+    }
     json.dumps(schema)
+
+
+def test_wavelength_ranges_entry_accepts_integers_and_either_order() -> None:
+    detail = _detail()
+    _param(detail, "ranges")["default"] = [[1700, 900], [2100.5, 2300]]  # as JavaScript sends
+    model = BlockDetail.model_validate(detail)
+    ranges = next(p for p in model.params if p.param_id == "ranges")
+    assert isinstance(ranges, WavelengthRangesParam)
+    assert ranges.default == [[1700.0, 900.0], [2100.5, 2300.0]]

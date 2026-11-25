@@ -340,6 +340,7 @@ class DummySchemaParams:
     deriv: int = Param(0, choices=(0, 1, 2))
     clip: bool = Param(False)
     label: str = Param("", visible_if=("mode", ("median",)))
+    ranges: tuple[tuple[float, float], ...] = Param(((1700.0, 900.0),))  # stored as (900.0, 1700.0)
 
 
 class DummySchema(Block):

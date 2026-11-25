@@ -61,6 +61,9 @@ _SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 _PARAM_SPEC = "vibechem_param"  # key of the ParamSpec in a dataclass field's metadata
 
 type ParamValue = str | int | float | bool | None
+type WavelengthRanges = tuple[tuple[float, float], ...]
+"""Value of a ``wavelength_ranges`` parameter: ``(low, high)`` pairs with ``low <= high``."""
+type ParamDefault = ParamValue | WavelengthRanges
 type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None
 
 
@@ -85,7 +88,7 @@ _COMPARE = {
 class ParamSpec:
     """What ``Param`` records about one parameter (DATA_MODEL.md §5.1)."""
 
-    default: ParamValue
+    default: ParamDefault
     choices: tuple[ParamValue, ...] | None = None
     min: float | None = None
     max: float | None = None
@@ -100,13 +103,18 @@ class ParamSpec:
     @property
     def type(self) -> str:
         """Schema type (DATA_MODEL.md §5.2): ``enum`` with choices, else from the default."""
-        return "enum" if self.choices is not None else _TYPE_NAMES[type(self.default)]
+        if self.choices is not None:
+            return "enum"
+        if isinstance(self.default, tuple):
+            return "wavelength_ranges"
+        return _TYPE_NAMES[type(self.default)]
 
     def to_dict(self, param_id: str, block_id: str) -> dict[str, JSONValue]:
         """Parameter entry of ``GET /blocks/{block_id}`` (optional fields only when set)."""
         key = f"blocks.{block_id}.params.{param_id}"
         out: dict[str, JSONValue] = {"param_id": param_id, "type": self.type}
-        out["default"] = self.default
+        default = self.default
+        out["default"] = [list(pair) for pair in default] if isinstance(default, tuple) else default
         if self.min is not None:
             out["min"] = self.min
         if self.max is not None:
@@ -127,7 +135,7 @@ class ParamSpec:
         return out
 
 
-def Param[T: ParamValue](
+def Param[T: ParamDefault](
     default: T,
     *,
     choices: tuple[T, ...] | None = None,
@@ -146,12 +154,25 @@ def Param[T: ParamValue](
     ``ddof: int = Param(1, choices=(0, 1))`` gives the field the default ``1`` and
     records the ``ParamSpec`` in the field's metadata. The type follows the default
     (``int``, ``float``, ``bool``, ``str`` -> ``string``) or is ``enum`` when
-    ``choices`` are given (DATA_MODEL.md §5). ``constraint`` (``"polyorder < window"``)
+    ``choices`` are given (DATA_MODEL.md §5). A tuple of ``(low, high)`` pairs as default
+    makes a ``wavelength_ranges`` parameter (``ranges: WavelengthRanges =
+    Param(((1100.0, 2500.0),))``): pairs in either order, stored as ``(min, max)``, in
+    the unit of the input axis, checked against the axis by the block at run time.
+    ``constraint`` (``"polyorder < window"``)
     and ``visible_if`` (``("method", ("a", "b"))``) name other parameters; they are
     checked by :func:`param_specs`.
     """
-    if type(default) not in _TYPE_NAMES:
-        raise TypeError(f"default must be an int, float, bool or str, got {default!r}")
+    if isinstance(default, tuple):
+        ranges = _ranges_value(default)
+        if ranges is None:
+            raise ValueError(f"default {default!r} must be one or more (low, high) number pairs")
+        if choices is not None:
+            raise ValueError("choices is not allowed for wavelength_ranges parameters")
+        default = cast(T, ranges)
+    elif type(default) not in _TYPE_NAMES:
+        raise TypeError(
+            f"default must be an int, float, bool or str (or a tuple of pairs), got {default!r}"
+        )
     for label, bound in (("default", default), ("min", min), ("max", max)):
         if isinstance(bound, float) and not math.isfinite(bound):
             raise ValueError(f"{label} must be finite, got {bound}")
@@ -186,8 +207,9 @@ def Param[T: ParamValue](
         )
     if visible_if is not None and (not _SNAKE.fullmatch(visible_if[0]) or not visible_if[1]):
         raise ValueError("visible_if must be (param_id, (value, ...)) with at least one value")
+    scalar_choices = cast(tuple[ParamValue, ...] | None, choices)
     spec = ParamSpec(
-        default, choices, min, max, label_key, tooltip_key, advanced,
+        default, scalar_choices, min, max, label_key, tooltip_key, advanced,
         unit, odd_only, constraint, visible_if,
     )  # fmt: skip
     return cast(T, field(default=default, metadata={_PARAM_SPEC: spec}))
@@ -259,10 +281,35 @@ def _check_references(
                 )
 
 
-def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamValue]:
+def _ranges_value(value: object) -> WavelengthRanges | None:
+    """``value`` as sorted ``(low, high)`` float pairs, or ``None`` if it is not a
+    non-empty list/tuple of pairs of finite numbers (``wavelength_ranges``, §5.2)."""
+    if not isinstance(value, list | tuple) or not value:
+        return None
+    pairs: list[tuple[float, float]] = []
+    for pair in cast(list[object] | tuple[object, ...], value):
+        if not isinstance(pair, list | tuple):
+            return None
+        numbers = cast(list[object] | tuple[object, ...], pair)
+        if len(numbers) != 2 or not all(type(v) in (int, float) for v in numbers):
+            return None
+        try:
+            low, high = (float(cast(float, v)) for v in numbers)
+        except OverflowError:  # a JSON integer too large for a float
+            return None
+        if not (math.isfinite(low) and math.isfinite(high)):
+            return None
+        pairs.append((min(low, high), max(low, high)))
+    return tuple(pairs)
+
+
+def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamDefault]:
     """``(reason, value)``: the §5.3 reason the value is invalid (or ``None``) and the
     value converted to the parameter type (``int`` -> ``float`` for floats)."""
     kind = spec.type
+    if kind == "wavelength_ranges":
+        ranges = _ranges_value(value)
+        return ("type", None) if ranges is None else (None, ranges)
     if kind == "enum":
         choices = cast(tuple[ParamValue, ...], spec.choices)
         if type(choices[0]) is float and type(value) is int:
@@ -294,7 +341,7 @@ def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamVal
     return None, checked
 
 
-def _constraint_holds(constraint: str, values: Mapping[str, ParamValue]) -> bool:
+def _constraint_holds(constraint: str, values: Mapping[str, ParamDefault]) -> bool:
     left, op, right = cast(re.Match[str], _CONSTRAINT.fullmatch(constraint)).groups()
     other = values[right] if right[0].isalpha() else float(right)
     return bool(_COMPARE[op](cast(float, values[left]), cast(float, other)))
@@ -307,7 +354,8 @@ def parse_params[P](params_type: type[P], values: Mapping[str, object]) -> P:
     parameters. The first problem raises :class:`~vibechem_core.errors.ParamError`
     with code ``BLOCK_PARAM_INVALID`` and ``params`` ``param_id``, ``reason`` (one of
     ``unknown``, ``type``, ``below_min``, ``above_max``, ``not_odd``,
-    ``not_a_choice``, ``constraint``) and, when known, ``value`` or ``constraint``
+    ``not_a_choice``, ``constraint``; a ``wavelength_ranges`` value that is not one or
+    more pairs of finite numbers gives ``type``) and, when known, ``value`` or ``constraint``
     (DATA_MODEL.md §5.3); ``values`` that is not an object gives ``reason`` ``type``
     without ``param_id``. Definition mistakes raise ``TypeError``/``ValueError`` as in
     :func:`param_specs`.
@@ -319,7 +367,7 @@ def parse_params[P](params_type: type[P], values: Mapping[str, object]) -> P:
     for key in values:
         if key not in known:
             raise ParamError(BLOCK_PARAM_INVALID, {"param_id": str(key), "reason": "unknown"})
-    parsed: dict[str, ParamValue] = {}
+    parsed: dict[str, ParamDefault] = {}
     for name, spec in specs:
         value = values.get(name, spec.default)
         reason, checked = _value_problem(spec, value)

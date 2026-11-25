@@ -236,7 +236,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ### T1.07 · Preprocessing A: cut, SNV, MSC, detrend · Q · Size M · depends T1.04
 - **Read:** METHODS.md (these entries); CLAUDE.md §5; `block.py`; TECH_STACK.md §11
 - **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3). pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `snv`, `msc` (fix D1: least-squares fit of a + b·ref; reference learned in `fit`) and the axis-based polynomial detrend; no `+1e-10` guards (constant spectrum → error/NaN)
-- **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`
+- **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`; parameter type `wavelength_ranges` (Quan, 2026-11-26): `vibechem_core/block.py` (`Param`, `parse_params`), `vibechem_core/testing.py` (`DummySchema`), `vibechem_engine/api/schemas.py`, DATA_MODEL.md §5.2/§5.3
 - **Done when:** unit, property and reference tests pass (also for wrapped methods); MSC is `fitted` (reference spectrum learned).
 
 ### T1.08 · Savitzky–Golay smoothing and derivatives · Q · Size S · depends T1.04
