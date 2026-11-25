@@ -42,7 +42,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.07 QA tooling | [x] T1.05 CSV/Excel readers | [ ] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [ ] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [ ] T2.09 Crash recovery |
-| [x] T0.10 Skeleton UI | [ ] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |
+| [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |
 | [x] T0.11 Skeleton shell + installers | [ ] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [ ] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [ ] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
@@ -236,7 +236,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ### T1.07 · Preprocessing A: cut, SNV, MSC, detrend · Q · Size M · depends T1.04
 - **Read:** METHODS.md (these entries); CLAUDE.md §5; `block.py`; TECH_STACK.md §11
 - **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3). pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `snv`, `msc` (fix D1: least-squares fit of a + b·ref; reference learned in `fit`) and the axis-based polynomial detrend; no `+1e-10` guards (constant spectrum → error/NaN)
-- **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`
+- **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`; parameter type `wavelength_ranges` (Quan, 2026-11-26): `vibechem_core/block.py` (`Param`, `parse_params`), `vibechem_core/testing.py` (`DummySchema`), `vibechem_engine/api/schemas.py`, DATA_MODEL.md §5.2/§5.3
 - **Done when:** unit, property and reference tests pass (also for wrapped methods); MSC is `fitted` (reference spectrum learned).
 
 ### T1.08 · Savitzky–Golay smoothing and derivatives · Q · Size S · depends T1.04

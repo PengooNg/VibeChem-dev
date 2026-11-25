@@ -707,6 +707,7 @@ Optional fields, present only when set:
 | `string` | string | — | implemented |
 | `range` | `[low, high]` numbers, `low <= high` | `min`, `max`, `unit` | *reserved*: shape fixed, `Param` refuses it until the first block that needs it |
 | `wavelength_range` | `[low, high]` in the unit of the input spectral axis; checked against the axis at run time | — | *reserved* |
+| `wavelength_ranges` | `[[a, b], ...]`: at least one pair of finite numbers in the unit of the input spectral axis, each pair in either order (stored as `[min, max]` when parsed); checked against the axis at run time by the block: no axis point selected → `BLOCK_PARAM_INVALID` reason `constraint` | — | implemented *(T1.07)* |
 | `column_ref` | string: a column name of the input data | `roles`: subset of `y`, `class`, `group`, `metadata` the column may have | *reserved* |
 | `list` | array of scalars | `item_type` (`int`\|`float`\|`string`), `min_items`, `max_items` | *reserved* |
 A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
@@ -716,7 +717,7 @@ A reserved type is implemented (and this table updated to "implemented") in the 
 | `reason` | When |
 |---|---|
 | `unknown` | Key that is not a `param_id` of the block |
-| `type` | Value of the wrong JSON type, or a non-finite float |
+| `type` | Value of the wrong JSON type, or a non-finite float; for `wavelength_ranges` also an empty list or an item that is not a pair of finite numbers |
 | `below_min` / `above_max` | Outside `min` / `max` |
 | `not_odd` | `odd_only` and the value is even |
 | `not_a_choice` | `enum` value not in `choices` |
@@ -762,7 +763,8 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file |
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
-| `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it) |
+| `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
+| `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |
 | `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3) |
 | `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
 | `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |

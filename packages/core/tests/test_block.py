@@ -3,6 +3,7 @@
 """Tests for ``vibechem_core.block``: Param, port, State, Block metadata, fit/apply."""
 
 import json
+import math
 import pickle
 from dataclasses import FrozenInstanceError, dataclass, make_dataclass
 from pathlib import Path
@@ -571,6 +572,7 @@ def test_schema_types_follow_the_default_or_choices() -> None:
         "deriv": "enum",
         "clip": "bool",
         "label": "string",
+        "ranges": "wavelength_ranges",
     }
 
 
@@ -830,3 +832,61 @@ def test_parse_params_accepts_exactly_the_valid_int_values(window: int, polyorde
     else:
         assert valid
         assert (parsed.window, parsed.polyorder) == (window, polyorder)
+
+
+# ---- wavelength_ranges parameter type (T1.07, DATA_MODEL.md §5.2) -------------------
+
+
+@dataclass(frozen=True)
+class _RangesParams:
+    ranges: tuple[tuple[float, float], ...] = Param(((2000.0, 1000.0), (400, 500.5)))
+
+
+def test_wavelength_ranges_default_is_sorted_and_listed() -> None:
+    ((name, spec),) = param_specs(_RangesParams)
+    assert (name, spec.type) == ("ranges", "wavelength_ranges")
+    assert spec.default == ((1000.0, 2000.0), (400.0, 500.5))
+    assert _RangesParams().ranges == ((1000.0, 2000.0), (400.0, 500.5))
+    entry = spec.to_dict("ranges", "preprocess.cut")
+    assert entry["default"] == [[1000.0, 2000.0], [400.0, 500.5]]
+    json.dumps(entry, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"default": ()}, "one or more"),
+        ({"default": ((1.0,),)}, "one or more"),
+        ({"default": ((1.0, 2.0, 3.0),)}, "one or more"),
+        ({"default": ((1.0, "2"),)}, "one or more"),
+        ({"default": ((True, 2.0),)}, "one or more"),
+        ({"default": ((1.0, math.inf),)}, "one or more"),
+        ({"default": (1.0, 2.0)}, "one or more"),
+        ({"default": ((1.0, 2.0),), "choices": (((1.0, 2.0),),)}, "choices"),
+        ({"default": ((1.0, 2.0),), "min": 0.0}, "min is only allowed"),
+        ({"default": ((1.0, 2.0),), "unit": "nm"}, "unit is only allowed"),
+        ({"default": ((1.0, 2.0),), "odd_only": True}, "odd_only"),
+    ],
+)
+def test_wavelength_ranges_declaration_mistakes(kwargs: dict[str, Any], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        Param(**kwargs)
+
+
+def test_parse_wavelength_ranges_sorts_each_pair() -> None:
+    parsed = parse_params(_RangesParams, {"ranges": [[1700, 900], [2100.5, 2300]]})
+    assert parsed.ranges == ((900.0, 1700.0), (2100.5, 2300.0))
+    assert all(type(v) is float for pair in parsed.ranges for v in pair)
+    assert parse_params(_RangesParams, {}) == _RangesParams()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [[], [[1.0]], [[1.0, 2.0, 3.0]], "900-1700", [900, 1700], [[1, "a"]], [[True, 2]],
+     [[10**400, 1]], [[1.0, math.nan]], None],
+)  # fmt: skip
+def test_parse_wavelength_ranges_rejects_bad_shapes(value: object) -> None:
+    with pytest.raises(ParamError) as info:
+        parse_params(_RangesParams, {"ranges": value})
+    assert info.value.code == BLOCK_PARAM_INVALID
+    assert (info.value.params["param_id"], info.value.params["reason"]) == ("ranges", "type")
