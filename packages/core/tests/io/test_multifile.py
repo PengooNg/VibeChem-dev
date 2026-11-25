@@ -45,6 +45,7 @@ def codes(warnings: tuple[ImportWarning, ...]) -> list[str]:
         ("Ft-ir.spc", "spc"),
         ("peach_juice.dpt", "tsv"),
         ("sample1.spa", "spa"),
+        ("single_PE_spectrum.sp", "perkinelmer"),
     ],
 )
 def test_read_file_dispatches_by_extension(name: str, fmt: str) -> None:
