@@ -35,7 +35,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
 | | [x] T1.00b pengoo port inventory | |
 | [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
-| [x] T0.03 Python workspace + check.py | [ ] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
+| [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
 | [x] T0.04 App workspace | [ ] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
 | [x] T0.05 Native skeleton | [ ] T1.03 Parameter schema | [ ] T2.05 Leakage rules + suite |
 | [x] T0.06 Full CI + rulesets 👤 | [ ] T1.04 METHODS.md part 1 👤 | [ ] T2.06 Cache |
