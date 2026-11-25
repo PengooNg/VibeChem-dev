@@ -47,9 +47,11 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 | N9 | Repeated k-fold RMSECV | pooled RMSECV **per repeat**, then mean and SD over repeats | One prediction per sample per repeat; pooling across repeats would count samples several times. |
 | N10 | Split / CV when the dataset has groups but the scheme ignores them | warning `VALIDATION_GROUPS_IGNORED` (already in DATA_MODEL.md §7) | Replicates in both training and validation inflate results (Esbensen & Geladi 2010). |
 | N11 | MSC with slope bᵢ ≤ 0 | node error, proposed code `BLOCK_MSC_SLOPE_INVALID` | Dividing by a negative or zero slope flips or explodes the spectrum; it means the reference does not fit that spectrum. |
-| N12 | Defaults with no source: SG window 11 / polyorder 2; random split test fraction 0.25, 5 y-bins; k-fold k = 10; repeats 5 | as listed (marked *to confirm* in the entries) | Common starting values; no paper prescribes them. |
+| N12 | Defaults with no source: SG window 11 / polyorder 2; random split test fraction 0.25, 5 y-bins; k-fold k = 10; repeats 5; PLS `n_components` 10 (capped at min(n − 1, p)) | as listed (marked *to confirm* in the entries) | Common starting values; no paper prescribes them. |
 | N13 | SPXY with all y equal | node error, proposed code `BLOCK_CONSTANT_RESPONSE` | max d_y = 0 makes the y term undefined; a silent fall-back to Kennard–Stone would hide it. |
 | N14 | New error codes | `BLOCK_MISSING_VALUES`, `BLOCK_AXIS_NOT_UNIFORM`, `BLOCK_MSC_SLOPE_INVALID`, `BLOCK_CONSTANT_RESPONSE` are **proposals only**; each implementing step adds its code to DATA_MODEL.md §7 in its own PR | CLAUDE.md §4: codes are added to DATA_MODEL.md first, not invented in code. This PR does not change DATA_MODEL.md. |
+| N15 | Metric names in `Results.metrics` | `rmsec/rmsecv/rmsep`, `r2c/r2cv/r2p`; `bias`, `sep`, `slope`, `intercept`, `rpd`, `rpiq`, `press` refer to the Results' own set; `n_lv` | Matches the DATA_MODEL.md §2.8 example (`rmsecv`, `r2cv`, `bias`, `rpd`, `rpiq`, `n_lv`). |
+| N16 | PLS component sign | fix after fitting: largest-\|w\| element of each weight vector positive (scores and loadings flipped with it) | Signs from SVD/NIPALS can differ between BLAS builds; predictions do not change, plots and saved states do (ARCHITECTURE.md: same results across OS). |
 
 ---
 
@@ -66,7 +68,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
   | `T-exact` | closed-form hand calculation, algebraic identity | `rtol=1e-10, atol=1e-12` |
   | `T-lib` | our block vs the library it wraps, same algorithm | `rtol=1e-10, atol=1e-12` |
   | `T-iter` | iterative algorithm vs another implementation (NIPALS PLS2, SIMPLS vs NIPALS) | `rtol=1e-6, atol=1e-9` |
-  | `T-pub` | published values | half a unit of the last printed digit (`atol`), `rtol=0` |
+  | `T-pub` | published values | the tolerance recorded in the `testdata/expected/` file (gasoline: `rtol=1e-3`, proposed in T0.07); otherwise half a unit of the last printed digit (`atol`), `rtol=0` |
 - **Entry fields.** Definition · Formula · Steps (what `# Step N:` comments follow) · Parameters (defaults) · Edge cases · Reference values (independent, never pengoo or Quasar: TECH_STACK.md §11.1 rule 3, §11.2 rule 5) · Tolerance · Implementation · Library differences.
 
 ---
@@ -277,3 +279,113 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 - **Parameters.** `k`, `shuffle`, `rng`.
 - **Implementation.** Wrap scikit-learn `GroupKFold(shuffle=True, random_state=…)` (needs scikit-learn ≥ 1.6; we pin 1.9.x).
 - **Reference.** `esbensen2010validation`.
+
+---
+
+## 6. PLS regression
+
+<a id="pls"></a>
+### PLS regression, NIPALS (`model.pls`) · T1.12a
+- **Definition.** Find A latent variables (scores T = X₀R) that maximise covariance with Y, and regress Y on them. PLS1: one y column; PLS2: several.
+- **Formula.** X₀ = X − x̄ (training means), Y₀ = Y − ȳ; X is **not** scaled by default (Q4). For a = 1 … A on the deflated matrices Xₐ, Yₐ:
+  wₐ = first left singular vector of XₐᵀYₐ (‖wₐ‖ = 1; PLS1: wₐ = Xₐᵀy / ‖Xₐᵀy‖) · tₐ = Xₐwₐ · pₐ = Xₐᵀtₐ / (tₐᵀtₐ) · qₐ = Yₐᵀtₐ / (tₐᵀtₐ) · Xₐ₊₁ = Xₐ − tₐpₐᵀ · Yₐ₊₁ = Yₐ − tₐqₐᵀ.
+  Rotations R = W(PᵀW)⁻¹, coefficients B = RQᵀ (p × k), prediction ŷ = ȳ + (x − x̄)B.
+- **Steps.** `fit`: 1 centre X and Y with training means · 2 NIPALS loop (scikit-learn) · 3 store x̄, ȳ, W, P, Q, R, T, B. `apply`: 4 ŷ = ȳ + (x − x̄)B.
+- **Outputs.** scores T, loadings P, weights W, y-loadings Q, rotations R, coefficients B per LV count, intercept, explained X and Y variance per component.
+- **Parameters.** `n_components` A: 1 ≤ A ≤ min(n_train − 1, p), default 10 *to confirm* (capped at the bound); `scale` ∈ {false, true}, default false (Q4; true is kept only to reproduce old pengoo results).
+- **Edge cases.** A above the bound → `BLOCK_PARAM_INVALID` (reason `bounds`). Constant y → `BLOCK_CONSTANT_RESPONSE` (N13). NaN → N1. PLS2 NIPALS inner loop is iterative (scikit-learn `max_iter=500`, `tol=1e-06`); non-convergence warning from scikit-learn is passed to the node log.
+- **Reference values.** Mevik & Wehrens 2007 on `gasoline_nir` (`testdata/expected/gasoline_nir_pls.json`: LOO RMSEP for 0–10 components, test RMSEP, explained variance, 2-component test predictions; R `pls` kernel PLS, same predictions as NIPALS for PLS1). Hand calculation for PLS1 with A = 1 (w ∝ X₀ᵀy). PLS2: R `pls` (other software) values *to obtain* in T1.12a, or a published PLS2 example.
+- **Tolerance.** `T-pub` against the paper; `T-lib` against scikit-learn `PLSRegression(scale=False)` predictions (PLS1); `T-iter` for PLS2.
+- **Implementation.** Wrap scikit-learn `PLSRegression` (1.9.1 signature `n_components=2, scale=True, max_iter=500, tol=1e-06`: we always pass `scale` explicitly). Sign of each component is fixed after the fit (largest-|w| element positive, N16) so outputs are reproducible across BLAS builds.
+- **Library differences.** scikit-learn default `scale=True` autoscales X and Y with ddof 1 (all pengoo PLS results). R `pls` default: centring only.
+- **Reference.** `wold1984collinearity`, `geladi1986pls`, `hoskuldsson1988`, `wold2001pls`, `mevik2007pls`.
+
+<a id="pls-lv-sweep"></a>
+### LV sweep from one fit · T1.12a
+- **Definition.** Predictions for every LV count a = 1 … A from one fit with A components.
+- **Formula.** Bₐ = R₍:,1..a₎ Q₍:,1..a₎ᵀ, ŷₐ = ȳ + (x − x̄)Bₐ. Valid because the first a NIPALS (and SIMPLS) components do not depend on later ones. a = 0: ŷ₀ = ȳ (training mean).
+- **Reference values.** Property: sweep at a equals a separate fit with `n_components = a` (`T-lib` for PLS1, `T-iter` for PLS2), for every a.
+- **Note.** The intercept-only (a = 0) prediction is the **training** mean; R `pls` prints the test-set mean for its 0-component test RMSEP (see the notes in the expected file).
+- **Implementation.** Port pengoo `_predict_pls_at_lv` (one function replacing its two copies).
+
+<a id="simpls"></a>
+### SIMPLS (algorithm option of `model.pls`) · T1.12b
+- **Definition.** de Jong's algorithm: weights are computed from the cross-product S = X₀ᵀY₀, deflated by projection, so scores are linear combinations of the **original** centred X.
+- **Steps** (de Jong 1993, Appendix; each line checked against the paper in T1.12b): 1 S = X₀ᵀY₀ · for a = 1 … A: 2 rₐ = first left singular vector of S · 3 tₐ = X₀rₐ, centre, normalise ‖tₐ‖ = 1 and divide rₐ by the same norm · 4 pₐ = X₀ᵀtₐ, qₐ = Y₀ᵀtₐ · 5 vₐ = pₐ orthogonalised against v₁ … vₐ₋₁, normalised · 6 S ← S − vₐ(vₐᵀS) · 7 B = RQᵀ.
+- **Reference values.** PLS1: identical predictions to NIPALS (de Jong 1993) — gasoline values of Mevik & Wehrens 2007 (`T-pub`) and NIPALS (`T-iter`). PLS2: R `pls` `method = "simpls"` (other software) values *to obtain* in T1.12b.
+- **Implementation.** Own code (≈ 30 lines of NumPy; no maintained SIMPLS in our stack — T1.12b repeats the §12 search).
+- **Reference.** `dejong1993simpls`.
+
+<a id="vip"></a>
+### Variable Importance in Projection (VIP) · T1.12b
+- **Definition.** Weighted sum of squared weights per variable, each component weighted by the Y variance it explains.
+- **Formula.** SSₐ = (tₐᵀtₐ) Σ_m q_{ma}² (sum over the k Y columns; PLS1: k = 1). VIPⱼ = √( p Σₐ SSₐ (wⱼₐ / ‖wₐ‖)² / Σₐ SSₐ ).
+- **Steps.** 1 SSₐ from T and Q · 2 normalised weights · 3 weighted sum · 4 scale by p and take the square root.
+- **Edge cases.** PLS2 (Q9): VIP depends on the relative scaling of the Y columns (documented in the block tooltip). The "VIP > 1" rule of thumb is a display threshold, not part of the method.
+- **Reference values.** Properties: Σⱼ VIPⱼ² = p (`T-exact`); A = 1 → VIPⱼ = √p·|w̃ⱼ| (hand calculation). Independent value from other software (R `plsVarSel`, or `mixOmics` for PLS2) *to obtain* in T1.12b; pengoo values only as `test_vip_pengoo_regression`.
+- **Tolerance.** `T-exact` for properties; `T-iter` against other software.
+- **Implementation.** Port pengoo `calculate_vip` (already sums over Y columns; uses scikit-learn's unit-norm `x_weights_`).
+- **Reference.** `wold1993vip` (*to verify*), `chong2005vip`, `mehmood2012review`.
+
+---
+
+<a id="plsda"></a>
+## 7. PLS-DA (`model.plsda`) · T1.13
+- **Definition.** PLS2 on a dummy-coded class matrix; a sample is assigned to the class with the largest predicted value.
+- **Formula.** Classes sorted by label c₁ … c_G; Y = n × G indicator matrix (yᵢg = 1 if sample i is in class g, else 0); fit PLS (mean-centred X and Y, no Y scaling); ĉᵢ = argmax_g ŷᵢg.
+- **Steps.** `fit`: 1 sorted class list · 2 indicator matrix · 3 PLS2 fit. `apply`: 4 predicted indicator values · 5 argmax (ties → lowest class index).
+- **Decision rule.** Max rule only in T1.13. Binary case: two indicator columns; because rows of Ŷ sum to 1 (centred PLS with an intercept preserves the constant row sum), the max rule equals "ŷ of class 2 > 0.5". Threshold, LDA-on-scores and probabilistic rules are later options.
+- **Outputs.** Predicted class, the G predicted values (used for ROC), PLS outputs.
+- **Edge cases.** Only one class in the training rows → node error `BLOCK_CONSTANT_RESPONSE` (a constant response, N13). A class missing from a training fold: its column is constant in that fold → that class cannot be predicted; logged as a warning per fold. Unknown class at apply time is impossible (labels come from the training set).
+- **Reference values.** Hand-worked binary example (4 samples, 2 variables, A = 1); property: row sums of Ŷ = 1 (`T-exact`); multi-class property tests; loose published check on `olive_oil_ftir` (CV accuracy ≥ 0.90, `testdata/expected/olive_oil_ftir_classification.json`, protocol unverified).
+- **Implementation.** Our PLS block + scikit-learn label handling (`LabelBinarizer` gives one column for two classes — we always build G columns).
+- **Reference.** `barker2003plsda`, `ballabio2013plsda`.
+
+---
+
+## 8. Metrics (`vibechem_core/metrics.py`) · T1.14
+All metrics are computed in **original Y units** (inverse Y scaling first) and per Y column for PLS2. e = ŷ − y (Q7). n = number of predictions in the set. "Set" is calibration (predictions of the model fitted on all training rows, on those rows), cross-validation (out-of-fold predictions) or prediction (external test set).
+
+<a id="regression-metrics"></a>
+### Regression metrics
+| Name | Formula | Notes |
+|---|---|---|
+| RMSEC / RMSECV / RMSEP | √( Σ eᵢ² / n ) | divisor n (N6); RMSECV aggregation see below |
+| Bias | ē = (1/n) Σ eᵢ = mean(ŷ) − mean(y) | ISO 12099:2010 Eq. (1)–(3); positive = over-prediction (Q7) |
+| SEP | √( Σ (eᵢ − ē)² / (n − 1) ) | bias-corrected SD of residuals; ISO 12099 §6.5 (*to verify*), `fearn2002sep` |
+| R² (R²c, R²cv, R²p) | 1 − Σ eᵢ² / Σ (yᵢ − ȳ)² , ȳ = mean of y **in the same set** | not the squared correlation; can be negative on test data |
+| Slope, intercept | least squares y = a + b·ŷ | reference on prediction, ISO 12099:2010 §5.4.1 (N7) |
+| RPD | SD(y) / SEP, SD with ddof 1 over the same set | N8 (*to verify* in `fearn2002sep`) |
+| RPIQ | (Q3 − Q1) / SEP, quartiles of y in the same set (linear interpolation, NumPy default) | N8 (*to verify* in `bellonmaurel2010rpiq`) |
+| PRESS | Σ eᵢ² over the out-of-fold predictions | |
+- **Reference values.** Every metric: hand calculation on a 5-sample example (Done when of T1.14), written out in the test file. Identity (property): RMSE² = ē² + SEP²·(n − 1)/n (`T-exact`).
+- **Edge cases.** n < 2 → SEP, slope, R², RPD, RPIQ are undefined: returned as NaN with a warning (metrics are reported, not block inputs). SD(y) = 0 → R², RPD, RPIQ NaN with a warning. ISO 12099 asks for ≥ 20 validation samples for SEP and ≥ 10 for bias: below that, a warning (not an error).
+- **Names in `Results.metrics`** (DATA_MODEL.md §4.2 takes them from here, N15): `rmsec`, `rmsecv`, `rmsep`, `r2c`, `r2cv`, `r2p`; the set-free names `bias`, `sep`, `slope`, `intercept`, `rpd`, `rpiq`, `press` refer to the set of that Results; `n_lv` is the LV count. Matches the DATA_MODEL.md §2.8 example.
+- **Implementation.** Own NumPy (each metric is one line), scikit-learn `r2_score` as a `T-lib` cross-check. Port of pengoo `regression_metrics` definitions plus RPIQ and slope.
+- **Reference.** `iso12099_2010`, `fearn2002sep`, `bellonmaurel2010rpiq`, `martens1989`.
+
+<a id="rmsecv"></a>
+### RMSECV aggregation
+- **`pooled`** (default, Q6): RMSECV = √( PRESS / n ), PRESS over all out-of-fold predictions (each row predicted once per repeat). Same as R `pls` `RMSEP(…, estimate = "CV")` (gasoline reference).
+- **`fold_mean`** (option): RMSECV = (1/k) Σ_f RMSE_f, RMSE_f over the rows of fold f. Unequal fold sizes make it differ from pooled.
+- **Always stored:** RMSE_f per fold, their SD (ddof 1) and SE = SD/√k, so the 1-SE and paired t-test LV rules (T2.10a) work with either default.
+- **Repeated CV:** per repeat, then mean and SD over repeats (N9).
+- **Bias, R², SEP, RPD in CV** use the pooled out-of-fold predictions in both modes (as pengoo).
+- **D2.** Out-of-fold predictions come from a pipeline re-fitted on each fold's training rows only (DATA_MODEL.md §4.6), never from preprocessing re-fitted on the validation fold.
+- **Reference values.** Hand calculation with unequal folds (3 + 2 rows) where pooled ≠ fold mean; gasoline LOO values (`T-pub`, pooled). With LOO, `fold_mean` becomes the mean absolute error (each fold RMSE is |eᵢ|), which is another reason not to make it the default.
+- **Reference.** `martens1989`, `mevik2007pls`.
+
+<a id="classification-metrics"></a>
+### Classification metrics
+| Name | Definition |
+|---|---|
+| Confusion matrix C | C[t, p] = number of samples of true class t predicted as p (rows true, columns predicted; class order = sorted labels) |
+| Accuracy | Σ_g C[g, g] / n |
+| Sensitivity of class g | C[g, g] / Σ_p C[g, p] |
+| Specificity of class g | Σ_{t≠g} Σ_{p≠g} C[t, p] / Σ_{t≠g} Σ_p C[t, p] |
+| ROC-AUC | binary: AUC of the class-2 predicted value; multi-class: one-vs-rest AUC of each class's predicted value, then the unweighted (macro) mean |
+- **Edge cases.** A class absent from the set → its sensitivity is NaN with a warning; AUC needs both labels present per class, otherwise NaN with a warning.
+- **Reference values.** Hand-computed 3-class confusion matrix; AUC by hand as the fraction of (positive, negative) pairs ranked correctly, ties counting ½ (Fawcett 2006).
+- **Tolerance.** `T-exact`.
+- **Implementation.** scikit-learn `confusion_matrix`, `accuracy_score`, `roc_auc_score` (binary, called per class for one-vs-rest so PLS-DA values outside [0, 1] are accepted).
+- **Reference.** `fawcett2006roc`, `ballabio2013plsda`.
