@@ -525,7 +525,7 @@ Seven types in v1. Names are case-sensitive and appear as `port_type` in `/block
 | `name` | Carries | Python object (core) | `shape_icon` (UI_GUIDE §6) | `description_key` |
 |---|---|---|---|---|
 | `Spectra` | n samples × p variables on one spectral axis, plus sample annotations | `SpectralDataset` | `circle` | `ports.spectra` |
-| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | `pyarrow.Table` wrapper | `circle` | `ports.table` |
+| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | mapping column name → 1-D NumPy array, all of one length (no pyarrow in core, T1.05); the engine converts it to an Arrow table | `circle` | `ports.table` |
 | `Model` | Fitted state of a predictive block (regression, classification, projection, one-class) | `ModelState` | `diamond` | `ports.model` |
 | `Transform` | Fitted state of a non-predictive block that maps spectra to spectra (scaler, MSC reference, PDS/DS matrix, EPO projection) | `TransformState` | `diamond_outline` *(proposed; add to UI_GUIDE §6)* | `ports.transform` |
 | `Folds` | Row-index sets for validation: k folds, repeats, or one train/test hold-out | `FoldSet` | `triangle` | `ports.folds` |

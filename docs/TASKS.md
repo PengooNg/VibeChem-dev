@@ -213,7 +213,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.05 · CSV/TSV and Excel readers · K · Size M
 - **Read:** DATA_MODEL.md §2.5; TECH_STACK.md §1.2
-- **Reuse:** pyarrow CSV reader, openpyxl (or pandas) — write only role detection and validation. Quasar's `io/ascii.py` (`AsciiColReader`) is not ported; its rules (`;` comment lines, headerless two-column files such as Bruker `.dpt`) become test cases, with osp `datasets/peach_juice.dpt` as a sample (GPL test data, TECH_STACK.md §11.1 rule 4)
+- **Reuse:** stdlib `csv` + NumPy (pyarrow CSV reader overruled by Quan: core stays free of pyarrow), openpyxl — write only role detection and validation. Quasar's `io/ascii.py` (`AsciiColReader`) is not ported; its rules (`;` comment lines, headerless two-column files such as Bruker `.dpt`) become test cases, with osp `datasets/peach_juice.dpt` as a sample (GPL test data, TECH_STACK.md §11.1 rule 4)
 - **Files:** `vibechem_core/io/table.py`
 - **Do:** read, detect roles (sample ID, groups, Y, spectral columns + axis), warnings (duplicate IDs, non-numeric).
 - **Done when:** tests on reference data and malformed files.
