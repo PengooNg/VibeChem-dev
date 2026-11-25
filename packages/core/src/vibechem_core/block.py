@@ -11,8 +11,9 @@ fitting and applying:
   training rows only and ``apply(<inputs>, params, state)`` on any rows.
 
 Inputs are passed as keyword arguments named after the input ``port_id``\\ s.
-``State`` holds JSON values and named NumPy arrays only, so it can be saved without
-pickle (ADR-007; saving and loading arrive in T1.02b).
+``State`` holds JSON values and named NumPy arrays only, so :func:`save_state` and
+:func:`load_state` store it as ``state.json`` plus ``.npy`` files, without pickle
+(ADR-007).
 
 :meth:`Block.metadata` checks the class definition and returns its ``BlockMeta``, the
 ``GET /blocks`` entry of DATA_MODEL.md §2.3. Definition mistakes raise
@@ -23,10 +24,13 @@ classes with the codes defined below (DATA_MODEL.md §7, "Defined in core/block"
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
@@ -248,6 +252,82 @@ def _json_copy(value: object, path: str) -> JSONValue:
         f"state value {path!r} is a {type(value).__name__}, not JSON; store arrays in "
         "State.arrays and convert NumPy scalars with .item() (ADR-007)"
     )
+
+
+STATE_VERSION = 1
+"""Version of the state directory layout written by :func:`save_state`."""
+_STATE_KEYS = {"state_version", "values", "arrays"}
+
+
+def save_state(state: State, directory: str | os.PathLike[str]) -> None:
+    """Save ``state`` into ``directory`` (created if missing) as JSON + ``.npy``.
+
+    Layout (ADR-007): ``state.json`` = ``{"state_version": 1, "values": {...},
+    "arrays": [name, ...]}`` and ``arrays/<i>.npy`` for the i-th name. Files are
+    named by position, so array names never become file names.
+    """
+    root = Path(directory)
+    (root / "arrays").mkdir(parents=True, exist_ok=True)
+    names = [str(name) for name in state.arrays]
+    for i, array in enumerate(state.arrays.values()):
+        np.save(root / "arrays" / f"{i}.npy", array, allow_pickle=False)
+    doc = {"state_version": STATE_VERSION, "values": dict(state.values), "arrays": names}
+    text = json.dumps(doc, allow_nan=False, ensure_ascii=False, indent=1)
+    (root / "state.json").write_text(text, encoding="utf-8")
+
+
+def load_state(directory: str | os.PathLike[str]) -> State:
+    """Load a state saved by :func:`save_state`; arrays use ``allow_pickle=False``.
+
+    Raises ``FileNotFoundError`` for a missing file and ``ValueError`` for invalid
+    content (the engine maps it to ``MODEL_PACKAGE_INVALID``, DATA_MODEL.md §7).
+    """
+    root = Path(directory)
+    text = (root / "state.json").read_text(encoding="utf-8")
+    try:
+        doc: object = json.loads(text, parse_constant=_reject_constant)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"state.json is not valid JSON: {exc}") from None
+    problem = _state_doc_problem(doc)
+    if problem:
+        raise ValueError(f"state.json {problem}")
+    entries = cast(dict[str, Any], doc)
+    arrays: dict[str, NDArray[Any]] = {}
+    for i, name in enumerate(cast(list[str], entries["arrays"])):
+        loaded: object = np.load(root / "arrays" / f"{i}.npy", allow_pickle=False)
+        if isinstance(loaded, np.ndarray):
+            arrays[name] = cast(NDArray[Any], loaded)
+            continue
+        if hasattr(loaded, "close"):  # an .npz archive keeps its file open
+            cast(Any, loaded).close()
+        raise ValueError(f"arrays/{i}.npy is not a .npy array (state array {name!r})")
+    return State(cast(dict[str, object], entries["values"]), arrays)
+
+
+def _state_doc_problem(doc: object) -> str | None:
+    """What is wrong with a parsed ``state.json``, or ``None``."""
+    if not isinstance(doc, dict):
+        return "must be a JSON object"
+    entries = cast(dict[str, object], doc)
+    if set(entries) - _STATE_KEYS:
+        return f"has unknown keys {sorted(set(entries) - _STATE_KEYS)}"
+    version, values, names = (entries.get(k) for k in ("state_version", "values", "arrays"))
+    if version != STATE_VERSION or isinstance(version, bool):
+        return f"has state_version {version!r}; expected {STATE_VERSION}"
+    if not isinstance(values, dict):
+        return "'values' must be an object"
+    if not isinstance(names, list) or not all(
+        isinstance(n, str) for n in cast(list[object], names)
+    ):
+        return "'arrays' must be a list of str"
+    array_names = cast(list[str], names)
+    if len(set(array_names)) != len(array_names):
+        return f"'arrays' has duplicate names {array_names}"
+    return None
+
+
+def _reject_constant(constant: str) -> object:
+    raise ValueError(f"state.json value {constant} is not JSON (not finite)")
 
 
 # ---- Block --------------------------------------------------------------------------
