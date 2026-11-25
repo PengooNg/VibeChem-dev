@@ -1,6 +1,7 @@
 # VibeChem — Tasks
 
-> Status: v0.6 · Last updated: 2026-11-25
+> Status: v0.7 · Last updated: 2026-11-25
+> v0.7: T1.00b pengoo port inventory (Quan's request) — Phase 1 and T2.10 reuse lines name the pengoo function to port and the defect to fix (TECH_STACK.md §11.2); Duplex in T1.10 *proposed (T1.00b)*.
 > v0.6: T1.00 Quasar port inventory — Phase 1 and Phase 6 reuse lines name the Quasar/Orange module to port or the library to wrap (TECH_STACK.md §11.1); **T1.06b vendor readers** *proposed (T1.00)* — Quan approves by merging the T1.00 PR, or deletes the T1.06b row and block.
 > v0.5: Playwright CLI + design skills installed in T0.04; first Electron e2e test in T0.10; every `app/` step has a visual check (CLAUDE.md §13.1); 👤 glyph-set step added to Phase 4.
 > v0.4: **phase mode** — Quan types `/phase N`; Claude Code runs the steps below in order, each step = one PR merged into branch `phase-N`, until the gate or a stop condition (CLAUDE.md §14). Phases run in numeric order; K joins at demo v0 (= Beta, end of Phase 6) and reviews the backlog then. 👤 steps are prepared by Claude Code and finished/merged by Quan.
@@ -32,6 +33,7 @@ Legend: Q = algorithm area (Quan) · K = infrastructure area (K; until demo v0 Q
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
 | [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
+| | [x] T1.00b pengoo port inventory | |
 | [x] T0.02 Repo skeleton + legal + labels 👤 | [ ] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
 | [x] T0.03 Python workspace + check.py | [ ] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
 | [x] T0.04 App workspace | [ ] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
@@ -167,6 +169,14 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
   6. Pin both upstream commits in `THIRD_PARTY.md`; K review backlog row for any new dependency candidate.
 - **Done when:** draft PR ready with every inventory row decided and given a target step; every P0/P1 catalog row with a Quasar/Orange source names it; Phase 1 and Phase 6 reuse lines updated. 👤 Quan approves the scope changes and merges. No code.
 
+### T1.00b · pengoo port inventory · Q · Size S
+*(Added 2026-11-25 at Quan's request when he provided his local pengoo copy; same pattern as T1.00.)*
+- **Read:** `pengoo/*.py` (local, git-excluded); TECH_STACK.md §11, §11.1 (port recipe, rules 3–4); FUNCTION_CATALOG.md §4–8, §13–14
+- **Reuse:** pengoo (owner's code) — inventory only, no code ported in this step
+- **Files:** `docs/TECH_STACK.md` (§11.2 + register rows), `docs/FUNCTION_CATALOG.md` ("Likely source" notes, proposed rows), `docs/TASKS.md` (reuse lines), `docs/PROGRESS.md`
+- **Do:** one row per pengoo function: catalog function, decision (port / wrap / skip), defect or convention clash to fix, target step; confirm suspected defects by running pengoo in a scratch environment; record behaviour choices for T1.04.
+- **Done when:** every public pengoo function has a decided row with a target; Phase 1 and T2.10 reuse lines updated; confirmed defects listed with evidence. No code.
+
 ### T1.01 · SpectralDataset · K · Size M
 - **Read:** ARCHITECTURE.md §3.1; DATA_MODEL.md §2.5 (dataset fields); TECH_STACK.md §4
 - **Reuse:** — (own small dataclass; do not adopt a heavy data framework)
@@ -198,7 +208,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ### T1.04 · METHODS.md part 1 👤 · Q · Size M
 - **Read:** FUNCTION_CATALOG.md §4–9 (P0 rows used in Phase 1)
 - **Reuse:** original papers; documentation of candidate libraries (to note where their definitions differ)
-- **Do:** draft entries (definition, formula, reference, edge cases, tolerance, chosen implementation) for the T1.07–T1.14 methods; `docs/references.bib` with those references.
+- **Do:** draft entries (definition, formula, reference, edge cases, tolerance, chosen implementation) for the T1.07–T1.14 methods; `docs/references.bib` with those references. Propose an answer for every **(T1.04)** item in TECH_STACK.md §11.2 (pengoo behaviour choices: SNV ddof, SG edge mode, PLS X scaling default, KS/SPXY distance space, RMSECV aggregation default, bias sign, LOO rule, PLS2 VIP) for Quan to confirm.
 - **Done when:** draft PR ready. 👤 Quan corrects and approves the entries, then merges. T1.07–T1.14 depend on this step.
 
 ### T1.05 · CSV/TSV and Excel readers · K · Size M
@@ -225,45 +235,45 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.07 · Preprocessing A: cut, SNV, MSC, detrend · Q · Size M · depends T1.04
 - **Read:** METHODS.md (these entries); CLAUDE.md §5; `block.py`; TECH_STACK.md §11
-- **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3)
+- **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3). pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `snv`, `msc` (fix D1: least-squares fit of a + b·ref; reference learned in `fit`) and the axis-based polynomial detrend; no `+1e-10` guards (constant spectrum → error/NaN)
 - **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`
 - **Done when:** unit, property and reference tests pass (also for wrapped methods); MSC is `fitted` (reference spectrum learned).
 
 ### T1.08 · Savitzky–Golay smoothing and derivatives · Q · Size S · depends T1.04
 - **Read:** METHODS.md (SG entry); `block.py`
-- **Reuse:** `scipy.signal.savgol_filter` (wrap; do not reimplement); pengoo SG options if Quan provides them. Quasar's `SavitzkyGolayFiltering` wraps the same call — its NaN and unsorted-axis handling is the behaviour reference, not ported
+- **Reuse:** `scipy.signal.savgol_filter` (wrap; do not reimplement); pengoo `perform_smoothing` uses the same call with `mode='nearest'` (SciPy default `'interp'` — default chosen in METHODS.md, T1.04). Quasar's `SavitzkyGolayFiltering` wraps the same call — its NaN and unsorted-axis handling is the behaviour reference, not ported
 - **Files:** `blocks/preprocess/savgol.py`
 - **Done when:** matches SciPy within tolerance and an independent reference (hand-computed or published); edge handling documented.
 
 ### T1.09 · Scaling: mean-centre, autoscale, Pareto · Q · Size S · depends T1.04
 - **Read:** METHODS.md; `block.py`
-- **Reuse:** scikit-learn `StandardScaler`; `chemotools` scalers (Pareto). Orange3 `preprocess` `Normalize`/`Scale` are not ported (Table/Domain transformations around the same arithmetic)
+- **Reuse:** scikit-learn `StandardScaler`; `chemotools` scalers (Pareto). Orange3 `preprocess` `Normalize`/`Scale` are not ported (Table/Domain transformations around the same arithmetic). pengoo (TECH_STACK.md §11.2, local `pengoo/`): `perform_scaling` centring/autoscaling computes statistics on whatever it is applied to (D2) — the test "apply uses training statistics only" covers it; Y autoscaling with inverse transform replaces pengoo's `convert_y`/`y_sdev`
 - **Files:** `blocks/preprocess/scaling.py`
 - **Done when:** all `fitted`; apply on new data uses training statistics only (test proves it).
 
 ### T1.10 · Splits: random, Kennard–Stone, SPXY · Q · Size M · depends T1.04
 - **Read:** METHODS.md; `block.py`; TECH_STACK.md §11
-- **Reuse:** scikit-learn `train_test_split` (random/stratified); `kennard-stone` package; SPXY likely own (small)
+- **Reuse:** scikit-learn `train_test_split` (random/stratified); `kennard-stone` package (cross-check). pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `_ks_order`, the SPXY distance and the stratified, unit-preserving selection of `split_cal_test` as the group-aware option (distance space — raw X or PCA scores — decided in T1.04); `_duplex_order` exists too (Duplex is C§5 P0 — *proposed (T1.00b)* addition to this step, `duplex.py`)
 - **Files:** `blocks/split/{random_split,kennard_stone,spxy}.py`
 - **Done when:** KS/SPXY match published/reference selections on the reference dataset; group-aware option.
 
 ### T1.11 · CV fold generators · Q · Size S · depends T1.04
 - **Read:** METHODS.md; `block.py`
-- **Reuse:** scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold`; own code only for venetian blinds and contiguous blocks. Orange3 `evaluation/testing.py` (incl. `CrossValidationFeature` = grouped CV) wraps the same splitters — not ported
+- **Reuse:** scikit-learn `KFold`, `GroupKFold`, `LeaveOneOut`, `RepeatedKFold`; own code only for venetian blinds and contiguous blocks. Orange3 `evaluation/testing.py` (incl. `CrossValidationFeature` = grouped CV) wraps the same splitters — not ported. pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `validate_cv_groups` (several group columns combined), folds materialised once (`PredefinedFolds`) and the group-leak assertion; fixed `random_state=69` → `Generator`
 - **Files:** `blocks/validate/folds.py`
 - **Done when:** property tests: folds partition samples; groups never split.
 
 ### T1.12a · PLS: NIPALS wrap, outputs, LV sweep (PLS1/PLS2) · Q · Size M · depends T1.04
 *(T1.12 split at the Phase 0 gate; same total scope as the former T1.12.)*
 - **Read:** METHODS.md (PLS); `block.py`
-- **Reuse:** scikit-learn `PLSRegression` (NIPALS). Quasar/Orange PLS (`models/pls.py`, o3 `regression/pls.py`) wraps the same class — not ported here; its DModX/residual code is ported in Phase 6 diagnostics
+- **Reuse:** scikit-learn `PLSRegression` (NIPALS). Quasar/Orange PLS (`models/pls.py`, o3 `regression/pls.py`) wraps the same class — not ported here; its DModX/residual code is ported in Phase 6 diagnostics. pengoo (TECH_STACK.md §11.2, local `pengoo/`): port the LV sweep from one fit (`_predict_pls_at_lv`); scikit-learn's default `scale=True` (all pengoo results used it) vs mean-centring only is decided in T1.04
 - **Files:** `blocks/model/pls.py`
 - **Do:** fit/apply, scores, loadings, weights, coefficients; LV sweep from one fit; PLS1 and PLS2.
 - **Done when:** predictions match scikit-learn within tolerance and an independent reference; LV sweep equals separate fits.
 
 ### T1.12b · PLS: own SIMPLS + VIP · Q · Size M · depends T1.12a
 - **Read:** METHODS.md (PLS, VIP); `blocks/model/pls.py`
-- **Reuse:** — (own SIMPLS and VIP; check the §12 search first)
+- **Reuse:** own SIMPLS (check the §12 search first); VIP: port pengoo `calculate_vip` (TECH_STACK.md §11.2) with an independent reference value
 - **Files:** `blocks/model/pls.py`
 - **Do:** SIMPLS algorithm option; VIP scores.
 - **Done when:** SIMPLS matches NIPALS for PLS1; SIMPLS reference test against an independent source; VIP property tests.
@@ -276,7 +286,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.14 · Metrics · Q · Size S · depends T1.04
 - **Read:** METHODS.md (metrics); PRD.md F-44
-- **Reuse:** scikit-learn metrics for R², confusion matrix, ROC-AUC; own code for RMSEC/CV/P, SEP, bias, slope, RPD, RPIQ. Orange3 `evaluation/scoring.py` wraps the same scikit-learn metrics — not ported
+- **Reuse:** scikit-learn metrics for R², confusion matrix, ROC-AUC; own code for RMSEC/CV/P, SEP, bias, slope, RPD, RPIQ. Orange3 `evaluation/scoring.py` wraps the same scikit-learn metrics — not ported. pengoo (TECH_STACK.md §11.2, local `pengoo/`): port the definitions in `regression_metrics` (RMSE, bias, SEP, R², RPD) and the `fold_mean`/`pooled` RMSECV aggregation; add RPIQ and slope; reference values hand-computed, never from pengoo (rule 5)
 - **Files:** `vibechem_core/metrics.py`
 - **Done when:** each metric has a hand-computed test; values in original Y units.
 
@@ -347,7 +357,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T2.10 · CV, nested CV and grid search runners · Q + K · Size L → split into T2.10a (CV + LV rules) and T2.10b (nested CV + preprocessing grid search)
 - **Read:** PRD.md F-43; METHODS.md (CV, LV rules); `compiler/`, `scheduler/`
-- **Reuse:** scikit-learn `ParameterGrid`; pengoo grid-search logic (Quan provides the relevant files from his local copy — `MISSING_INPUT` if absent; port without numba)
+- **Reuse:** scikit-learn `ParameterGrid`; pengoo (TECH_STACK.md §11.2): LV rules from `select_n_components`/`find_knee` (T2.10a); grid search from `grid_search.py` — fixed-order product, dedup, shared folds, LV sweep per fold, Excel pipeline list (T2.10b). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
 - **Files:** `vibechem_engine/runners/`
 - **Do:** CV runner, nested CV (inner tuning of LVs, preprocessing chains, selection params), grid search, LV selection rules. METHODS.md entries for CV and LV rules must exist (add them in T2.10a and stop `HUMAN_STEP` for Quan's approval if they are new).
 - **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset.
