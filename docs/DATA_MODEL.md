@@ -399,7 +399,7 @@ Errors: revision not current → `409 PIPELINE_REVISION_CONFLICT`; invalid pipel
   "created_at": "2026-11-17T06:04:10Z",
   "size_bytes": 482133,
   "content": {
-    "metrics": { "rmsecv": 0.84, "r2cv": 0.962, "bias": -0.02, "rpd": 5.1, "rpiq": 6.3, "n_lv": 7 },
+    "metrics": { "rmsecv": 0.84, "r2cv": 0.962, "secv": 0.84, "bias_cv": -0.02, "rpd_cv": 5.1, "rpiq_cv": 6.3, "press": 42.3, "n_lv": 7 },
     "y_unit": "%",
     "leakage_safe": true
   }
@@ -594,7 +594,7 @@ Summary `content`: `{ "scheme", "n_folds", "n_repeats", "n_samples", "groups_res
 | Field | Type | Notes |
 |---|---|---|
 | `kind` | `cv` \| `nested_cv` \| `test_set` \| `permutation` \| `search` \| `statistics` | |
-| `metrics` | object: name → number | Names from METHODS.md (e.g. `rmsecv`, `r2cv`, `bias`, `rpd`); original Y units |
+| `metrics` | object: name → number | Names from METHODS.md §8, one per metric and set (e.g. `rmsecv`, `r2cv`, `bias_cv`, `rpd_cv`, `rss_c`); original Y units |
 | `y_unit` | str \| null | |
 | `predictions` | Table \| null | Columns `row_index`, `sample_id`, `fold`, `repeat`, `y_true_<col>`, `y_pred_<col>` (classification: `class_true`, `class_pred`, `score_<class>`) |
 | `candidates` | Table \| null | `search` / `nested_cv`: one row per parameter candidate with its metrics |

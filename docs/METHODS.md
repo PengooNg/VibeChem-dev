@@ -17,7 +17,9 @@
 ---
 
 ## 0. Choices for Quan to confirm
-Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices found while drafting. "Suggested" is what the entries below use until Quan decides. pengoo defects D1 and D2 (TECH_STACK.md §11.2) are noted where an entry touches them.
+Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices found while drafting. "Suggested" is what the entries below use until Quan decides.
+
+**Decided by Quan, 2026-11-25:** Q1–Q10 as suggested. N2, N3, N6, N7, N9, N10, N11, N13, N16 as suggested (N3: warn, centre, do not block later steps; N10: warn, do not block; N11, N13: warn and block = node error). N1, N4, N5, N8, N12, N14, N15 changed as written in their rows below; the entries follow these decisions. pengoo defects D1 and D2 (TECH_STACK.md §11.2) are noted where an entry touches them.
 
 **(T1.04) items from the pengoo inventory**
 | # | Question | Suggested answer | Why |
@@ -36,21 +38,21 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 **New choices found while drafting**
 | # | Question | Suggested answer | Why |
 |---|---|---|---|
-| N1 | Missing values (NaN is allowed in `SpectralDataset.X`) in Phase 1 blocks | every Phase 1 block **rejects NaN in X** (and in y where y is used) with a node error; needs a new code, proposed `BLOCK_MISSING_VALUES` (added to DATA_MODEL.md §7 by T1.07) | Silent NaN propagation would give NaN metrics late in the graph. Imputation is a P6 block. |
+| N1 | Missing values (NaN is allowed in `SpectralDataset.X`) in Phase 1 blocks | **Decided:** when no imputation block is upstream, rows with NaN in X (or in y where y is used) are **removed once, where the data enters the pipeline** (the engine inserts the removal before the first block, T2.04), with warning `DATA_MISSING_VALUES_REMOVED` (params `count`, `sample_ids`) and a dataset-history entry. Columns are never dropped. Blocks themselves never drop rows; a block that still receives NaN (only possible through direct Python API calls) raises the guard error `BLOCK_MISSING_VALUES` | Removing rows in one visible place keeps y, groups and sample IDs aligned and keeps n the same in every fold and in the test set. Imputation is a P6 block. |
 | N2 | Autoscale/Pareto SD ddof | **ddof = 1** | Same as SNV, SEP, RPD and scikit-learn's own PLS `scale=True`. A common factor, so PLS predictions do not change. `StandardScaler` uses ddof 0, so T1.09 corrects its `scale_` or uses two lines of NumPy. |
 | N3 | Autoscale/Pareto on a zero-variance column | centre it, leave it unscaled (scale 1) and **warn** in the node log | Flat columns occur after cuts or detector saturation; an error would block common pipelines. Same as `StandardScaler`, but not silent. |
-| N4 | Savitzky–Golay on a non-uniform axis | node error, proposed code `BLOCK_AXIS_NOT_UNIFORM` (relative spacing tolerance 1e-6, added to DATA_MODEL.md §7 by T1.08); the fix is an interpolation block | SG assumes equal spacing. |
-| N5 | Kennard–Stone start | **the two most distant samples** (as in pengoo and Daszykowski et al. 2002); ties → lowest row index | The variant that starts at the sample nearest the mean also exists. Which one Kennard & Stone 1969 use, and which one the `kennard-stone` package uses, is *to verify*; the T1.10 cross-check must use the same start. |
+| N4 | Savitzky–Golay on a non-uniform axis | **Decided:** relative spacing deviation max\|Δλᵢ − Δλ̄\| / \|Δλ̄\| ≤ 1 % → `delta` = mean signed step Δλ̄, no warning; > 1 % → `delta` = 1 (per point), warning `BLOCK_AXIS_NOT_UNIFORM` (params `max_deviation`) and the derivative unit recorded as "per point" in the output | SG assumes equal spacing. Real axes (Raman CCD in cm⁻¹, rounded wavenumbers) are often slightly uneven; the mean step is exact enough there. Large deviations fall back to per-point derivatives, visibly. An interpolation block is the clean fix. |
+| N5 | Kennard–Stone start | **Decided:** both variants as a block parameter `start` ∈ {`most_distant` (default: the two most distant samples, as in pengoo and Daszykowski et al. 2002), `nearest_mean` (first the sample nearest the mean of z, then the max–min loop)}; same parameter in SPXY; ties → lowest row index | The user picks the variant in the block's parameter panel like any other hyperparameter. Which variant Kennard & Stone 1969 and the `kennard-stone` package use is still *to verify*; the T1.10 cross-check runs with the matching `start`. |
 | N6 | RMSEC divisor | **n** (not n − A − 1) | Same as RMSECV/RMSEP and pengoo; degrees-of-freedom versions are not comparable across LV counts in the UI. |
 | N7 | Slope | **b in y = a + b·ŷ** (reference regressed on prediction) | ISO 12099:2010 §5.4.1 (checked in the preview). The predicted-vs-measured plot shows ŷ against y, so the plot's visual slope is the reverse regression; the UI labels it. |
-| N8 | RPD and RPIQ denominator (pengoo: RPD = SD/RMSE) | **SEP** for both, i.e. RPD = SD(y)/SEP, RPIQ = (Q3 − Q1)/SEP | Fearn 2002 and Bellon-Maurel et al. 2010 define the ratios with SEP (*to verify in both papers*). If Quan prefers RMSE (pengoo, many soil papers), change both together. |
+| N8 | RPD and RPIQ denominator (pengoo: RPD = SD/RMSE) | **Decided (current practice):** **RMSE of the same set** for both, i.e. RPD = SD(y)/RMSE, RPIQ = (Q3 − Q1)/RMSE (RMSEC, RMSECV or RMSEP) | Current applied practice (soil, food and recent NIR papers) and pengoo; the ratio includes bias, so a biased model scores lower. Same as SEP-based ratios when bias ≈ 0. Original definitions in Williams/Fearn 2002 and Bellon-Maurel et al. 2010 stay *to verify* for the citation text. |
 | N9 | Repeated k-fold RMSECV | pooled RMSECV **per repeat**, then mean and SD over repeats | One prediction per sample per repeat; pooling across repeats would count samples several times. |
 | N10 | Split / CV when the dataset has groups but the scheme ignores them | warning `VALIDATION_GROUPS_IGNORED` (already in DATA_MODEL.md §7) | Replicates in both training and validation inflate results (Esbensen & Geladi 2010). |
 | N11 | MSC with slope bᵢ ≤ 0 | node error, proposed code `BLOCK_MSC_SLOPE_INVALID` | Dividing by a negative or zero slope flips or explodes the spectrum; it means the reference does not fit that spectrum. |
-| N12 | Defaults with no source: SG window 11 / polyorder 2; random split test fraction 0.25, 5 y-bins; k-fold k = 10; repeats 5; PLS `n_components` 10 (capped at min(n − 1, p)) | as listed (marked *to confirm* in the entries) | Common starting values; no paper prescribes them. |
+| N12 | Default parameter values (the values a block starts with on the canvas; users change them) | **Decided:** SG window 11 / polyorder 2; random split test fraction 0.25, 5 y-bins; k-fold **k = 5**; repeats 5; PLS maximum LVs **20** (capped at min(n_train − 1, p)) | Common starting values; no paper prescribes them. k = 5 and 20 LVs follow pengoo. |
 | N13 | SPXY with all y equal | node error, proposed code `BLOCK_CONSTANT_RESPONSE` | max d_y = 0 makes the y term undefined; a silent fall-back to Kennard–Stone would hide it. |
-| N14 | New error codes | `BLOCK_MISSING_VALUES`, `BLOCK_AXIS_NOT_UNIFORM`, `BLOCK_MSC_SLOPE_INVALID`, `BLOCK_CONSTANT_RESPONSE` are **proposals only**; each implementing step adds its code to DATA_MODEL.md §7 in its own PR | CLAUDE.md §4: codes are added to DATA_MODEL.md first, not invented in code. This PR does not change DATA_MODEL.md. |
-| N15 | Metric names in `Results.metrics` | `rmsec/rmsecv/rmsep`, `r2c/r2cv/r2p`; `bias`, `sep`, `slope`, `intercept`, `rpd`, `rpiq`, `press` refer to the Results' own set; `n_lv` | Matches the DATA_MODEL.md §2.8 example (`rmsecv`, `r2cv`, `bias`, `rpd`, `rpiq`, `n_lv`). |
+| N14 | New codes | **Decided:** errors `BLOCK_MSC_SLOPE_INVALID` (N11), `BLOCK_CONSTANT_RESPONSE` (N13) and the guard error `BLOCK_MISSING_VALUES` (N1); warnings `DATA_MISSING_VALUES_REMOVED` (N1) and `BLOCK_AXIS_NOT_UNIFORM` (N4). All are **proposals**; each implementing step adds its code to DATA_MODEL.md §7 in its own PR | CLAUDE.md §4: codes are added to DATA_MODEL.md first, not invented in code. This PR changes DATA_MODEL.md only for the metric names (N15). |
+| N15 | Metric names in `Results.metrics` | **Decided:** every metric is computed and stored **for every set** (calibration `c`, cross-validation `cv`, prediction `p`): `rmsec/rmsecv/rmsep`, `r2c/r2cv/r2p`, `sec/secv/sep`, `bias_c/bias_cv/bias_p`, `slope_c/slope_cv/slope_p`, `intercept_c/intercept_cv/intercept_p`, `rpd_c/rpd_cv/rpd_p`, `rpiq_c/rpiq_cv/rpiq_p`, `rss_c/press/rss_p`; `n_lv` | Chemometric names per set (SEC/SECV/SEP). PRESS is the CV sum by definition; for calibration and test the same sum is a residual sum of squares. DATA_MODEL.md §2.8 example updated. |
 | N16 | PLS component sign | fix after fitting: largest-\|w\| element of each weight vector positive (scores and loadings flipped with it) | Signs from SVD/NIPALS can differ between BLAS builds; predictions do not change, plots and saved states do (ARCHITECTURE.md: same results across OS). |
 
 ---
@@ -59,7 +61,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Data.** X is n × p (rows = spectra, columns = axis points λ₁ … λ_p); y is n × k (k = 1: PLS1, k > 1: PLS2). x̄ⱼ is a column mean, x̄ᵢ· a row (spectrum) mean. "Training rows" are the rows a fitted block's `fit` sees; `apply` uses only statistics learned in `fit` (CLAUDE.md §4; this is why pengoo defect D2 cannot happen).
 - **Residual.** e = ŷ − y (Q7). All metrics are in original Y units: any Y scaling is inverted before metrics.
 - **Standard deviation.** ddof = 1 unless an entry says otherwise.
-- **Missing values.** Phase 1 blocks reject NaN (N1).
+- **Missing values.** Rows with NaN are removed once where the data enters the pipeline, with a warning (N1); blocks never see NaN.
 - **Randomness.** Every random choice takes a `numpy.random.Generator`; scikit-learn functions that need an integer seed get one drawn from that Generator (`int(rng.integers(2**32))`).
 - **Ties** (distances, class scores) go to the lowest row or class index, so results are deterministic.
 - **Tolerance classes** used in the entries (QA.md §3: tolerances always explicit):
@@ -128,9 +130,9 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 ### Savitzky–Golay smoothing and derivatives (`preprocess.savgol`) · T1.08
 - **Definition.** Fit a polynomial of order P by least squares in a moving window of w points; the output is the fitted value (smoothing) or its d-th derivative at the window centre.
 - **Formula.** Output = convolution of each spectrum with the Savitzky–Golay coefficients for (w, P, d), times d!/Δλ^d for derivatives, where Δλ is the signed axis step (Q3). Edges by `mode` (Q2).
-- **Steps.** 1 check the axis is uniform (N4) and take Δλ = λ₂ − λ₁ · 2 validate w, P, d · 3 one `savgol_filter` call on the whole matrix (`axis=1`) with `delta = Δλ`.
-- **Parameters.** `window` w: odd, 3 ≤ w ≤ p, default 11 (*to confirm*, N12); `polyorder` P: 0 ≤ P < w, default 2; `deriv` d: 0 ≤ d ≤ P, default 0; `mode` ∈ {`interp`, `nearest`, `mirror`, `constant`, `wrap`}, default `interp`.
-- **Edge cases.** w > p → `BLOCK_PARAM_INVALID` (`interp` needs w ≤ p). Even w → `BLOCK_PARAM_INVALID` (reason `odd`). Non-uniform axis → proposed `BLOCK_AXIS_NOT_UNIFORM` (N4). Derivative units: signal unit per axis unit to the power d.
+- **Steps.** 1 spacing check (N4): deviation ≤ 1 % → Δ = mean signed step Δλ̄; otherwise Δ = 1 (per point) and warning `BLOCK_AXIS_NOT_UNIFORM` · 2 validate w, P, d · 3 one `savgol_filter` call on the whole matrix (`axis=1`) with `delta = Δ`.
+- **Parameters.** `window` w: odd, 3 ≤ w ≤ p, default 11 (N12); `polyorder` P: 0 ≤ P < w, default 2; `deriv` d: 0 ≤ d ≤ P, default 0; `mode` ∈ {`interp`, `nearest`, `mirror`, `constant`, `wrap`}, default `interp`.
+- **Edge cases.** w > p → `BLOCK_PARAM_INVALID` (`interp` needs w ≤ p). Even w → `BLOCK_PARAM_INVALID` (reason `odd`). Non-uniform axis → N4 (mean step, or per point with warning `BLOCK_AXIS_NOT_UNIFORM`). Derivative units: signal unit per axis unit to the power d, or per point to the power d after the N4 fall-back (recorded in the output).
 - **Reference values.** Coefficients published by Savitzky & Golay 1964 with the corrections of Steinier et al. 1972: 5-point quadratic smoothing (−3, 12, 17, 12, −3)/35 and 5-point first derivative (−2, −1, 0, 1, 2)/10 (interior points, `T-exact`). A polynomial of order ≤ P is reproduced exactly, and its d-th derivative equals the analytic one in physical units (`T-exact`, any mode on interior points, `interp` everywhere).
 - **Tolerance.** `T-exact` against the published coefficients; `T-lib` against `savgol_filter`.
 - **Implementation.** Wrap `scipy.signal.savgol_filter` (SciPy 1.18.1: `mode` default `interp` — "a degree polyorder polynomial is fit to the last window_length values of the edges"; `delta` "the spacing of the samples", used only if deriv > 0).
@@ -183,8 +185,8 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 <a id="random-split"></a>
 ### Random and stratified split (`split.random`) · T1.10
 - **Definition.** Draw the test rows at random; optionally stratified by class or by y quantile bins, so both sets cover the same range.
-- **Steps.** 1 strata = classes, or y binned into `n_bins` quantile bins (default 5, *to confirm*), or none · 2 within each stratum draw the test share with the Generator · 3 union.
-- **Parameters.** `test_fraction` (0 < f < 1, default 0.25 *to confirm*) or `n_test`; `stratify` ∈ {none, classes, y}; `rng`.
+- **Steps.** 1 strata = classes, or y binned into `n_bins` quantile bins (default 5, N12), or none · 2 within each stratum draw the test share with the Generator · 3 union.
+- **Parameters.** `test_fraction` (0 < f < 1, default 0.25, N12) or `n_test`; `stratify` ∈ {none, classes, y}; `rng`.
 - **Edge cases.** Fewer than 2 rows in a stratum → that stratum goes to training and a warning is logged. Groups present → group-aware selection (see below) or `VALIDATION_GROUPS_IGNORED` warning (N10).
 - **Reference values.** Properties: train ∪ test = all rows, disjoint, sizes as requested (± 1 per stratum), stratum shares kept; same seed → same split.
 - **Tolerance.** Exact.
@@ -192,12 +194,12 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 
 <a id="kennard-stone"></a>
 ### Kennard–Stone (`split.kennard_stone`) · T1.10
-- **Definition.** Select training samples that cover the X space uniformly: start with the two most distant samples, then repeatedly add the sample whose distance to its nearest selected sample is largest.
+- **Definition.** Select training samples that cover the X space uniformly: start with the two most distant samples (or, with `start = nearest_mean`, the sample nearest the mean), then repeatedly add the sample whose distance to its nearest selected sample is largest.
 - **Formula.** d(i, j) = ‖zᵢ − zⱼ‖₂, z = raw X rows (default) or PCA scores (Q5). Next k = argmax_{k ∉ S} min_{s ∈ S} d(k, s).
-- **Steps.** 1 distance space z (raw X, or PCA scores fitted on all rows of the split input — the split is a design step, not a model fit) · 2 distance matrix · 3 start pair = argmax d (N5) · 4 max–min loop until all rows are ordered · 5 first n_train rows of the order → training.
-- **Parameters.** `test_fraction`/`n_test`; `space` ∈ {`x`, `pca`}, default `x`; `n_components` or `variance` (for `pca`, default 0.99 as in pengoo).
+- **Steps.** 1 distance space z (raw X, or PCA scores fitted on all rows of the split input — the split is a design step, not a model fit) · 2 distance matrix · 3 start (N5): `most_distant` → pair argmax d; `nearest_mean` → the row with the smallest ‖zᵢ − z̄‖₂ · 4 max–min loop until all rows are ordered · 5 first n_train rows of the order → training.
+- **Parameters.** `test_fraction`/`n_test`; `start` ∈ {`most_distant`, `nearest_mean`}, default `most_distant` (N5); `space` ∈ {`x`, `pca`}, default `x`; `n_components` or `variance` (for `pca`, default 0.99 as in pengoo).
 - **Edge cases.** Ties → lowest index. Duplicate spectra (d = 0) are fine. n ≤ 2 → order is the row order. Memory: the n × n matrix (n = 5 000 → 200 MB in float64) — above a size threshold compute the min-distance vector incrementally (O(n) memory).
-- **Reference values.** Hand-worked example of 6 points in 2-D with a unique order; cross-check with the `kennard-stone` package (same start rule, N5) on the gasoline data. Kennard & Stone 1969 printed example *to verify* as an extra reference.
+- **Reference values.** Hand-worked example of 6 points in 2-D with a unique order; hand-worked example for `nearest_mean` too; cross-check with the `kennard-stone` package (run with the `start` it implements, N5) on the gasoline data. Kennard & Stone 1969 printed example *to verify* as an extra reference.
 - **Tolerance.** Exact (orders equal).
 - **Implementation.** Port pengoo `_ks_order` (vectorised update of the min-distance vector instead of the Python `max(rest, key=…)` loop).
 - **Reference.** `kennard1969`, `daszykowski2002`.
@@ -207,8 +209,8 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 - **Definition.** Kennard–Stone on a joint distance in X and y.
 - **Formula.** d_xy(i, j) = d_x(i, j) / max d_x + d_y(i, j) / max d_y, with d_x as in Kennard–Stone and d_y(i, j) = ‖yᵢ − yⱼ‖₂ (|yᵢ − yⱼ| for one response).
 - **Steps.** 1 d_x · 2 d_y · 3 normalise each by its maximum · 4 sum · 5 Kennard–Stone order on d_xy.
-- **Parameters.** As Kennard–Stone; requires y (`requires: ["y"]`).
-- **Edge cases.** All y equal (max d_y = 0) → node error, proposed code `BLOCK_CONSTANT_RESPONSE` (N13); no silent fall-back to Kennard–Stone. NaN in y → N1.
+- **Parameters.** As Kennard–Stone (incl. `start`, N5); requires y (`requires: ["y"]`).
+- **Edge cases.** All y equal (max d_y = 0) → node error, proposed code `BLOCK_CONSTANT_RESPONSE` (N13); no silent fall-back to Kennard–Stone. NaN in y → removed at entry (N1).
 - **Reference values.** Hand-worked example (5 samples, 1 response) where SPXY and KS give different orders.
 - **Tolerance.** Exact (orders equal); distances `T-exact`.
 - **Implementation.** Port pengoo SPXY distance (`Dx/max + Dy/max`).
@@ -245,7 +247,7 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 <a id="k-fold"></a>
 ### k-fold (`validate.kfold`) · T1.11
 - **Definition.** Rows (optionally shuffled with the Generator) are cut into k folds of near-equal size.
-- **Parameters.** `k` (default 10 *to confirm*), `shuffle` (default true), `rng`.
+- **Parameters.** `k` (default 5, N12), `shuffle` (default true), `rng`.
 - **Implementation.** Wrap scikit-learn `KFold`.
 - **Reference.** `stone1974cv`.
 
@@ -270,13 +272,13 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 <a id="repeated-k-fold"></a>
 ### Repeated k-fold (`validate.repeated_kfold`) · T1.11
 - **Definition.** k-fold repeated r times with different shuffles; each repeat is a full partition.
-- **Parameters.** `k`, `repeats` (default 5 *to confirm*), `rng`.
+- **Parameters.** `k`, `repeats` (default 5, N12), `rng`.
 - **Metrics.** RMSECV per repeat, then mean and SD over repeats (N9).
 - **Implementation.** Wrap scikit-learn `RepeatedKFold`.
 
 <a id="group-k-fold"></a>
 ### Group k-fold (`validate.group_kfold`) · T1.11
-- **Definition.** k-fold over groups: every group is in exactly one validation fold. Several group columns are combined into one label (`A|B`, as pengoo `validate_cv_groups`); a missing group label → node error (N1).
+- **Definition.** k-fold over groups: every group is in exactly one validation fold. Several group columns are combined into one label (`A|B`, as pengoo `validate_cv_groups`); a missing group label → node error (group labels are metadata; N1 covers X and y only).
 - **Parameters.** `k`, `shuffle`, `rng`.
 - **Implementation.** Wrap scikit-learn `GroupKFold(shuffle=True, random_state=…)` (needs scikit-learn ≥ 1.6; we pin 1.9.x).
 - **Reference.** `esbensen2010validation`.
@@ -293,8 +295,8 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
   Rotations R = W(PᵀW)⁻¹, coefficients B = RQᵀ (p × k), prediction ŷ = ȳ + (x − x̄)B.
 - **Steps.** `fit`: 1 centre X and Y with training means · 2 NIPALS loop (scikit-learn) · 3 store x̄, ȳ, W, P, Q, R, T, B. `apply`: 4 ŷ = ȳ + (x − x̄)B.
 - **Outputs.** scores T, loadings P, weights W, y-loadings Q, rotations R, coefficients B per LV count, intercept, explained X and Y variance per component.
-- **Parameters.** `n_components` A: 1 ≤ A ≤ min(n_train − 1, p), default 10 *to confirm* (capped at the bound); `scale` ∈ {false, true}, default false (Q4; true is kept only to reproduce old pengoo results).
-- **Edge cases.** A above the bound → `BLOCK_PARAM_INVALID` (reason `bounds`). Constant y → `BLOCK_CONSTANT_RESPONSE` (N13). NaN → N1. PLS2 NIPALS inner loop is iterative (scikit-learn `max_iter=500`, `tol=1e-06`); non-convergence warning from scikit-learn is passed to the node log.
+- **Parameters.** `n_components` A (maximum LVs of the fit and the LV sweep): 1 ≤ A ≤ min(n_train − 1, p), default 20 (N12; capped at the bound); `scale` ∈ {false, true}, default false (Q4; true is kept only to reproduce old pengoo results).
+- **Edge cases.** A above the bound → `BLOCK_PARAM_INVALID` (reason `bounds`). Constant y → `BLOCK_CONSTANT_RESPONSE` (N13). NaN → removed at entry (N1). PLS2 NIPALS inner loop is iterative (scikit-learn `max_iter=500`, `tol=1e-06`); non-convergence warning from scikit-learn is passed to the node log.
 - **Reference values.** Mevik & Wehrens 2007 on `gasoline_nir` (`testdata/expected/gasoline_nir_pls.json`: LOO RMSEP for 0–10 components, test RMSEP, explained variance, 2-component test predictions; R `pls` kernel PLS, same predictions as NIPALS for PLS1). Hand calculation for PLS1 with A = 1 (w ∝ X₀ᵀy). PLS2: R `pls` (other software) values *to obtain* in T1.12a, or a published PLS2 example.
 - **Tolerance.** `T-pub` against the paper; `T-lib` against scikit-learn `PLSRegression(scale=False)` predictions (PLS1); `T-iter` for PLS2.
 - **Implementation.** Wrap scikit-learn `PLSRegression` (1.9.1 signature `n_components=2, scale=True, max_iter=500, tol=1e-06`: we always pass `scale` explicitly). Sign of each component is fixed after the fit (largest-|w| element positive, N16) so outputs are reproducible across BLAS builds.
@@ -356,12 +358,13 @@ All metrics are computed in **original Y units** (inverse Y scaling first) and p
 | SEP | √( Σ (eᵢ − ē)² / (n − 1) ) | bias-corrected SD of residuals; ISO 12099 §6.5 (*to verify*), `fearn2002sep` |
 | R² (R²c, R²cv, R²p) | 1 − Σ eᵢ² / Σ (yᵢ − ȳ)² , ȳ = mean of y **in the same set** | not the squared correlation; can be negative on test data |
 | Slope, intercept | least squares y = a + b·ŷ | reference on prediction, ISO 12099:2010 §5.4.1 (N7) |
-| RPD | SD(y) / SEP, SD with ddof 1 over the same set | N8 (*to verify* in `fearn2002sep`) |
-| RPIQ | (Q3 − Q1) / SEP, quartiles of y in the same set (linear interpolation, NumPy default) | N8 (*to verify* in `bellonmaurel2010rpiq`) |
-| PRESS | Σ eᵢ² over the out-of-fold predictions | |
+| RPD | SD(y) / RMSE of the same set (RPDc = SD/RMSEC, RPDcv = SD/RMSECV, RPDp = SD/RMSEP), SD with ddof 1 over the same set | N8 (decided: RMSE; original definition *to verify* in `fearn2002sep`) |
+| RPIQ | (Q3 − Q1) / RMSE of the same set, quartiles of y in the same set (linear interpolation, NumPy default) | N8 (decided: RMSE; *to verify* in `bellonmaurel2010rpiq`) |
+| PRESS / RSS | Σ eᵢ² — `press` over the out-of-fold predictions; `rss_c`, `rss_p` over calibration and test predictions | N15 |
 - **Reference values.** Every metric: hand calculation on a 5-sample example (Done when of T1.14), written out in the test file. Identity (property): RMSE² = ē² + SEP²·(n − 1)/n (`T-exact`).
 - **Edge cases.** n < 2 → SEP, slope, R², RPD, RPIQ are undefined: returned as NaN with a warning (metrics are reported, not block inputs). SD(y) = 0 → R², RPD, RPIQ NaN with a warning. ISO 12099 asks for ≥ 20 validation samples for SEP and ≥ 10 for bias: below that, a warning (not an error).
-- **Names in `Results.metrics`** (DATA_MODEL.md §4.2 takes them from here, N15): `rmsec`, `rmsecv`, `rmsep`, `r2c`, `r2cv`, `r2p`; the set-free names `bias`, `sep`, `slope`, `intercept`, `rpd`, `rpiq`, `press` refer to the set of that Results; `n_lv` is the LV count. Matches the DATA_MODEL.md §2.8 example.
+- **Names in `Results.metrics`** (DATA_MODEL.md §4.2 takes them from here, N15): every metric for every available set — `rmsec/rmsecv/rmsep`, `r2c/r2cv/r2p`, `sec/secv/sep`, `bias_c/bias_cv/bias_p`, `slope_c/slope_cv/slope_p`, `intercept_c/intercept_cv/intercept_p`, `rpd_c/rpd_cv/rpd_p`, `rpiq_c/rpiq_cv/rpiq_p`, `rss_c/press/rss_p`; `n_lv` is the LV count. A set that was not computed is absent (not NaN). The SE column of the table above is SEC, SECV or SEP by set.
+- **Expected calibration values.** A PLS model with an intercept has bias_c ≈ 0 and slope_c ≈ 1 by construction; the help text says so (they are stored anyway).
 - **Implementation.** Own NumPy (each metric is one line), scikit-learn `r2_score` as a `T-lib` cross-check. Port of pengoo `regression_metrics` definitions plus RPIQ and slope.
 - **Reference.** `iso12099_2010`, `fearn2002sep`, `bellonmaurel2010rpiq`, `martens1989`.
 
@@ -371,7 +374,7 @@ All metrics are computed in **original Y units** (inverse Y scaling first) and p
 - **`fold_mean`** (option): RMSECV = (1/k) Σ_f RMSE_f, RMSE_f over the rows of fold f. Unequal fold sizes make it differ from pooled.
 - **Always stored:** RMSE_f per fold, their SD (ddof 1) and SE = SD/√k, so the 1-SE and paired t-test LV rules (T2.10a) work with either default.
 - **Repeated CV:** per repeat, then mean and SD over repeats (N9).
-- **Bias, R², SEP, RPD in CV** use the pooled out-of-fold predictions in both modes (as pengoo).
+- **Bias, R², SECV, slope, intercept, RPD, RPIQ in CV** use the pooled out-of-fold predictions in both modes (as pengoo); RPDcv and RPIQcv divide by the reported RMSECV.
 - **D2.** Out-of-fold predictions come from a pipeline re-fitted on each fold's training rows only (DATA_MODEL.md §4.6), never from preprocessing re-fitted on the validation fold.
 - **Reference values.** Hand calculation with unequal folds (3 + 2 rows) where pooled ≠ fold mean; gasoline LOO values (`T-pub`, pooled). With LOO, `fold_mean` becomes the mean absolute error (each fold RMSE is |eᵢ|), which is another reason not to make it the default.
 - **Reference.** `martens1989`, `mevik2007pls`.
