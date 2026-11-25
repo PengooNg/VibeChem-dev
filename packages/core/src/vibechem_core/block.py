@@ -23,6 +23,7 @@ classes with the codes defined below (DATA_MODEL.md §7, "Defined in core/block"
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -85,7 +86,10 @@ def Param[T: ParamValue](
     ``ddof: int = Param(1, choices=(0, 1))`` gives the field the default ``1`` and
     records the ``ParamSpec`` in the field's metadata.
     """
-    if choices is not None and default not in choices:
+    for label, bound in (("default", default), ("min", min), ("max", max)):
+        if isinstance(bound, float) and not math.isfinite(bound):
+            raise ValueError(f"{label} must be finite, got {bound}")
+    if choices is not None and not any(type(c) is type(default) and c == default for c in choices):
         raise ValueError(f"default {default!r} is not one of the choices {choices!r}")
     if min is not None and max is not None and min > max:
         raise ValueError(f"min {min} is greater than max {max}")
@@ -195,7 +199,10 @@ def port(
 class State:
     """Fitted state of a block: JSON values plus named arrays, never a Python object.
 
-    Arrays are stored as private read-only copies; both mappings are read-only.
+    ``values`` must be JSON (str, finite int/float, bool, None, lists, dicts with str
+    keys) and are deep-copied; arrays are stored as private read-only copies; both
+    mappings are read-only. A state can be sent to a worker process (pickled in memory
+    only, ADR-007); it is never saved with pickle.
     """
 
     values: Mapping[str, JSONValue]
@@ -203,7 +210,7 @@ class State:
 
     def __init__(
         self,
-        values: Mapping[str, JSONValue] | None = None,
+        values: Mapping[str, object] | None = None,
         arrays: Mapping[str, ArrayLike] | None = None,
     ) -> None:
         frozen: dict[str, NDArray[Any]] = {}
@@ -213,8 +220,34 @@ class State:
                 raise TypeError(f"state array {name!r} has dtype object (not saveable, ADR-007)")
             array.flags.writeable = False
             frozen[name] = array
-        object.__setattr__(self, "values", MappingProxyType(dict(values or {})))
+        copied = {str(k): _json_copy(v, k) for k, v in (values or {}).items()}
+        object.__setattr__(self, "values", MappingProxyType(copied))
         object.__setattr__(self, "arrays", MappingProxyType(frozen))
+
+    def __reduce__(self) -> tuple[type[State], tuple[dict[str, JSONValue], dict[str, Any]]]:
+        return (State, (dict(self.values), dict(self.arrays)))
+
+
+def _json_copy(value: object, path: str) -> JSONValue:
+    """Deep copy of a JSON value; ``TypeError`` for anything else (ADR-007)."""
+    if value is None or isinstance(value, str | bool | int):
+        return cast(JSONValue, value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError(f"state value {path!r} is not finite (not JSON)")
+        return float(value)
+    if isinstance(value, list | tuple):
+        items = cast(list[object] | tuple[object, ...], value)
+        return [_json_copy(v, f"{path}[{i}]") for i, v in enumerate(items)]
+    if isinstance(value, dict):
+        entries = cast(dict[object, object], value)
+        if not all(isinstance(k, str) for k in entries):
+            raise TypeError(f"state value {path!r} has non-string keys (not JSON)")
+        return {str(k): _json_copy(v, f"{path}.{k}") for k, v in entries.items()}
+    raise TypeError(
+        f"state value {path!r} is a {type(value).__name__}, not JSON; store arrays in "
+        "State.arrays and convert NumPy scalars with .item() (ADR-007)"
+    )
 
 
 # ---- Block --------------------------------------------------------------------------
@@ -253,7 +286,6 @@ class BlockMeta:
             "icon": self.icon,
             "fitted": self.fitted,
             "tier": self.tier,
-            "references": list(self.references),
             "inputs": [p.to_dict("input") for p in self.inputs],
             "outputs": [p.to_dict("output") for p in self.outputs],
         }
@@ -299,7 +331,8 @@ class Block:
                 raise TypeError(f"{name} must define {attr}")
         # Read as plain objects: subclasses may set any value; this is where it is checked.
         raw: dict[str, object] = {
-            a: getattr(cls, a) for a in ("block_id", "version", "icon", "fitted", "references")
+            a: getattr(cls, a)
+            for a in ("block_id", "version", "icon", "fitted", "references", "block_class")
         }
         block_id, version, icon = raw["block_id"], raw["version"], raw["icon"]
         if not isinstance(block_id, str) or not _BLOCK_ID.fullmatch(block_id):
@@ -312,8 +345,10 @@ class Block:
             raise TypeError(f"{name}.fitted must be a bool")
         if cls.tier not in TIERS:
             raise ValueError(f"{name}.tier {cls.tier!r} must be one of {TIERS}")
-        block_class = cls.block_class or block_id.partition(".")[0]
-        if not _SNAKE.fullmatch(block_class):
+        block_class = raw["block_class"]
+        if block_class is None:
+            block_class = block_id.partition(".")[0]
+        if not isinstance(block_class, str) or not _SNAKE.fullmatch(block_class):
             raise ValueError(f"{name}.block_class {block_class!r} must be snake_case")
         references = raw["references"]
         if not isinstance(references, tuple) or not all(
@@ -349,11 +384,13 @@ def _check_ports(name: str, inputs: object, outputs: object) -> None:
         if len(set(ids)) != len(ids):
             raise ValueError(f"{name}.{label} has duplicate port_ids {ids}")
     input_ports = cast(tuple[Port, ...], inputs)
-    input_ids = {p.port_id for p in input_ports}
+    single = {p.port_id for p in input_ports if not p.multiple}
     for p in input_ports:
         for other in (p.rows_match, p.axis_match):
-            if other is not None and (other == p.port_id or other not in input_ids):
-                raise ValueError(f"{name}: input {p.port_id!r} matches unknown input {other!r}")
+            if other is not None and (other == p.port_id or other not in single):
+                raise ValueError(
+                    f"{name}: input {p.port_id!r} must match another single input, not {other!r}"
+                )
     for p in cast(tuple[Port, ...], outputs):
         if not p.is_plain:
             raise ValueError(f"{name}: output {p.port_id!r} may only set port_id and port_type")

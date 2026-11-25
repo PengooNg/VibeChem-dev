@@ -2,6 +2,7 @@
 # packages/core/tests/test_block.py
 """Tests for ``vibechem_core.block``: Param, port, State, Block metadata, fit/apply."""
 
+import pickle
 from dataclasses import FrozenInstanceError, dataclass
 from pathlib import Path
 from typing import Any, ClassVar
@@ -100,6 +101,10 @@ def test_params_are_frozen() -> None:
         ({"default": 1, "min": 3, "max": 2}, "greater than max"),
         ({"default": 1, "min": 2}, "outside"),
         ({"default": 9.5, "max": 2.0}, "outside"),
+        ({"default": float("nan"), "min": 0.0}, "default must be finite"),
+        ({"default": 5, "min": float("nan")}, "min must be finite"),
+        ({"default": 5, "max": float("inf")}, "max must be finite"),
+        ({"default": True, "choices": (0, 1)}, "not one of the choices"),
     ],
 )
 def test_param_rejects_inconsistent_declarations(kwargs: dict[str, Any], match: str) -> None:
@@ -203,6 +208,39 @@ def test_state_defaults_to_empty() -> None:
     assert dict(state.arrays) == {}
 
 
+def test_state_values_are_deep_copied_json() -> None:
+    lv = [1, 2]
+    nested = {"lv": lv, "info": {"name": "pls"}}
+    state = State({"nested": nested, "x": np.float64(0.5), "t": (1, None)})
+    lv.append(3)
+    assert state.values["nested"] == {"lv": [1, 2], "info": {"name": "pls"}}
+    assert state.values["t"] == [1, None]
+    assert type(state.values["x"]) is float
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        (object(), "is a object, not JSON"),
+        (np.int64(1), "is a int64, not JSON"),
+        (float("nan"), "not finite"),
+        ({1: "a"}, "non-string keys"),
+        ([np.zeros(2)], r"'v\[0\]' is a ndarray"),
+    ],
+)
+def test_state_rejects_values_that_are_not_json(value: Any, match: str) -> None:
+    with pytest.raises(TypeError, match=match):
+        State({"v": value})
+
+
+def test_state_pickles_in_memory_for_worker_processes() -> None:
+    state = State({"k": [1]}, {"m": np.array([1.0, 2.0])})
+    copy = pickle.loads(pickle.dumps(state))
+    assert dict(copy.values) == {"k": [1]}
+    np.testing.assert_array_equal(copy.arrays["m"], [1.0, 2.0])
+    assert not copy.arrays["m"].flags.writeable
+
+
 def test_state_rejects_object_arrays() -> None:
     with pytest.raises(TypeError, match="dtype object"):
         State(arrays={"bad": np.array([{"a": 1}], dtype=object)})
@@ -226,7 +264,6 @@ def test_metadata_of_dummy_blocks() -> None:
         "icon": "glyph-dummy",
         "fitted": True,
         "tier": "P1",
-        "references": [],
         "inputs": [
             {"port_id": "spectra", "port_type": "Spectra", "required": True, "multiple": False}
         ],
@@ -275,8 +312,15 @@ def test_valid_block_and_block_class_override() -> None:
         ({"inputs": [port("a", "Spectra")]}, TypeError, "inputs must be a tuple"),
         ({"outputs": ("out",)}, TypeError, "outputs must be a tuple"),
         ({"inputs": (port("a", "Spectra"), port("a", "Table"))}, ValueError, "duplicate"),
-        ({"inputs": (port("a", "Spectra", rows_match="z"),)}, ValueError, "unknown input"),
-        ({"inputs": (port("a", "Spectra", axis_match="a"),)}, ValueError, "unknown input"),
+        ({"inputs": (port("a", "Spectra", rows_match="z"),)}, ValueError, "another single input"),
+        ({"inputs": (port("a", "Spectra", axis_match="a"),)}, ValueError, "another single input"),
+        (
+            {"inputs": (port("a", "Spectra", multiple=True), port("b", "Spectra", rows_match="a"))},
+            ValueError,
+            "another single input",
+        ),
+        ({"block_class": ""}, ValueError, "block_class"),
+        ({"block_class": 5}, ValueError, "block_class"),
         ({"outputs": (port("out", "Spectra", required=False),)}, ValueError, "only set port_id"),
         ({"params_type": dict}, TypeError, "frozen dataclass"),
         ({"fitted": True}, TypeError, "fit must be implemented"),

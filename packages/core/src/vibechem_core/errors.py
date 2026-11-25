@@ -55,6 +55,10 @@ class VibeChemError(Exception):
         self.params: Mapping[str, ErrorParam] = MappingProxyType(dict(params or {}))
         super().__init__(f"{code} {dict(self.params)}" if self.params else code)
 
+    def __reduce__(self) -> tuple[type[VibeChemError], tuple[str, dict[str, ErrorParam]]]:
+        # Errors raised in a worker process are pickled back to the scheduler (in memory).
+        return (type(self), (self.code, dict(self.params)))
+
 
 class BlockError(VibeChemError):
     """A block failed while running; the node is set to ``error`` (DATA_MODEL.md §1, §3)."""

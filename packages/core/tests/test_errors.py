@@ -2,6 +2,8 @@
 # packages/core/tests/test_errors.py
 """Tests for ``vibechem_core.errors``."""
 
+import copy
+import pickle
 from pathlib import Path
 
 import pytest
@@ -75,3 +77,12 @@ def test_every_catalogued_code_has_a_message_key() -> None:
     assert len(codes) > 20
     for code in codes:
         assert message_key(code).startswith("errors.")
+
+
+def test_errors_survive_pickle_and_copy() -> None:
+    error = BlockInputError("BLOCK_CONSTANT_SPECTRA", {"rows": [1]})
+    for clone in (pickle.loads(pickle.dumps(error)), copy.copy(error)):
+        assert type(clone) is BlockInputError
+        assert clone.code == error.code
+        assert dict(clone.params) == {"rows": [1]}
+        assert str(clone) == str(error)
