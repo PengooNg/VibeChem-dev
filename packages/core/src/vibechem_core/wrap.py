@@ -57,6 +57,12 @@ class TransformerBlock(Block):
             raise TypeError(f"{cls.__name__} must set estimator to an estimator class")
         return super().metadata()
 
+    @classmethod
+    def default_implementation(cls) -> tuple[str, str]:
+        """The estimator's library (top-level module) and class path."""
+        module = cls.estimator.__module__
+        return (module.partition(".")[0], f"{module}.{cls.estimator.__qualname__}")
+
     def estimator_params(self, params: Any) -> dict[str, Any]:
         """Constructor arguments of the estimator; default: the params fields."""
         return dataclasses.asdict(params)

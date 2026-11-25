@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import operator
 import os
 import re
 from collections.abc import Mapping
@@ -37,11 +38,15 @@ from typing import Any, ClassVar, Literal, cast
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from vibechem_core.errors import ErrorParam, ParamError
+
 # Error codes defined in this module (DATA_MODEL.md §7). They are raised by the
 # run-time input checks of §4.3/§4.5 (``requires``, ``rows_match``, ``axis_match``).
 BLOCK_INPUT_REQUIREMENT_MISSING = "BLOCK_INPUT_REQUIREMENT_MISSING"
 BLOCK_INPUT_ROWS_MISMATCH = "BLOCK_INPUT_ROWS_MISMATCH"
 BLOCK_INPUT_AXIS_MISMATCH = "BLOCK_INPUT_AXIS_MISMATCH"
+# Raised by ``parse_params`` when a parameter value breaks its schema (§5.3).
+BLOCK_PARAM_INVALID = "BLOCK_PARAM_INVALID"
 
 PORT_TYPES = frozenset({"Spectra", "Table", "Model", "Transform", "Folds", "Results", "ImageCube"})
 """Port type names of DATA_MODEL.md §4.1."""
@@ -62,9 +67,23 @@ type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValu
 # ---- Parameters ---------------------------------------------------------------------
 
 
+_TYPE_NAMES: dict[type, str] = {bool: "bool", int: "int", float: "float", str: "string"}
+_ANNOTATIONS: dict[str, type] = {"bool": bool, "int": int, "float": float, "str": str}
+_CONSTRAINT = re.compile(
+    r"([a-z][a-z0-9_]*) (<=|>=|<|>|!=) ([a-z][a-z0-9_]*|-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)"
+)
+_COMPARE = {
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "!=": operator.ne,
+}
+
+
 @dataclass(frozen=True)
 class ParamSpec:
-    """What ``Param`` records about one parameter (the schema export is T1.03)."""
+    """What ``Param`` records about one parameter (DATA_MODEL.md §5.1)."""
 
     default: ParamValue
     choices: tuple[ParamValue, ...] | None = None
@@ -73,6 +92,39 @@ class ParamSpec:
     label_key: str | None = None
     tooltip_key: str | None = None
     advanced: bool = False
+    unit: str | None = None
+    odd_only: bool = False
+    constraint: str | None = None
+    visible_if: tuple[str, tuple[ParamValue, ...]] | None = None
+
+    @property
+    def type(self) -> str:
+        """Schema type (DATA_MODEL.md §5.2): ``enum`` with choices, else from the default."""
+        return "enum" if self.choices is not None else _TYPE_NAMES[type(self.default)]
+
+    def to_dict(self, param_id: str, block_id: str) -> dict[str, JSONValue]:
+        """Parameter entry of ``GET /blocks/{block_id}`` (optional fields only when set)."""
+        key = f"blocks.{block_id}.params.{param_id}"
+        out: dict[str, JSONValue] = {"param_id": param_id, "type": self.type}
+        out["default"] = self.default
+        if self.min is not None:
+            out["min"] = self.min
+        if self.max is not None:
+            out["max"] = self.max
+        if self.odd_only:
+            out["odd_only"] = True
+        if self.choices is not None:
+            out["choices"] = list(self.choices)
+        if self.unit is not None:
+            out["unit"] = self.unit
+        if self.constraint is not None:
+            out["constraint"] = self.constraint
+        if self.visible_if is not None:
+            out["visible_if"] = {"param_id": self.visible_if[0], "values": list(self.visible_if[1])}
+        out["label_key"] = self.label_key or key
+        out["tooltip_key"] = self.tooltip_key or f"{key}.tip"
+        out["advanced"] = self.advanced
+        return out
 
 
 def Param[T: ParamValue](
@@ -84,25 +136,60 @@ def Param[T: ParamValue](
     label_key: str | None = None,
     tooltip_key: str | None = None,
     advanced: bool = False,
+    unit: str | None = None,
+    odd_only: bool = False,
+    constraint: str | None = None,
+    visible_if: tuple[str, tuple[ParamValue, ...]] | None = None,
 ) -> T:
     """Declare a block parameter as a field of the block's frozen params dataclass.
 
     ``ddof: int = Param(1, choices=(0, 1))`` gives the field the default ``1`` and
-    records the ``ParamSpec`` in the field's metadata.
+    records the ``ParamSpec`` in the field's metadata. The type follows the default
+    (``int``, ``float``, ``bool``, ``str`` -> ``string``) or is ``enum`` when
+    ``choices`` are given (DATA_MODEL.md §5). ``constraint`` (``"polyorder < window"``)
+    and ``visible_if`` (``("method", ("a", "b"))``) name other parameters; they are
+    checked by :func:`param_specs`.
     """
+    if type(default) not in _TYPE_NAMES:
+        raise TypeError(f"default must be an int, float, bool or str, got {default!r}")
     for label, bound in (("default", default), ("min", min), ("max", max)):
         if isinstance(bound, float) and not math.isfinite(bound):
             raise ValueError(f"{label} must be finite, got {bound}")
-    if choices is not None and not any(type(c) is type(default) and c == default for c in choices):
-        raise ValueError(f"default {default!r} is not one of the choices {choices!r}")
+    numeric = choices is None and type(default) in (int, float)
+    if not numeric:
+        used = {"min": min, "max": max, "unit": unit, "constraint": constraint}
+        for label in (k for k, v in used.items() if v is not None):
+            raise ValueError(f"{label} is only allowed for int and float parameters")
+    if odd_only and (choices is not None or type(default) is not int):
+        raise ValueError("odd_only is only allowed for int parameters")
+    if choices is not None:
+        if not any(type(c) is type(default) and c == default for c in choices):
+            raise ValueError(f"default {default!r} is not one of the choices {choices!r}")
+        if not all(type(c) is type(default) for c in choices):
+            raise ValueError(f"choices {choices!r} must all have the type of the default")
+        if len(set(choices)) != len(choices):
+            raise ValueError(f"choices {choices!r} has duplicates")
     if min is not None and max is not None and min > max:
         raise ValueError(f"min {min} is greater than max {max}")
-    number = default if isinstance(default, int | float) and not isinstance(default, bool) else None
-    if number is not None and (
-        (min is not None and number < min) or (max is not None and number > max)
-    ):
-        raise ValueError(f"default {default} is outside [{min}, {max}]")
-    spec = ParamSpec(default, choices, min, max, label_key, tooltip_key, advanced)
+    if numeric:
+        number = cast(float, default)
+        if (min is not None and number < min) or (max is not None and number > max):
+            raise ValueError(f"default {default} is outside [{min}, {max}]")
+    if odd_only and cast(int, default) % 2 == 0:
+        raise ValueError(f"default {default} is not odd (odd_only)")
+    if unit is not None and not unit:
+        raise ValueError("unit must be a non-empty string")
+    if constraint is not None and not _CONSTRAINT.fullmatch(constraint):
+        raise ValueError(
+            f"constraint {constraint!r} must look like '<param> <op> <param or number>' "
+            "with op one of < <= > >= !="
+        )
+    if visible_if is not None and (not _SNAKE.fullmatch(visible_if[0]) or not visible_if[1]):
+        raise ValueError("visible_if must be (param_id, (value, ...)) with at least one value")
+    spec = ParamSpec(
+        default, choices, min, max, label_key, tooltip_key, advanced,
+        unit, odd_only, constraint, visible_if,
+    )  # fmt: skip
     return cast(T, field(default=default, metadata={_PARAM_SPEC: spec}))
 
 
@@ -126,8 +213,124 @@ def param_specs(params_type: type) -> tuple[tuple[str, ParamSpec], ...]:
         spec = f.metadata.get(_PARAM_SPEC)
         if not isinstance(spec, ParamSpec):
             raise TypeError(f"{label}.{f.name} must be declared with Param(...)")
+        # Annotations are strings under ``from __future__ import annotations``.
+        annotation = f.type if isinstance(f.type, str) else getattr(f.type, "__name__", "")
+        expected = _ANNOTATIONS.get(annotation)
+        if expected is not None and type(spec.default) is not expected:
+            raise TypeError(
+                f"{label}.{f.name} is annotated {annotation} but its default is "
+                f"{spec.default!r} ({type(spec.default).__name__})"
+            )
         specs.append((f.name, spec))
+    by_name = dict(specs)
+    for name, spec in specs:
+        _check_references(f"{label}.{name}", name, spec, by_name)
+    defaults = {name: spec.default for name, spec in specs}
+    for name, spec in specs:
+        if spec.constraint is not None and not _constraint_holds(spec.constraint, defaults):
+            raise ValueError(f"{label}.{name}: defaults break the constraint {spec.constraint!r}")
     return tuple(specs)
+
+
+def _check_references(
+    where: str, name: str, spec: ParamSpec, by_name: dict[str, ParamSpec]
+) -> None:
+    """Check that ``constraint`` and ``visible_if`` name suitable other parameters."""
+    if spec.constraint is not None:
+        left, _, right = cast(re.Match[str], _CONSTRAINT.fullmatch(spec.constraint)).groups()
+        if left != name:
+            raise ValueError(f"{where}: constraint {spec.constraint!r} must start with {name!r}")
+        if right[0].isalpha():
+            other = by_name.get(right)
+            if right == name or other is None or other.type not in ("int", "float"):
+                raise ValueError(
+                    f"{where}: constraint {spec.constraint!r} must compare with another "
+                    "int or float parameter or a number"
+                )
+    if spec.visible_if is not None:
+        target_id, values = spec.visible_if
+        target = by_name.get(target_id)
+        if target_id == name or target is None or target.type not in ("bool", "enum"):
+            raise ValueError(f"{where}: visible_if must name another bool or enum parameter")
+        for value in values:
+            if _value_problem(target, value)[0] is not None:
+                raise ValueError(
+                    f"{where}: visible_if value {value!r} is not valid for {target_id!r}"
+                )
+
+
+def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamValue]:
+    """``(reason, value)``: the §5.3 reason the value is invalid (or ``None``) and the
+    value converted to the parameter type (``int`` -> ``float`` for floats)."""
+    kind = spec.type
+    if kind == "enum":
+        choices = cast(tuple[ParamValue, ...], spec.choices)
+        ok = any(type(c) is type(value) and c == value for c in choices)
+        return (None, cast(ParamValue, value)) if ok else ("not_a_choice", None)
+    if kind in ("bool", "string", "int"):
+        expected = {"bool": bool, "string": str, "int": int}[kind]
+        if type(value) is not expected:
+            return "type", None
+        checked = cast(ParamValue, value)
+    else:  # float: JSON integers are accepted and stored as float
+        if type(value) not in (int, float):
+            return "type", None
+        try:
+            checked = float(cast(float, value))
+        except OverflowError:
+            return "type", None
+        if not math.isfinite(checked):
+            return "type", None
+    if kind in ("int", "float"):
+        number = cast(float, checked)
+        if spec.min is not None and number < spec.min:
+            return "below_min", checked
+        if spec.max is not None and number > spec.max:
+            return "above_max", checked
+        if spec.odd_only and cast(int, checked) % 2 == 0:
+            return "not_odd", checked
+    return None, checked
+
+
+def _constraint_holds(constraint: str, values: Mapping[str, ParamValue]) -> bool:
+    left, op, right = cast(re.Match[str], _CONSTRAINT.fullmatch(constraint)).groups()
+    other = values[right] if right[0].isalpha() else float(right)
+    return bool(_COMPARE[op](cast(float, values[left]), cast(float, other)))
+
+
+def parse_params[P](params_type: type[P], values: Mapping[str, object]) -> P:
+    """Build a params dataclass from the JSON object of ``nodes[].params``.
+
+    Missing parameters take their default; JSON integers are accepted for ``float``
+    parameters. The first problem raises :class:`~vibechem_core.errors.ParamError`
+    with code ``BLOCK_PARAM_INVALID`` and ``params`` ``param_id``, ``reason`` (one of
+    ``unknown``, ``type``, ``below_min``, ``above_max``, ``not_odd``,
+    ``not_a_choice``, ``constraint``) and, when known, ``value`` or ``constraint``
+    (DATA_MODEL.md §5.3). Definition mistakes raise ``TypeError``/``ValueError`` as in
+    :func:`param_specs`.
+    """
+    specs = param_specs(params_type)
+    known = {name for name, _ in specs}
+    for key in values:
+        if key not in known:
+            raise ParamError(BLOCK_PARAM_INVALID, {"param_id": str(key), "reason": "unknown"})
+    parsed: dict[str, ParamValue] = {}
+    for name, spec in specs:
+        value = values.get(name, spec.default)
+        reason, checked = _value_problem(spec, value)
+        if reason is not None:
+            details: dict[str, ErrorParam] = {"param_id": name, "reason": reason}
+            if type(value) in (str, int, bool) or (type(value) is float and math.isfinite(value)):
+                details["value"] = cast(ParamValue, value)
+            raise ParamError(BLOCK_PARAM_INVALID, details)
+        parsed[name] = checked
+    for name, spec in specs:
+        if spec.constraint is not None and not _constraint_holds(spec.constraint, parsed):
+            raise ParamError(
+                BLOCK_PARAM_INVALID,
+                {"param_id": name, "reason": "constraint", "constraint": spec.constraint},
+            )
+    return params_type(**parsed)
 
 
 # ---- Ports --------------------------------------------------------------------------
@@ -369,6 +572,8 @@ class BlockMeta:
     inputs: tuple[Port, ...]
     outputs: tuple[Port, ...]
     params: tuple[tuple[str, ParamSpec], ...]
+    implementation: tuple[str, str] = ("vibechem", "")
+    custom_panel: str | None = None
 
     @property
     def title_key(self) -> str:
@@ -392,12 +597,26 @@ class BlockMeta:
             "outputs": [p.to_dict("output") for p in self.outputs],
         }
 
+    def to_detail_dict(self) -> dict[str, JSONValue]:
+        """``GET /blocks/{block_id}``: the list entry plus params (DATA_MODEL.md §2.3, §5)."""
+        library, function = self.implementation
+        detail: dict[str, JSONValue] = {
+            "params": [spec.to_dict(name, self.block_id) for name, spec in self.params],
+            "references": list(self.references),
+            "implementation": {"library": library, "function": function},
+            "help_key": f"blocks.{self.block_id}.help",
+            "custom_panel": self.custom_panel,
+        }
+        return self.to_dict() | detail
+
 
 class Block:
     """Base class of every block. Subclasses set the class attributes below.
 
     ``block_class`` defaults to the first segment of ``block_id`` and ``tier`` to
-    ``"P0"``.
+    ``"P0"``. ``implementation`` is ``(library, function)`` for ``GET /blocks/{id}``
+    and reports; it defaults to :meth:`default_implementation`. ``custom_panel`` names
+    a custom inspector panel (ADR-005), ``None`` for the generated form.
     """
 
     block_id: ClassVar[str]
@@ -410,6 +629,8 @@ class Block:
     params_type: ClassVar[type] = NoParams
     block_class: ClassVar[str | None] = None
     tier: ClassVar[str] = "P0"
+    implementation: ClassVar[tuple[str, str] | None] = None
+    custom_panel: ClassVar[str | None] = None
 
     # The engine calls these with the inputs as keyword arguments (one per port_id),
     # so the base signatures are open; each block declares its own typed signature.
@@ -420,6 +641,11 @@ class Block:
     def apply(self, *args: Any, **kwargs: Any) -> Any:
         """Transform inputs into outputs (fitted blocks also receive ``state``)."""
         raise NotImplementedError(f"{type(self).__name__} does not implement apply")
+
+    @classmethod
+    def default_implementation(cls) -> tuple[str, str]:
+        """``("vibechem", "<module>.<class>")``: our own code."""
+        return ("vibechem", f"{cls.__module__}.{cls.__qualname__}")
 
     @classmethod
     def metadata(cls) -> BlockMeta:
@@ -458,6 +684,16 @@ class Block:
         ):
             raise TypeError(f"{name}.references must be a tuple of non-empty strings")
         _check_ports(name, cls.inputs, cls.outputs)
+        implementation = cast(object, cls.implementation or cls.default_implementation())
+        if not (
+            isinstance(implementation, tuple)
+            and len(cast(tuple[object, ...], implementation)) == 2
+            and all(isinstance(v, str) and v for v in cast(tuple[object, ...], implementation))
+        ):
+            raise TypeError(f"{name}.implementation must be (library, function), non-empty str")
+        custom_panel = cast(object, cls.custom_panel)
+        if custom_panel is not None and (not isinstance(custom_panel, str) or not custom_panel):
+            raise TypeError(f"{name}.custom_panel must be None or a non-empty string")
         if cls.apply is Block.apply:
             raise TypeError(f"{name} must implement apply")
         if cls.fitted != (cls.fit is not Block.fit):
@@ -473,6 +709,8 @@ class Block:
             inputs=cls.inputs,
             outputs=cls.outputs,
             params=param_specs(cls.params_type),
+            implementation=cast(tuple[str, str], implementation),
+            custom_panel=custom_panel,
         )
 
 

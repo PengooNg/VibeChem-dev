@@ -96,6 +96,17 @@ def test_wrapped_transformer_is_a_valid_fitted_block() -> None:
     assert registry.get("testing.scale") is Scale
 
 
+def test_wrapped_transformer_names_the_library_it_uses() -> None:
+    implementation = Scale.metadata().to_detail_dict()["implementation"]
+    module = StandardScaler.__module__
+    assert implementation == {"library": "sklearn", "function": f"{module}.StandardScaler"}
+
+    class Pinned(Scale):
+        implementation = ("sklearn", "sklearn.preprocessing.StandardScaler")
+
+    assert Pinned.metadata().implementation == ("sklearn", "sklearn.preprocessing.StandardScaler")
+
+
 class _Private:
     """Smallest scikit-learn-style transformer with a private fitted attribute."""
 
