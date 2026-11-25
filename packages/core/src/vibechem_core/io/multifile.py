@@ -20,7 +20,9 @@ Rules
   ``"1100.0"`` are the same point; the first file's name is kept) on the union
   axis, ordered like the first file's axis; points a file lacks are NaN, with an
   ``IMPORT_AXIS_MISMATCH`` warning (``axes``: number of distinct file axes) and
-  ``needs_interpolation``.
+  ``needs_interpolation``. An axis and its reverse are the same axis; a file
+  without spectral columns does not count (its rows are NaN there). A file that
+  already has a ``source_file`` column cannot be merged (``duplicate_column``).
 - Roles are suggested again for the merged table (axis unit: the first file's).
   Each file's warnings are kept, except duplicate sample IDs, which are counted
   again over all files. ``detected_format`` is the first file's.

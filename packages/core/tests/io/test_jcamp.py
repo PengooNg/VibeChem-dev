@@ -93,7 +93,15 @@ def test_xy_pairs_apply_xfactor(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("xunits", "unit"),
-    [("1/CM", "cm-1"), ("nanometers", "nm"), ("MICROMETERS", "um"), ("ARBITRARY UNITS", "nm")],
+    [
+        ("1/CM", "cm-1"),
+        ("cm-1", "cm-1"),
+        ("nanometers", "nm"),
+        ("NM", "nm"),
+        ("MICROMETERS", "um"),
+        ("Microns", "um"),
+        ("ARBITRARY UNITS", "nm"),
+    ],
 )
 def test_axis_unit_from_xunits_else_guess(tmp_path: Path, xunits: str, unit: str) -> None:
     table = read_jcamp(write(tmp_path, AFFN.format(xunits=xunits)))
@@ -176,11 +184,39 @@ def test_isopropanol_asdf_file_reference_values() -> None:
     assert round(y.max(), 2) == 0.37
 
 
-def test_npoints_mismatch_is_corrupt(tmp_path: Path) -> None:
-    text = AFFN.format(xunits="1/CM").replace("1004 300 400", "1004 300")
+@pytest.mark.parametrize(
+    "text",
+    [
+        AFFN.format(xunits="1/CM").replace("1004 300 400", "1004 300"),
+        # ##NPOINTS with a comment or written as a float is still checked
+        XY_PAIRS.format(xunits="1/CM").replace("##NPOINTS=3", "##NPOINTS=4 $$ points"),
+        XY_PAIRS.format(xunits="1/CM").replace("##NPOINTS=3", "##NPOINTS=4.0"),
+    ],
+)
+def test_npoints_mismatch_is_corrupt(tmp_path: Path, text: str) -> None:
     with pytest.raises(VibeChemError) as exc:
         read_jcamp(write(tmp_path, text))
     assert reason(exc) == "corrupt"
+
+
+def test_failed_asdf_y_check_is_corrupt(tmp_path: Path) -> None:
+    # DIF lines repeat the last y of the previous line as a check value. Here the
+    # second line starts with 250 instead of 200: the library only prints "Y-Check failed".
+    text = AFFN.format(xunits="1/CM").replace(
+        "1000 100 -200\n1004 300 400", "1000A00J00\n1002B50J00J00"
+    )
+    with pytest.raises(VibeChemError) as exc:
+        read_jcamp(write(tmp_path, text))
+    assert reason(exc) == "corrupt"
+
+
+def test_valid_asdf_y_check_passes(tmp_path: Path) -> None:
+    # Same encoding with a correct check value: y = 100, 200, 300, 400 (times 0.001).
+    text = AFFN.format(xunits="1/CM").replace(
+        "1000 100 -200\n1004 300 400", "1000A00J00\n1002B00J00J00"
+    )
+    _, y = spectrum(read_jcamp(write(tmp_path, text)))
+    np.testing.assert_allclose(y, [0.1, 0.2, 0.3, 0.4], rtol=1e-12)
 
 
 @pytest.mark.parametrize(

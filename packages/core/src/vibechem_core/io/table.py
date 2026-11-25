@@ -539,11 +539,19 @@ def _strictly_monotonic(x: NDArray[np.float64]) -> bool:
 
 
 def _union_axis(axes: Sequence[NDArray[np.float64]]) -> tuple[NDArray[np.float64], int]:
-    """Union of strictly monotonic axes, ordered like the first; and the number of distinct axes."""
+    """Union of strictly monotonic axes, ordered like the first; and the number of distinct axes.
+
+    Empty axes (a file without spectral columns) are left out; an axis and its
+    reverse are the same axis.
+    """
     distinct: list[NDArray[np.float64]] = []
     for axis in axes:
-        if not any(np.array_equal(axis, seen) for seen in distinct):
+        if len(axis) and not any(
+            np.array_equal(axis, seen) or np.array_equal(axis[::-1], seen) for seen in distinct
+        ):
             distinct.append(axis)
+    if not distinct:
+        return np.empty(0), 1
     if len(distinct) == 1:
         return distinct[0], 1
     union = np.unique(np.concatenate(distinct))

@@ -109,13 +109,22 @@ def test_csv_files_match_axis_by_value_and_merge_columns(tmp_path: Path) -> None
     assert table.warnings == ({"code": IMPORT_DUPLICATE_SAMPLE_IDS, "params": {"count": 1}},)
 
 
-def test_file_without_spectra_counts_as_other_axis(tmp_path: Path) -> None:
+def test_file_without_spectra_is_not_an_axis_mismatch(tmp_path: Path) -> None:
     a = write(tmp_path, "a.csv", "Sample,1100,1102\nS1,0.1,0.2\n")
     b = write(tmp_path, "b.csv", "Sample,Fat\nS2,5\n")
     table = read_files([a, b])
     np.testing.assert_array_equal(table.columns["1100"], [0.1, np.nan])
-    assert IMPORT_AXIS_MISMATCH in codes(table.warnings)
-    assert table.needs_interpolation
+    assert IMPORT_AXIS_MISMATCH not in codes(table.warnings)
+    assert not table.needs_interpolation
+
+
+def test_reversed_axis_is_the_same_axis(tmp_path: Path) -> None:
+    a = write(tmp_path, "a.csv", "Sample,1100,1102\nS1,0.1,0.2\n")
+    b = write(tmp_path, "b.csv", "Sample,1102,1100\nS2,0.6,0.5\n")
+    table = read_files([a, b])
+    np.testing.assert_array_equal(table.columns["1100"], [0.1, 0.5])
+    assert table.warnings == ()
+    assert not table.needs_interpolation
 
 
 def test_per_file_axis_mismatch_is_kept() -> None:
