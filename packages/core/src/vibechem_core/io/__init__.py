@@ -7,6 +7,8 @@ File-format libraries (openpyxl, jcamp) are imported only inside this package
 """
 
 from vibechem_core.io.jcamp import read_jcamp
+from vibechem_core.io.multifile import SOURCE_FILE, read_file, read_files
+from vibechem_core.io.spc import read_spc
 from vibechem_core.io.table import (
     IMPORT_AXIS_MISMATCH,
     IMPORT_DUPLICATE_SAMPLE_IDS,
@@ -27,11 +29,15 @@ __all__ = [
     "IMPORT_FILE_INVALID",
     "IMPORT_FORMAT_UNKNOWN",
     "IMPORT_NON_NUMERIC_VALUES",
+    "SOURCE_FILE",
     "ImportWarning",
     "SpectralColumns",
     "SuggestedRoles",
     "TableImport",
+    "read_file",
+    "read_files",
     "read_jcamp",
+    "read_spc",
     "read_table",
     "spectra_import",
 ]
