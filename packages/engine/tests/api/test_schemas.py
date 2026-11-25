@@ -65,6 +65,9 @@ def _param(detail: dict[str, Any], param_id: str) -> dict[str, Any]:
         ("label", {"visible_if": {"param_id": "window", "values": [1]}}, "bool or enum"),
         ("label", {"visible_if": {"param_id": "mode", "values": []}}, "at least 1"),
         ("label", {"label_key": ""}, "at least 1"),
+        ("label", {"visible_if": {"param_id": "mode", "values": ["max"]}}, "not valid"),
+        ("label", {"visible_if": {"param_id": "clip", "values": [1]}}, "not valid"),
+        ("polyorder", {"default": 20, "max": 30}, "defaults break"),
     ],
 )
 def test_invalid_param_entries_are_rejected(
@@ -89,6 +92,16 @@ def test_invalid_param_entries_are_rejected(
 def test_invalid_block_fields_are_rejected(change: dict[str, Any], match: str) -> None:
     with pytest.raises(ValidationError, match=match):
         BlockDetail.model_validate(_detail() | change)
+
+
+def test_float_choices_survive_a_javascript_round_trip() -> None:
+    detail = _detail()
+    _param(detail, "scale").update({"type": "enum", "default": 1, "choices": [0.5, 1]})
+    for key in ("min", "unit"):
+        del _param(detail, "scale")[key]
+    model = BlockDetail.model_validate(detail)  # JSON.stringify([0.5, 1.0]) == "[0.5,1]"
+    scale = next(p for p in model.params if p.param_id == "scale")
+    assert isinstance(scale, EnumParam)
 
 
 def test_param_ids_must_be_unique() -> None:

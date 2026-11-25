@@ -652,7 +652,12 @@ def test_implementation_and_custom_panel_overrides() -> None:
 
 @pytest.mark.parametrize(
     "attrs",
-    [{"implementation": ("scipy",)}, {"implementation": ("", "f")}, {"custom_panel": ""}],
+    [
+        {"implementation": ("scipy",)},
+        {"implementation": ("", "f")},
+        {"implementation": ()},
+        {"custom_panel": ""},
+    ],
 )
 def test_implementation_and_custom_panel_are_checked(attrs: dict[str, Any]) -> None:
     with pytest.raises(TypeError, match=r"implementation|custom_panel"):
@@ -684,7 +689,7 @@ def test_param_rejects_schema_mistakes(
         Param(**kwargs)
 
 
-def _params_class(**fields: tuple[Any, Any]) -> type:
+def _params_class(**fields: tuple[Any, Any]) -> type[Any]:
     """A frozen params dataclass built from ``name=(annotation, Param(...))``."""
     spec = [(name, ann, value) for name, (ann, value) in fields.items()]
     return make_dataclass("P", spec, frozen=True)
@@ -793,6 +798,21 @@ def test_parse_params_reports_the_first_problem(
     assert exc.value.code == BLOCK_PARAM_INVALID
     assert exc.value.message_key == "errors.block.param_invalid"
     assert dict(exc.value.params) == expected
+
+
+def test_float_choices_accept_json_integers() -> None:
+    p = _params_class(a=(float, Param(0.5, choices=(0.5, 1.0))))
+    parsed = parse_params(p, {"a": 1})  # JSON.stringify(1.0) == "1"
+    assert parsed == p(a=1.0)
+    assert type(parsed.a) is float
+    with pytest.raises(ParamError, match="not_a_choice"):
+        parse_params(p, {"a": True})
+
+
+def test_params_must_be_an_object() -> None:
+    with pytest.raises(ParamError) as exc:
+        parse_params(DummySchemaParams, cast(Any, []))
+    assert dict(exc.value.params) == {"reason": "type"}
 
 
 def test_hidden_parameters_are_still_validated() -> None:

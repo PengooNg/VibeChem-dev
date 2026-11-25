@@ -11,6 +11,7 @@ a pipeline's parameters is ``vibechem_core.block.parse_params`` (§5.3).
 
 from __future__ import annotations
 
+import operator
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -38,6 +39,13 @@ Constraint = Annotated[
         pattern=r"^[a-z][a-z0-9_]* (<=|>=|<|>|!=) ([a-z][a-z0-9_]*|-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?)$"
     ),
 ]
+_COMPARE = {
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "!=": operator.ne,
+}
 PortType = Literal["Spectra", "Table", "Model", "Transform", "Folds", "Results", "ImageCube"]
 
 
@@ -117,14 +125,25 @@ class EnumParam(_Param):
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        kinds = {type(c) for c in self.choices}
+        float_kind = any(type(c) is float for c in self.choices)
+        # JSON has one number type: a client may send the float choice 1.0 as 1.
+        kinds = {float if type(c) is int and float_kind else type(c) for c in self.choices}
         if len(kinds) != 1:
             raise ValueError("choices must all be of one kind")
-        if not any(type(c) is type(self.default) and c == self.default for c in self.choices):
+        if not self.allows(self.default):
             raise ValueError(f"default {self.default!r} is not one of the choices")
         if len({(type(c), c) for c in self.choices}) != len(self.choices):
             raise ValueError("choices has duplicates")
         return self
+
+    def allows(self, value: Scalar) -> bool:
+        """True if ``value`` is one of the choices (a JSON integer matches a float choice)."""
+        numbers = (int, float)
+        return any(
+            c == value
+            and (type(c) is type(value) or (type(c) in numbers and type(value) in numbers))
+            for c in self.choices
+        )
 
 
 ParamEntry = Annotated[
@@ -192,4 +211,19 @@ class BlockDetail(_Model):
                     target, BoolParam | EnumParam
                 ):
                     raise ValueError(f"{p.param_id}: visible_if must name a bool or enum param")
+                for value in p.visible_if.values:
+                    valid = (
+                        target.allows(value)
+                        if isinstance(target, EnumParam)
+                        else type(value) is bool
+                    )
+                    if not valid:
+                        raise ValueError(f"{p.param_id}: visible_if value {value!r} is not valid")
+        defaults = {p.param_id: p.default for p in self.params}
+        for p in self.params:
+            if isinstance(p, IntParam | FloatParam) and p.constraint is not None:
+                _, op, right = p.constraint.split(" ")
+                other = defaults[right] if right[0].isalpha() else float(right)
+                if not _COMPARE[op](p.default, other):
+                    raise ValueError(f"{p.param_id}: defaults break {p.constraint!r}")
         return self

@@ -265,6 +265,8 @@ def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamVal
     kind = spec.type
     if kind == "enum":
         choices = cast(tuple[ParamValue, ...], spec.choices)
+        if type(choices[0]) is float and type(value) is int:
+            value = float(value)  # JSON has one number type: 1.0 arrives as 1
         ok = any(type(c) is type(value) and c == value for c in choices)
         return (None, cast(ParamValue, value)) if ok else ("not_a_choice", None)
     if kind in ("bool", "string", "int"):
@@ -306,10 +308,13 @@ def parse_params[P](params_type: type[P], values: Mapping[str, object]) -> P:
     with code ``BLOCK_PARAM_INVALID`` and ``params`` ``param_id``, ``reason`` (one of
     ``unknown``, ``type``, ``below_min``, ``above_max``, ``not_odd``,
     ``not_a_choice``, ``constraint``) and, when known, ``value`` or ``constraint``
-    (DATA_MODEL.md §5.3). Definition mistakes raise ``TypeError``/``ValueError`` as in
+    (DATA_MODEL.md §5.3); ``values`` that is not an object gives ``reason`` ``type``
+    without ``param_id``. Definition mistakes raise ``TypeError``/``ValueError`` as in
     :func:`param_specs`.
     """
     specs = param_specs(params_type)
+    if not isinstance(values, Mapping):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise ParamError(BLOCK_PARAM_INVALID, {"reason": "type"})  # params is not an object
     known = {name for name, _ in specs}
     for key in values:
         if key not in known:
@@ -684,7 +689,10 @@ class Block:
         ):
             raise TypeError(f"{name}.references must be a tuple of non-empty strings")
         _check_ports(name, cls.inputs, cls.outputs)
-        implementation = cast(object, cls.implementation or cls.default_implementation())
+        implementation = cast(
+            object,
+            cls.default_implementation() if cls.implementation is None else cls.implementation,
+        )
         if not (
             isinstance(implementation, tuple)
             and len(cast(tuple[object, ...], implementation)) == 2

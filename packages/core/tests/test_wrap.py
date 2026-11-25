@@ -98,13 +98,24 @@ def test_wrapped_transformer_is_a_valid_fitted_block() -> None:
 
 def test_wrapped_transformer_names_the_library_it_uses() -> None:
     implementation = Scale.metadata().to_detail_dict()["implementation"]
-    module = StandardScaler.__module__
-    assert implementation == {"library": "sklearn", "function": f"{module}.StandardScaler"}
+    assert StandardScaler.__module__ == "sklearn.preprocessing._data"  # private module
+    assert implementation == {
+        "library": "sklearn",
+        "function": "sklearn.preprocessing.StandardScaler",  # public path
+    }
 
     class Pinned(Scale):
-        implementation = ("sklearn", "sklearn.preprocessing.StandardScaler")
+        implementation = ("scikit-learn", "sklearn.preprocessing.StandardScaler")
 
-    assert Pinned.metadata().implementation == ("sklearn", "sklearn.preprocessing.StandardScaler")
+    assert Pinned.metadata().implementation[0] == "scikit-learn"
+
+
+def test_implementation_falls_back_to_the_defining_module() -> None:
+    class Local(Scale):
+        estimator = _Private
+
+    module = _Private.__module__
+    assert Local.default_implementation() == (module.split(".")[0], f"{module}._Private")
 
 
 class _Private:

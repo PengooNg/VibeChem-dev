@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import sys
 from typing import Any, ClassVar, Protocol
 
 import numpy as np
@@ -59,9 +60,18 @@ class TransformerBlock(Block):
 
     @classmethod
     def default_implementation(cls) -> tuple[str, str]:
-        """The estimator's library (top-level module) and class path."""
-        module = cls.estimator.__module__
-        return (module.partition(".")[0], f"{module}.{cls.estimator.__qualname__}")
+        """The estimator's library (top-level module) and its shortest public path.
+
+        ``sklearn.preprocessing._data.StandardScaler`` is reported as
+        ``sklearn.preprocessing.StandardScaler`` because that package exports it.
+        """
+        estimator, name = cls.estimator, cls.estimator.__qualname__
+        parts = estimator.__module__.split(".")
+        for i in range(1, len(parts) + 1):
+            module = ".".join(parts[:i])
+            if getattr(sys.modules.get(module), name, None) is estimator:
+                return (parts[0], f"{module}.{name}")
+        return (parts[0], f"{estimator.__module__}.{name}")
 
     def estimator_params(self, params: Any) -> dict[str, Any]:
         """Constructor arguments of the estimator; default: the params fields."""

@@ -702,7 +702,7 @@ Optional fields, present only when set:
 | `int` | integer (not `true`/`false`) | `min`, `max`, `odd_only`, `unit`, `constraint` | implemented |
 | `float` | number, finite; integers are accepted and stored as float | `min`, `max`, `unit`, `constraint` | implemented |
 | `bool` | `true` / `false` | — | implemented |
-| `enum` | one of `choices` (same kind: `1` does not match `true`, `"1"` does not match `1`) | `choices` | implemented |
+| `enum` | one of `choices` (same kind: `1` does not match `true`, `"1"` does not match `1`; JSON has one number type, so an integer matches a float choice: `1` selects `1.0`) | `choices` | implemented |
 | `string` | string | — | implemented |
 | `range` | `[low, high]` numbers, `low <= high` | `min`, `max`, `unit` | *reserved*: shape fixed, `Param` refuses it until the first block that needs it |
 | `wavelength_range` | `[low, high]` in the unit of the input spectral axis; checked against the axis at run time | — | *reserved* |
@@ -711,7 +711,7 @@ Optional fields, present only when set:
 A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
 
 ### 5.3 Validation of values
-`vibechem_core.block.parse_params(params_type, values)` turns the `nodes[].params` object into the block's params dataclass. Missing parameters take their `default`. The first problem found raises `BLOCK_PARAM_INVALID` (§7) with `params`: `param_id`, `reason` and, when it helps the message, `value` (scalars only) and `constraint`.
+`vibechem_core.block.parse_params(params_type, values)` turns the `nodes[].params` object into the block's params dataclass. Missing parameters take their `default`. The first problem found raises `BLOCK_PARAM_INVALID` (§7) with `params`: `param_id`, `reason` and, when it helps the message, `value` (scalars only) and `constraint`. When `params` itself is not a JSON object: `reason` `type` without `param_id`.
 | `reason` | When |
 |---|---|
 | `unknown` | Key that is not a `param_id` of the block |
