@@ -336,7 +336,13 @@ def write_state_json(directory: Path, text: str) -> None:
         ('{"state_version": 1.0, "values": {}, "arrays": []}', "state_version 1.0"),
         ('{"state_version": true, "values": {}, "arrays": []}', "state_version True"),
         ('{"state_version": 1, "values": {"x": 1e400}, "arrays": []}', "1e400 is not finite"),
-        ("[" * 100_000 + "]" * 100_000, "nested too deeply"),
+        (
+            '{"state_version": 1, "arrays": [], "values": {"x": '
+            + "[" * 100_000
+            + "]" * 100_000
+            + "}}",
+            "nested too deeply",
+        ),
     ],
 )
 def test_load_state_rejects_invalid_state_json(tmp_path: Path, text: str, match: str) -> None:

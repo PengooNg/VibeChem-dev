@@ -313,7 +313,10 @@ def load_state(directory: str | os.PathLike[str]) -> State:
         if hasattr(loaded, "close"):  # an .npz archive keeps its file open
             cast(Any, loaded).close()
         raise ValueError(f"arrays/{i}.npy is not a .npy array (state array {name!r})")
-    return State(cast(dict[str, object], entries["values"]), arrays)
+    try:  # the JSON parser's depth limit differs by platform; copying values recurses too
+        return State(cast(dict[str, object], entries["values"]), arrays)
+    except RecursionError:
+        raise ValueError("state.json is nested too deeply") from None
 
 
 def _state_doc_problem(doc: object) -> str | None:
