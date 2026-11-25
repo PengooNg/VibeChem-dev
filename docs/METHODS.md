@@ -24,7 +24,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 **(T1.04) items from the pengoo inventory**
 | # | Question | Suggested answer | Why |
 |---|---|---|---|
-| Q1 | SNV: ddof of the per-spectrum SD (pengoo 0, skeleton engine 1) | **ddof = 1**, parameter with choices 0/1 | Same as the block template and the skeleton engine. The factor √((p−1)/p) is the same for every spectrum, so PLS predictions do not change; only the printed SNV values differ. Barnes et al. 1989 divisor *to verify* in the paper. |
+| Q1 | SNV: ddof of the per-spectrum SD (pengoo 0, skeleton engine 1) | **ddof = 1**, parameter with choices 0/1 | Same as the block template and the skeleton engine. The factor √((p−1)/p) is the same for every spectrum, so PLS predictions do not change; only the printed SNV values differ. Barnes et al. 1989 divisor checked by Quan 2026-11-25. |
 | Q2 | Savitzky–Golay edge mode (pengoo `nearest`, SciPy default `interp`) | **`interp`** default; `nearest`, `mirror`, `constant`, `wrap` as options | `interp` fits the same polynomial to the last window, which is the Savitzky–Golay idea carried to the edge. `nearest` repeats the edge value and bends derivatives near the edges. |
 | Q3 | Savitzky–Golay derivative `delta` | **signed axis step** `delta = λ₂ − λ₁` (derivative per axis unit); non-uniform axis → error | pengoo used `delta = 1` (per point), so its derivatives depend on the point spacing. With the signed step a descending wavenumber axis still gives d/dν. |
 | Q4 | PLS X scaling default (scikit-learn `scale=True`; every pengoo PLS result used it) | **mean-centring only** (`scale=False`); autoscaling is a visible scaling block | Spectra share one unit, and autoscaling raises noise-only variables to the same weight as bands. `scale=False` reproduces the published gasoline results of Mevik & Wehrens 2007 (testdata PROVENANCE sanity check). Old pengoo results are not comparable 1:1. |
@@ -32,7 +32,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 | Q6 | RMSECV aggregation default (pengoo `fold_mean`) | **`pooled`** = √(PRESS/n); `fold_mean` as option; per-fold RMSE always stored | Pooled is the chemometrics definition (Martens & Næs 1989), is correct for unequal folds and is what the R `pls` package reports (our T1.15 reference). Per-fold values are kept, so the 1-SE and t-test LV rules still work. |
 | Q7 | Bias sign | **bias = mean(ŷ − y)**, positive = over-prediction | ISO 12099:2010 Eq. (1)–(3): "a positive bias when the predictions are too high" (checked in the official preview). Same sign as pengoo, so no old results flip. |
 | Q8 | "int ≥ n → LOO" rule in `make_cv_splitter` | **no silent switch**: 2 ≤ k ≤ n_units (samples, or groups when grouped); k > n_units → `BLOCK_PARAM_INVALID` (reason `constraint`); k = n_units allowed (equals LOO / leave-one-group-out); LOO is its own scheme | A silent change of scheme hides a typo (k = 100 on 60 samples). The result is the same as asking for LOO, so nothing is lost. |
-| Q9 | PLS2 VIP | **offer it**: SS of component a summed over all Y columns (Eq. in [VIP](#vip)); documented as depending on Y scaling; per-response VIP not in T1.12b | pengoo's formula already sums over Y columns, so it is PLS2-ready. Multi-response VIP is the form used in the original VIP chapter (Wold et al. 1993, *to verify*). |
+| Q9 | PLS2 VIP | **offer it**: SS of component a summed over all Y columns (Eq. in [VIP](#vip)); documented as depending on Y scaling; per-response VIP not in T1.12b | pengoo's formula already sums over Y columns, so it is PLS2-ready. Multi-response VIP is the form used in the original VIP chapter (Wold et al. 1993). |
 | Q10 | Model-comparison defaults `n_perm = 9999`, `n_boot = 2000` (marked T1.04 / P6) | **defer to the P6 validation step** (not a Phase 1 method) | No Phase 1 block uses them. |
 
 **New choices found while drafting**
@@ -42,7 +42,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 | N2 | Autoscale/Pareto SD ddof | **ddof = 1** | Same as SNV, SEP, RPD and scikit-learn's own PLS `scale=True`. A common factor, so PLS predictions do not change. `StandardScaler` uses ddof 0, so T1.09 corrects its `scale_` or uses two lines of NumPy. |
 | N3 | Autoscale/Pareto on a zero-variance column | centre it, leave it unscaled (scale 1) and **warn** in the node log | Flat columns occur after cuts or detector saturation; an error would block common pipelines. Same as `StandardScaler`, but not silent. |
 | N4 | Savitzky–Golay on a non-uniform axis | **Decided:** relative spacing deviation max\|Δλᵢ − Δλ̄\| / \|Δλ̄\| ≤ 1 % → `delta` = mean signed step Δλ̄, no warning; > 1 % → `delta` = 1 (per point), warning `BLOCK_AXIS_NOT_UNIFORM` (params `max_deviation`) and the derivative unit recorded as "per point" in the output | SG assumes equal spacing. Real axes (Raman CCD in cm⁻¹, rounded wavenumbers) are often slightly uneven; the mean step is exact enough there. Large deviations fall back to per-point derivatives, visibly. An interpolation block is the clean fix. |
-| N5 | Kennard–Stone start | **Decided:** both variants as a block parameter `start` ∈ {`most_distant` (default: the two most distant samples, as in pengoo and Daszykowski et al. 2002), `nearest_mean` (first the sample nearest the mean of z, then the max–min loop)}; same parameter in SPXY; ties → lowest row index | The user picks the variant in the block's parameter panel like any other hyperparameter. Which variant Kennard & Stone 1969 and the `kennard-stone` package use is still *to verify*; the T1.10 cross-check runs with the matching `start`. |
+| N5 | Kennard–Stone start | **Decided:** both variants as a block parameter `start` ∈ {`most_distant` (default: the two most distant samples, as in pengoo and Daszykowski et al. 2002), `nearest_mean` (first the sample nearest the mean of z, then the max–min loop)}; same parameter in SPXY; ties → lowest row index | The user picks the variant in the block's parameter panel like any other hyperparameter. References checked by Quan 2026-11-25; the T1.10 cross-check runs the `kennard-stone` package with the `start` it implements. |
 | N6 | RMSEC divisor | **n** (not n − A − 1) | Same as RMSECV/RMSEP and pengoo; degrees-of-freedom versions are not comparable across LV counts in the UI. |
 | N7 | Slope | **b in y = a + b·ŷ** (reference regressed on prediction) | ISO 12099:2010 §5.4.1 (checked in the preview). The predicted-vs-measured plot shows ŷ against y, so the plot's visual slope is the reverse regression; the UI labels it. |
 | N8 | RPD and RPIQ denominator (pengoo: RPD = SD/RMSE) | **Decided (current practice):** **RMSE of the same set** for both, i.e. RPD = SD(y)/RMSE, RPIQ = (Q3 − Q1)/RMSE (RMSEC, RMSECV or RMSEP) | Current applied practice (soil, food and recent NIR papers) and pengoo; the ratio includes bias, so a biased model scores lower. Same as SEP-based ratios when bias ≈ 0. Fearn 2002 (RPD) and Bellon-Maurel et al. 2010 (RPIQ) are still cited as the original papers (Quan, 2026-11-25). |
@@ -199,7 +199,7 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 - **Steps.** 1 distance space z (raw X, or PCA scores fitted on all rows of the split input — the split is a design step, not a model fit) · 2 distance matrix · 3 start (N5): `most_distant` → pair argmax d; `nearest_mean` → the row with the smallest ‖zᵢ − z̄‖₂ · 4 max–min loop until all rows are ordered · 5 first n_train rows of the order → training.
 - **Parameters.** `test_fraction`/`n_test`; `start` ∈ {`most_distant`, `nearest_mean`}, default `most_distant` (N5); `space` ∈ {`x`, `pca`}, default `x`; `n_components` or `variance` (for `pca`, default 0.99 as in pengoo).
 - **Edge cases.** Ties → lowest index. Duplicate spectra (d = 0) are fine. n ≤ 2 → order is the row order. Memory: the n × n matrix (n = 5 000 → 200 MB in float64) — above a size threshold compute the min-distance vector incrementally (O(n) memory).
-- **Reference values.** Hand-worked example of 6 points in 2-D with a unique order; hand-worked example for `nearest_mean` too; cross-check with the `kennard-stone` package (run with the `start` it implements, N5) on the gasoline data. Kennard & Stone 1969 printed example *to verify* as an extra reference.
+- **Reference values.** Hand-worked example of 6 points in 2-D with a unique order; hand-worked example for `nearest_mean` too; cross-check with the `kennard-stone` package (run with the `start` it implements, N5) on the gasoline data. Kennard & Stone 1969 printed example as an extra reference.
 - **Tolerance.** Exact (orders equal).
 - **Implementation.** Port pengoo `_ks_order` (vectorised update of the min-distance vector instead of the Python `max(rest, key=…)` loop).
 - **Reference.** `kennard1969`, `daszykowski2002`.
@@ -255,13 +255,13 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 ### Venetian blinds (`validate.venetian_blinds`) · T1.11
 - **Definition.** Row i (0-based, input order) goes to fold i mod k.
 - **Implementation.** Own code (one line of NumPy).
-- **Reference.** `eigenvector_cv` (*to verify*).
+- **Reference.** `eigenvector_cv`.
 
 <a id="contiguous-blocks"></a>
 ### Contiguous blocks (`validate.contiguous_blocks`) · T1.11
 - **Definition.** Rows in input order are cut into k consecutive blocks of near-equal size (the first n mod k blocks one row larger).
 - **Implementation.** Own code, or scikit-learn `KFold(shuffle=False)`, which gives exactly these blocks (`T-lib` test).
-- **Reference.** `eigenvector_cv` (*to verify*).
+- **Reference.** `eigenvector_cv`.
 
 <a id="loo"></a>
 ### Leave-one-out (`validate.loo`) · T1.11
@@ -328,7 +328,7 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 - **Reference values.** Properties: Σⱼ VIPⱼ² = p (`T-exact`); A = 1 → VIPⱼ = √p·|w̃ⱼ| (hand calculation). Independent value from other software (R `plsVarSel`, or `mixOmics` for PLS2) *to obtain* in T1.12b; pengoo values only as `test_vip_pengoo_regression`.
 - **Tolerance.** `T-exact` for properties; `T-iter` against other software.
 - **Implementation.** Port pengoo `calculate_vip` (already sums over Y columns; uses scikit-learn's unit-norm `x_weights_`).
-- **Reference.** `wold1993vip` (*to verify*), `chong2005vip`, `mehmood2012review`.
+- **Reference.** `wold1993vip`, `chong2005vip`, `mehmood2012review`.
 
 ---
 
@@ -355,7 +355,7 @@ All metrics are computed in **original Y units** (inverse Y scaling first) and p
 |---|---|---|
 | RMSEC / RMSECV / RMSEP | √( Σ eᵢ² / n ) | divisor n (N6); RMSECV aggregation see below |
 | Bias | ē = (1/n) Σ eᵢ = mean(ŷ) − mean(y) | ISO 12099:2010 Eq. (1)–(3); positive = over-prediction (Q7) |
-| SEP | √( Σ (eᵢ − ē)² / (n − 1) ) | bias-corrected SD of residuals; ISO 12099 §6.5 (*to verify*), `fearn2002sep` |
+| SEP | √( Σ (eᵢ − ē)² / (n − 1) ) | bias-corrected SD of residuals; ISO 12099 §6.5, `fearn2002sep` |
 | R² (R²c, R²cv, R²p) | 1 − Σ eᵢ² / Σ (yᵢ − ȳ)² , ȳ = mean of y **in the same set** | not the squared correlation; can be negative on test data |
 | Slope, intercept | least squares y = a + b·ŷ | reference on prediction, ISO 12099:2010 §5.4.1 (N7) |
 | RPD | SD(y) / RMSE of the same set (RPDc = SD/RMSEC, RPDcv = SD/RMSECV, RPDp = SD/RMSEP), SD with ddof 1 over the same set | N8 (RMSE denominator); original paper `fearn2002sep` |
