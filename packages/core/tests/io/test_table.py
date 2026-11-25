@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import zipfile
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -273,3 +276,128 @@ def test_non_utf8_file(tmp_path: Path) -> None:
 def test_missing_file_raises_oserror(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         read_table(tmp_path / "missing.csv")
+
+
+# --- Excel --------------------------------------------------------------------------
+
+
+def write_xlsx(path: Path, rows: list[list[object]]) -> Path:
+    import openpyxl  # noqa: PLC0415
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    for row in rows:
+        sheet.append(row)
+    workbook.create_sheet("second").append(["ignored"])
+    workbook.save(path)
+    return path
+
+
+def test_xlsx_first_sheet_numbers_text_and_roles(tmp_path: Path) -> None:
+    path = write_xlsx(
+        tmp_path / "a.xlsx",
+        [
+            ["Sample", "Group", "Fat", 1100, 1102.5, 1105],
+            ["007", "g1", 1.5, 0.1, 0.2, 1 / 3],
+            ["008", "g2", None, 0.4, 0.5, 0.6],
+        ],
+    )
+    table = read_table(path)
+    assert table.detected_format == "xlsx"
+    assert list(table.columns) == ["Sample", "Group", "Fat", "1100", "1102.5", "1105"]
+    roles = table.suggested_roles
+    assert roles["sample_id"] == "Sample"
+    assert roles["group_id"] == "Group"
+    assert roles["y"] == ["Fat"]
+    assert spectral_of(table) == {"from": "1100", "to": "1105", "count": 3, "axis_unit": "nm"}
+    assert table.columns["1105"].tolist() == [1 / 3, 0.6]  # float64 round-trip, exact
+    np.testing.assert_array_equal(table.columns["Fat"], [1.5, np.nan])
+    assert table.columns["Sample"].tolist() == ["007", "008"]
+    assert table.warnings == ()
+
+
+def test_xlsx_formulas_are_not_evaluated(tmp_path: Path) -> None:
+    # A file saved by openpyxl has no cached formula results: the cell reads as empty.
+    path = write_xlsx(tmp_path / "a.xlsx", [["id", "note", 1, 2], ["a", "=1+1", 3, 4]])
+    table = read_table(path)
+    assert table.columns["note"].tolist() == [""]
+
+
+def test_xlsx_dates_and_booleans_as_text(tmp_path: Path) -> None:
+    path = write_xlsx(
+        tmp_path / "a.xlsx",
+        [["id", "when", "ok", 1, 2], ["a", datetime(2026, 11, 25, 9, 30), True, 3, 4]],
+    )
+    table = read_table(path)
+    assert table.columns["when"].tolist() == ["2026-11-25T09:30:00"]
+    assert table.columns["ok"].tolist() == ["True"]
+
+
+def test_xlsx_format_hint_overrides_extension(tmp_path: Path) -> None:
+    path = write_xlsx(tmp_path / "a.xlsx", [["id", 1, 2], ["a", 3, 4]])
+    renamed = path.rename(tmp_path / "a.bin")
+    assert read_table(renamed, "xlsx").columns["2"].tolist() == [4.0]
+
+
+def _write_zip(path: Path, members: dict[str, bytes]) -> Path:
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return path
+
+
+def _xlsx_with_sheet_xml(tmp_path: Path, sheet_xml: bytes) -> Path:
+    source = write_xlsx(tmp_path / "source.xlsx", [["id", 1, 2], ["a", 3, 4]])
+    target = tmp_path / "bad.xlsx"
+    with zipfile.ZipFile(source) as zin, zipfile.ZipFile(target, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                data = sheet_xml
+            zout.writestr(item, data)
+    return target
+
+
+def _not_a_zip(tmp_path: Path) -> Path:
+    path = tmp_path / "x.xlsx"
+    path.write_bytes(b"not a zip")
+    return path
+
+
+def _zip_without_workbook(tmp_path: Path) -> Path:
+    return _write_zip(tmp_path / "x.xlsx", {"a.txt": b"hi"})
+
+
+def _truncated_sheet(tmp_path: Path) -> Path:
+    return _xlsx_with_sheet_xml(tmp_path, b"<worksheet><sheetData><row>")
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(_not_a_zip, id="not-zip"),
+        pytest.param(_zip_without_workbook, id="no-workbook"),
+        pytest.param(_truncated_sheet, id="truncated-xml"),
+    ],
+)
+def test_malformed_xlsx(tmp_path: Path, make: Callable[[Path], Path]) -> None:
+    with pytest.raises(VibeChemError) as err:
+        read_table(make(tmp_path))
+    assert dict(err.value.params) == {"reason": "corrupt"}
+
+
+def test_xlsx_entity_expansion_is_rejected(tmp_path: Path) -> None:
+    # "Billion laughs": nested entities that expand to 10**9 copies. The bundled expat
+    # limits amplification, so the parse fails fast instead of exhausting memory.
+    entities = "".join(f'<!ENTITY e{i} "{f"&e{i - 1};" * 10 if i else "ha"}">' for i in range(10))
+    sheet_xml = (
+        f'<?xml version="1.0"?><!DOCTYPE worksheet [{entities}]>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>&e9;</t></is></c></row>'
+        "</sheetData></worksheet>"
+    ).encode()
+    with pytest.raises(VibeChemError) as err:
+        read_table(_xlsx_with_sheet_xml(tmp_path, sheet_xml))
+    assert dict(err.value.params) == {"reason": "corrupt"}
+    assert "amplification" in str(err.value.__cause__)  # expat's limit, not another error

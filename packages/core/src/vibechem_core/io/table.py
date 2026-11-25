@@ -224,12 +224,16 @@ def _read_xlsx_rows(path: Path) -> list[list[str]]:
     import openpyxl  # noqa: PLC0415  (lazy: keeps `import vibechem_core` light)
 
     try:
-        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_links=False)
-        try:
-            sheet = workbook.worksheets[0]
-            return [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
-        finally:
-            workbook.close()
+        # A file object, not the path: openpyxl refuses paths without an Excel extension.
+        with path.open("rb") as file:
+            workbook = openpyxl.load_workbook(
+                file, read_only=True, data_only=True, keep_links=False
+            )
+            try:
+                sheet = workbook.worksheets[0]
+                return [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
+            finally:
+                workbook.close()
     except OSError:
         raise
     except Exception as exc:  # untrusted file: any parser failure is "invalid"
