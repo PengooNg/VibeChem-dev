@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import zipfile
 from collections.abc import Callable
 from datetime import datetime
@@ -401,3 +403,11 @@ def test_xlsx_entity_expansion_is_rejected(tmp_path: Path) -> None:
         read_table(_xlsx_with_sheet_xml(tmp_path, sheet_xml))
     assert dict(err.value.params) == {"reason": "corrupt"}
     assert "amplification" in str(err.value.__cause__)  # expat's limit, not another error
+
+
+def test_openpyxl_is_imported_only_when_reading_excel() -> None:
+    code = "import sys, vibechem_core.io; print('openpyxl' in sys.modules)"
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
