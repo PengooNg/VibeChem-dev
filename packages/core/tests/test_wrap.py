@@ -148,6 +148,56 @@ def test_restored_arrays_are_read_only() -> None:
     np.testing.assert_array_equal(state.arrays["offset_"], [0.0])
 
 
+class _PresetInInit(_Private):
+    """Sets a fitted attribute to None in __init__ and assigns it in fit."""
+
+    def __init__(self, factor: float = 2.0) -> None:
+        super().__init__(factor)
+        self.coef_: Any = None
+
+    def fit(self, X: Any) -> Self:
+        self.coef_ = np.full(np.shape(X)[1], 5.0)
+        return super().fit(X)
+
+
+def test_attributes_reassigned_by_fit_are_kept() -> None:
+    state = estimator_state(_PresetInInit(), np.ones((1, 2)))
+    np.testing.assert_array_equal(state.arrays["coef_"], [5.0, 5.0])
+    assert "factor" not in state.values
+    np.testing.assert_array_equal(restore_estimator(_PresetInInit(), state).coef_, [5.0, 5.0])
+
+
+class _Shrink(_Private):
+    def transform(self, X: Any) -> Any:
+        return np.asarray(X)[:, :1]
+
+
+class Shrink(TransformerBlock):
+    block_id = "testing.shrink"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    estimator = _Shrink
+
+
+def test_transformer_that_changes_columns_is_rejected() -> None:
+    data = make_dataset(TRAIN)
+    state = Shrink().fit(spectra=data, params=NoParams())
+    with pytest.raises(
+        ValueError, match=r"_Shrink.transform changed the shape \(3, 2\) to \(3, 1\)"
+    ):
+        Shrink().apply(spectra=data, params=NoParams(), state=state)
+
+
+def test_block_without_estimator_is_a_definition_error() -> None:
+    class Missing(TransformerBlock):
+        block_id = "testing.missing"
+        version = "1.0.0"
+        icon = "glyph-dummy"
+
+    with pytest.raises(TypeError, match="Missing must set estimator"):
+        Missing.metadata()
+
+
 def test_no_params_gives_no_constructor_arguments() -> None:
     class Plain(TransformerBlock):
         estimator = StandardScaler

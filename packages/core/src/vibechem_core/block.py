@@ -219,6 +219,8 @@ class State:
     ) -> None:
         frozen: dict[str, NDArray[Any]] = {}
         for name, value in (arrays or {}).items():
+            if not isinstance(name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise TypeError(f"state array name {name!r} must be a str")
             array = np.array(value)
             if array.dtype.hasobject:
                 raise TypeError(f"state array {name!r} has dtype object (not saveable, ADR-007)")
@@ -264,11 +266,16 @@ def save_state(state: State, directory: str | os.PathLike[str]) -> None:
 
     Layout (ADR-007): ``state.json`` = ``{"state_version": 1, "values": {...},
     "arrays": [name, ...]}`` and ``arrays/<i>.npy`` for the i-th name. Files are
-    named by position, so array names never become file names.
+    named by position, so array names never become file names. ``state.json`` is
+    written last. Raises ``FileExistsError`` if ``directory`` already holds a state
+    (``state.json`` or ``arrays/``), so no stale array files can be mixed in.
     """
     root = Path(directory)
-    (root / "arrays").mkdir(parents=True, exist_ok=True)
-    names = [str(name) for name in state.arrays]
+    root.mkdir(parents=True, exist_ok=True)
+    if (root / "state.json").exists():
+        raise FileExistsError(f"{root / 'state.json'} already exists")
+    (root / "arrays").mkdir()
+    names = list(state.arrays)
     for i, array in enumerate(state.arrays.values()):
         np.save(root / "arrays" / f"{i}.npy", array, allow_pickle=False)
     doc = {"state_version": STATE_VERSION, "values": dict(state.values), "arrays": names}
@@ -285,16 +292,21 @@ def load_state(directory: str | os.PathLike[str]) -> State:
     root = Path(directory)
     text = (root / "state.json").read_text(encoding="utf-8")
     try:
-        doc: object = json.loads(text, parse_constant=_reject_constant)
+        doc: object = json.loads(text, parse_constant=_reject_constant, parse_float=_finite_float)
     except json.JSONDecodeError as exc:
         raise ValueError(f"state.json is not valid JSON: {exc}") from None
+    except RecursionError:
+        raise ValueError("state.json is nested too deeply") from None
     problem = _state_doc_problem(doc)
     if problem:
         raise ValueError(f"state.json {problem}")
     entries = cast(dict[str, Any], doc)
     arrays: dict[str, NDArray[Any]] = {}
     for i, name in enumerate(cast(list[str], entries["arrays"])):
-        loaded: object = np.load(root / "arrays" / f"{i}.npy", allow_pickle=False)
+        try:
+            loaded: object = np.load(root / "arrays" / f"{i}.npy", allow_pickle=False)
+        except EOFError:
+            raise ValueError(f"arrays/{i}.npy is empty (state array {name!r})") from None
         if isinstance(loaded, np.ndarray):
             arrays[name] = cast(NDArray[Any], loaded)
             continue
@@ -312,7 +324,7 @@ def _state_doc_problem(doc: object) -> str | None:
     if set(entries) - _STATE_KEYS:
         return f"has unknown keys {sorted(set(entries) - _STATE_KEYS)}"
     version, values, names = (entries.get(k) for k in ("state_version", "values", "arrays"))
-    if version != STATE_VERSION or isinstance(version, bool):
+    if type(version) is not int or version != STATE_VERSION:
         return f"has state_version {version!r}; expected {STATE_VERSION}"
     if not isinstance(values, dict):
         return "'values' must be an object"
@@ -328,6 +340,13 @@ def _state_doc_problem(doc: object) -> str | None:
 
 def _reject_constant(constant: str) -> object:
     raise ValueError(f"state.json value {constant} is not JSON (not finite)")
+
+
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"state.json value {text} is not finite")
+    return value
 
 
 # ---- Block --------------------------------------------------------------------------

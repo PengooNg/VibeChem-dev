@@ -333,6 +333,10 @@ def write_state_json(directory: Path, text: str) -> None:
         ('{"state_version": 1, "values": {}, "arrays": [1]}', "'arrays' must be a list of str"),
         ('{"state_version": 1, "values": {}, "arrays": ["a", "a"]}', "duplicate"),
         ('{"state_version": 1, "values": {}, "arrays": [], "x": 1}', "unknown keys"),
+        ('{"state_version": 1.0, "values": {}, "arrays": []}', "state_version 1.0"),
+        ('{"state_version": true, "values": {}, "arrays": []}', "state_version True"),
+        ('{"state_version": 1, "values": {"x": 1e400}, "arrays": []}', "1e400 is not finite"),
+        ("[" * 100_000 + "]" * 100_000, "nested too deeply"),
     ],
 )
 def test_load_state_rejects_invalid_state_json(tmp_path: Path, text: str, match: str) -> None:
@@ -356,6 +360,29 @@ def test_load_state_rejects_npz_in_place_of_npy(tmp_path: Path) -> None:
         np.savez(f, m=np.zeros(2))
     with pytest.raises(ValueError, match=r"arrays/0.npy is not a \.npy array"):
         load_state(tmp_path)
+
+
+def test_load_state_rejects_empty_npy(tmp_path: Path) -> None:
+    write_state_json(tmp_path, '{"state_version": 1, "values": {}, "arrays": ["m"]}')
+    (tmp_path / "arrays").mkdir()
+    (tmp_path / "arrays" / "0.npy").write_bytes(b"")
+    with pytest.raises(ValueError, match=r"arrays/0.npy is empty"):
+        load_state(tmp_path)
+
+
+def test_save_state_refuses_a_directory_that_holds_a_state(tmp_path: Path) -> None:
+    save_state(State(arrays={"a": [1], "b": [2]}), tmp_path / "one")
+    with pytest.raises(FileExistsError):
+        save_state(State(arrays={"a": [3]}), tmp_path / "one")
+    (tmp_path / "two" / "arrays").mkdir(parents=True)  # stale arrays without state.json
+    with pytest.raises(FileExistsError):
+        save_state(State(), tmp_path / "two")
+    assert list(load_state(tmp_path / "one").arrays) == ["a", "b"]
+
+
+def test_state_rejects_non_string_array_names() -> None:
+    with pytest.raises(TypeError, match="state array name 1 must be a str"):
+        State(arrays={1: [0.0]})  # type: ignore[dict-item]
 
 
 def test_load_state_reports_missing_files(tmp_path: Path) -> None:
