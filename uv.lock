@@ -515,6 +515,18 @@ wheels = [
 ]
 
 [[package]]
+name = "jcamp"
+version = "1.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/56/6c/cc3a6001b3aca6bd6f578a4cb7a1c679c457aecde69550f42a398fa54bb8/jcamp-1.3.2.tar.gz", hash = "sha256:27ce753f5bb2601d3138fc2a4787c0049deb0ab51ce052cb62806bcbd12eddb9", size = 3884780, upload-time = "2026-07-15T00:37:48.802Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/e3/b494bb9c41803750a6319b04822a36882472ad4ad6c277e6512f59e71279/jcamp-1.3.2-py3-none-any.whl", hash = "sha256:32af6f5322d867bc85446b7f5feea78576c64a1c00f90b71488337be9502a168", size = 13104, upload-time = "2026-07-15T00:37:45.717Z" },
+]
+
+[[package]]
 name = "joblib"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1350,6 +1362,7 @@ name = "vibechem-core"
 version = "0.0.0"
 source = { editable = "packages/core" }
 dependencies = [
+    { name = "jcamp" },
     { name = "numpy" },
     { name = "openpyxl" },
     { name = "scikit-learn" },
@@ -1357,6 +1370,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jcamp", specifier = ">=1.3.2,<1.4" },
     { name = "numpy", specifier = ">=2.5" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
     { name = "scikit-learn", specifier = ">=1.9,<1.10" },
