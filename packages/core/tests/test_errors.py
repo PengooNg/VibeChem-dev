@@ -2,6 +2,8 @@
 # packages/core/tests/test_errors.py
 """Tests for ``vibechem_core.errors``."""
 
+from pathlib import Path
+
 import pytest
 
 from vibechem_core.errors import BlockError, BlockInputError, VibeChemError, message_key
@@ -62,3 +64,14 @@ def test_hierarchy() -> None:
 def test_malformed_code_is_rejected_at_construction() -> None:
     with pytest.raises(ValueError, match="invalid error code"):
         BlockError("constant spectra")
+
+
+def test_every_catalogued_code_has_a_message_key() -> None:
+    data_model = Path(__file__).resolve().parents[3] / "docs" / "DATA_MODEL.md"
+    section = data_model.read_text(encoding="utf-8").split("## 7. Error codes catalogue")[1]
+    codes = [
+        line.split("|")[1].strip(" `") for line in section.splitlines() if line.startswith("| `")
+    ]
+    assert len(codes) > 20
+    for code in codes:
+        assert message_key(code).startswith("errors.")

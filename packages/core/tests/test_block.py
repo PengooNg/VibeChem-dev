@@ -3,11 +3,13 @@
 """Tests for ``vibechem_core.block``: Param, port, State, Block metadata, fit/apply."""
 
 from dataclasses import FrozenInstanceError, dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 
+from vibechem_core import block as block_module
 from vibechem_core.block import (
     Block,
     NoParams,
@@ -19,6 +21,7 @@ from vibechem_core.block import (
     port,
 )
 from vibechem_core.data import Axis, SpectralDataset
+from vibechem_core.errors import message_key
 from vibechem_core.testing import DummyCenter, DummyOffset, DummyOffsetParams
 
 
@@ -315,3 +318,31 @@ def test_matching_another_input_is_allowed() -> None:
         inputs=(port("a", "Spectra"), port("b", "Spectra", rows_match="a", axis_match="a"))
     ).metadata()
     assert meta.inputs[1].rows_match == "a"
+
+
+# ---- error codes (Done when: match DATA_MODEL.md §7) --------------------------------
+
+
+def _catalogue_codes(module: str) -> set[str]:
+    """Codes that DATA_MODEL.md §7 lists as defined in ``module``."""
+    data_model = Path(__file__).resolve().parents[3] / "docs" / "DATA_MODEL.md"
+    section = data_model.read_text(encoding="utf-8").split("## 7. Error codes catalogue")[1]
+    rows = (line.split("|") for line in section.splitlines() if line.startswith("| `"))
+    return {r[1].strip(" `") for r in rows if r[3].strip(" `") == module}
+
+
+def test_block_error_codes_match_the_catalogue() -> None:
+    defined = {
+        value
+        for name, value in vars(block_module).items()
+        if name.startswith("BLOCK_") and isinstance(value, str)
+    }
+    assert defined == _catalogue_codes("core/block")
+    assert defined == {
+        "BLOCK_INPUT_REQUIREMENT_MISSING",
+        "BLOCK_INPUT_ROWS_MISMATCH",
+        "BLOCK_INPUT_AXIS_MISMATCH",
+    }
+    for name in defined:
+        assert getattr(block_module, name) == name
+        assert message_key(name).startswith("errors.block.input_")
