@@ -1,10 +1,11 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.4 · Last updated: 2026-11-24 · Reviewers: K (API, formats), Quan (scientific fields)
+> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewers: K (API, formats), Quan (scientific fields)
+> v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
 > Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with K's approval), then implement.
-> §1–§4 and §7 written (§4 draft); §5 (T1.03), §6 (T2.03) are filled in by those steps.
+> §1–§5 and §7 written (§4, §5 draft); §6 (T2.03) is filled in by that step.
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
 ## Contents
@@ -182,6 +183,7 @@ Validation: `language` ∈ {`en`,`ja`,`vi`}; `1 ≤ cores_to_use ≤ cpu_cores_l
 }
 ```
 `implementation.library` is `"vibechem"` for our own code; reports use it to cite reused libraries (PROJECT.md §5.1).
+The `/blocks/{id}` object is the `/blocks` entry (`title_key`, `tooltip_key`, `icon`, `tier` included) plus `params` (§5), `references`, `implementation`, `help_key` (`blocks.<block_id>.help`) and `custom_panel` (`null` or the panel's id, ADR-005). The example above abbreviates: every param entry carries `label_key`, `tooltip_key` and `advanced` (§5.1).
 
 **`GET /port-types`** → `200`
 ```json
@@ -670,8 +672,60 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
-## 5. Block parameter schema *(filled in by T1.03)*
-To define: parameter types (`int`, `float`, `bool`, `enum`, `string`, `range`, `column_ref`, `wavelength_range`, `list`), units, conditional visibility (`visible_if`), cross-field constraints, `advanced` flag, translation keys.
+## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews; K confirms at demo v0)*
+The `params` list of `GET /blocks/{block_id}` (§2.3). The inspector form is generated from it (ADR-005), pipeline files store the values (`nodes[].params`, §2.6/§6), and the engine validates those values against it. Source of truth in code: `Param(...)` fields of a block's params dataclass (`vibechem_core.block`); `BlockMeta.to_detail_dict()` produces the `/blocks/{id}` object; `vibechem_engine.api.schemas.BlockDetail` (pydantic) is this section as a model and gives its JSON Schema.
+
+### 5.1 Parameter entry
+Fields present for every type:
+| Field | Type | Meaning |
+|---|---|---|
+| `param_id` | str, `snake_case` | Unique within the block; the key in `nodes[].params` |
+| `type` | see §5.2 | Parameter type |
+| `default` | JSON value of `type` | Used when the pipeline does not set the parameter. Never `null` (no nullable parameters in v1) |
+| `label_key` | str | Default `blocks.<block_id>.params.<param_id>` |
+| `tooltip_key` | str | Default `blocks.<block_id>.params.<param_id>.tip` |
+| `advanced` | bool | `true` = shown under "Advanced" in the inspector |
+
+Optional fields, present only when set:
+| Field | Types | Meaning |
+|---|---|---|
+| `min`, `max` | `int`, `float` | Inclusive bounds (numbers) |
+| `odd_only` | `int` | `true` = value must be odd (e.g. Savitzky–Golay window) |
+| `choices` | `enum` (required there) | Allowed values: a non-empty list of JSON scalars of one kind (all str, all int, all float or all bool), no duplicates; `default` is one of them |
+| `unit` | `int`, `float` | Display unit of the value, e.g. `nm`, `cm-1`, `%`, `s`; text, not translated |
+| `constraint` | `int`, `float` | Cross-field rule `"<param_id> <op> <operand>"`: the left side is this parameter, `<op>` ∈ `<` `<=` `>` `>=` `!=`, `<operand>` is another `int`/`float` parameter of the block or a number. Example: `"polyorder < window"`. Single spaces around `<op>`; parsed, never evaluated as code |
+| `visible_if` | any | `{ "param_id": "<other>", "values": [...] }`: the inspector shows this field only while the other parameter (type `bool` or `enum`) has one of `values`. A hidden parameter keeps its value and is still validated |
+
+### 5.2 Types
+| `type` | JSON value | Extra fields | Status |
+|---|---|---|---|
+| `int` | integer (not `true`/`false`) | `min`, `max`, `odd_only`, `unit`, `constraint` | implemented |
+| `float` | number, finite; integers are accepted and stored as float | `min`, `max`, `unit`, `constraint` | implemented |
+| `bool` | `true` / `false` | — | implemented |
+| `enum` | one of `choices` (same kind: `1` does not match `true`, `"1"` does not match `1`; JSON has one number type, so an integer matches a float choice: `1` selects `1.0`) | `choices` | implemented |
+| `string` | string | — | implemented |
+| `range` | `[low, high]` numbers, `low <= high` | `min`, `max`, `unit` | *reserved*: shape fixed, `Param` refuses it until the first block that needs it |
+| `wavelength_range` | `[low, high]` in the unit of the input spectral axis; checked against the axis at run time | — | *reserved* |
+| `column_ref` | string: a column name of the input data | `roles`: subset of `y`, `class`, `group`, `metadata` the column may have | *reserved* |
+| `list` | array of scalars | `item_type` (`int`\|`float`\|`string`), `min_items`, `max_items` | *reserved* |
+A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
+
+### 5.3 Validation of values
+`vibechem_core.block.parse_params(params_type, values)` turns the `nodes[].params` object into the block's params dataclass. Missing parameters take their `default`. The first problem found raises `BLOCK_PARAM_INVALID` (§7) with `params`: `param_id`, `reason` and, when it helps the message, `value` (scalars only) and `constraint`. When `params` itself is not a JSON object: `reason` `type` without `param_id`.
+| `reason` | When |
+|---|---|
+| `unknown` | Key that is not a `param_id` of the block |
+| `type` | Value of the wrong JSON type, or a non-finite float |
+| `below_min` / `above_max` | Outside `min` / `max` |
+| `not_odd` | `odd_only` and the value is even |
+| `not_a_choice` | `enum` value not in `choices` |
+| `constraint` | A `constraint` is false (checked after every value is valid) |
+In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised while a block runs, it sets the node to `error` (§3). Block definitions are checked when a block is registered: defaults must pass the same rules, and `constraint`/`visible_if` must name another parameter of a suitable type (definition mistakes raise `TypeError`/`ValueError`, not a code).
+
+### 5.4 Open points for review
+1. Constraint as a restricted string (above, keeps the §2.3 form) vs. a structured object `{ "left", "op", "right" }`.
+2. One code `BLOCK_PARAM_INVALID` with a `reason` param vs. one code per reason.
+3. `visible_if` with one condition only; `and`/`or` combinations wait for a block that needs them.
 
 ## 6. File formats *(filled in by T2.03)*
 To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` (zip: `manifest.json` + `.npy`), `.vcz` project archive, cache index; versioning and migrations.
@@ -708,3 +762,4 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3) |
 | `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
 | `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |
+| `BLOCK_PARAM_INVALID` | 422 (validate issue) / node error | `core/block` | A parameter value breaks its schema: unknown key, type, bounds, odd, choices or constraint (`params.reason`, §5.3) *(proposed T1.03)* |

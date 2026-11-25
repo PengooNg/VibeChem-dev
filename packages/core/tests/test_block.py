@@ -4,15 +4,18 @@
 
 import json
 import pickle
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import FrozenInstanceError, dataclass, make_dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from vibechem_core import block as block_module
 from vibechem_core.block import (
+    BLOCK_PARAM_INVALID,
     Block,
     NoParams,
     Param,
@@ -21,12 +24,19 @@ from vibechem_core.block import (
     State,
     load_state,
     param_specs,
+    parse_params,
     port,
     save_state,
 )
 from vibechem_core.data import Axis, SpectralDataset
-from vibechem_core.errors import message_key
-from vibechem_core.testing import DummyCenter, DummyOffset, DummyOffsetParams
+from vibechem_core.errors import ParamError, message_key
+from vibechem_core.testing import (
+    DummyCenter,
+    DummyOffset,
+    DummyOffsetParams,
+    DummySchema,
+    DummySchemaParams,
+)
 
 
 def make_dataset(X: list[list[float]]) -> SpectralDataset:
@@ -115,8 +125,10 @@ def test_param_rejects_inconsistent_declarations(kwargs: dict[str, Any], match: 
         Param(**kwargs)
 
 
-def test_bool_default_skips_range_check() -> None:
-    assert Param(True, min=5) is not None
+def test_range_is_only_for_numbers() -> None:
+    # Changed in T1.03: DATA_MODEL.md §5.1 allows min/max only for int and float.
+    with pytest.raises(ValueError, match="only allowed for int and float"):
+        Param(True, min=5)
 
 
 def test_no_params_has_no_fields() -> None:
@@ -539,7 +551,282 @@ def test_block_error_codes_match_the_catalogue() -> None:
         "BLOCK_INPUT_REQUIREMENT_MISSING",
         "BLOCK_INPUT_ROWS_MISMATCH",
         "BLOCK_INPUT_AXIS_MISMATCH",
+        "BLOCK_PARAM_INVALID",
     }
     for name in defined:
         assert getattr(block_module, name) == name
-        assert message_key(name).startswith("errors.block.input_")
+        assert message_key(name).startswith("errors.block.")
+
+
+# ---- parameter schema (T1.03, DATA_MODEL.md §5) --------------------------------------
+
+
+def test_schema_types_follow_the_default_or_choices() -> None:
+    types = {name: spec.type for name, spec in param_specs(DummySchemaParams)}
+    assert types == {
+        "window": "int",
+        "polyorder": "int",
+        "scale": "float",
+        "mode": "enum",
+        "deriv": "enum",
+        "clip": "bool",
+        "label": "string",
+    }
+
+
+def _detail_params(block: type[Block]) -> list[dict[str, Any]]:
+    detail = block.metadata().to_detail_dict()
+    return cast(list[dict[str, Any]], detail["params"])
+
+
+def test_param_entry_has_optional_fields_only_when_set() -> None:
+    params = {p["param_id"]: p for p in _detail_params(DummySchema)}
+    assert params["window"] == {
+        "param_id": "window",
+        "type": "int",
+        "default": 15,
+        "min": 5,
+        "max": 101,
+        "odd_only": True,
+        "unit": "points",
+        "label_key": "blocks.testing.schema.params.window",
+        "tooltip_key": "blocks.testing.schema.params.window.tip",
+        "advanced": False,
+    }
+    assert params["polyorder"]["constraint"] == "polyorder < window"
+    assert params["deriv"]["choices"] == [0, 1, 2]
+    assert params["label"]["visible_if"] == {"param_id": "mode", "values": ["median"]}
+    assert params["clip"] == {
+        "param_id": "clip",
+        "type": "bool",
+        "default": False,
+        "label_key": "blocks.testing.schema.params.clip",
+        "tooltip_key": "blocks.testing.schema.params.clip.tip",
+        "advanced": False,
+    }
+    assert params["scale"]["advanced"] is True
+
+
+def test_explicit_translation_keys_are_kept() -> None:
+    params = {p["param_id"]: p for p in _detail_params(_variant(params_type=_Params))}
+    assert params["ddof"]["tooltip_key"] == "tip"
+    assert params["ddof"]["label_key"] == "blocks.preprocess.valid.params.ddof"
+
+
+def test_detail_dict_is_the_list_entry_plus_params_and_help() -> None:
+    meta = DummyOffset.metadata()
+    detail = meta.to_detail_dict()
+    assert {k: v for k, v in detail.items() if k in meta.to_dict()} == meta.to_dict()
+    assert detail["params"] == [
+        {
+            "param_id": "offset",
+            "type": "float",
+            "default": 0.0,
+            "min": -1e6,
+            "max": 1e6,
+            "label_key": "blocks.testing.offset.params.offset",
+            "tooltip_key": "blocks.testing.offset.params.offset.tip",
+            "advanced": False,
+        }
+    ]
+    assert detail["references"] == []
+    assert detail["implementation"] == {
+        "library": "vibechem",
+        "function": "vibechem_core.testing.DummyOffset",
+    }
+    assert detail["help_key"] == "blocks.testing.offset.help"
+    assert detail["custom_panel"] is None
+    assert DummyCenter.metadata().to_detail_dict()["params"] == []
+    json.dumps(DummySchema.metadata().to_detail_dict(), allow_nan=False)  # plain JSON
+
+
+def test_implementation_and_custom_panel_overrides() -> None:
+    block = _variant(implementation=("scipy", "scipy.signal.savgol_filter"), custom_panel="roi")
+    detail = block.metadata().to_detail_dict()
+    assert detail["implementation"] == {
+        "library": "scipy",
+        "function": "scipy.signal.savgol_filter",
+    }
+    assert detail["custom_panel"] == "roi"
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {"implementation": ("scipy",)},
+        {"implementation": ("", "f")},
+        {"implementation": ()},
+        {"custom_panel": ""},
+    ],
+)
+def test_implementation_and_custom_panel_are_checked(attrs: dict[str, Any]) -> None:
+    with pytest.raises(TypeError, match=r"implementation|custom_panel"):
+        _variant(**attrs).metadata()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error", "match"),
+    [
+        ({"default": None}, TypeError, "int, float, bool or str"),
+        ({"default": [1]}, TypeError, "int, float, bool or str"),
+        ({"default": "a", "unit": "nm"}, ValueError, "only allowed for int and float"),
+        ({"default": 1, "choices": (1, 2), "min": 0}, ValueError, "only allowed for int"),
+        ({"default": 1.0, "odd_only": True}, ValueError, "odd_only"),
+        ({"default": 4, "odd_only": True}, ValueError, "not odd"),
+        ({"default": 1, "choices": (1, 1.5)}, ValueError, "type of the default"),
+        ({"default": 1, "choices": (1, 1)}, ValueError, "duplicates"),
+        ({"default": 1, "unit": ""}, ValueError, "unit"),
+        ({"default": 1, "constraint": "a<b"}, ValueError, "constraint"),
+        ({"default": 1, "constraint": "a == b"}, ValueError, "constraint"),
+        ({"default": 1, "visible_if": ("m", ())}, ValueError, "visible_if"),
+        ({"default": 1, "visible_if": ("Mode", (1,))}, ValueError, "visible_if"),
+    ],
+)
+def test_param_rejects_schema_mistakes(
+    kwargs: dict[str, Any], error: type[Exception], match: str
+) -> None:
+    with pytest.raises(error, match=match):
+        Param(**kwargs)
+
+
+def _params_class(**fields: tuple[Any, Any]) -> type[Any]:
+    """A frozen params dataclass built from ``name=(annotation, Param(...))``."""
+    spec = [(name, ann, value) for name, (ann, value) in fields.items()]
+    return make_dataclass("P", spec, frozen=True)
+
+
+@pytest.mark.parametrize(
+    ("fields", "error", "match"),
+    [
+        ({"a": (float, Param(1))}, TypeError, "annotated float but its default is 1"),
+        ({"a": (int, Param(1.0))}, TypeError, "annotated int"),
+        ({"a": (int, Param(1, constraint="b < 2"))}, ValueError, "must start with 'a'"),
+        ({"a": (int, Param(1, constraint="a < b"))}, ValueError, "another int or float"),
+        ({"a": (int, Param(1, constraint="a < a"))}, ValueError, "another int or float"),
+        (
+            {"a": (int, Param(1, constraint="a < b")), "b": (str, Param("x"))},
+            ValueError,
+            "another int or float",
+        ),
+        (
+            {"a": (int, Param(3, constraint="a < b")), "b": (int, Param(2))},
+            ValueError,
+            "defaults break the constraint",
+        ),
+        ({"a": (int, Param(1, visible_if=("b", (True,))))}, ValueError, "bool or enum"),
+        (
+            {"a": (int, Param(1, visible_if=("b", (True,)))), "b": (int, Param(1))},
+            ValueError,
+            "bool or enum",
+        ),
+        (
+            {"a": (int, Param(1, visible_if=("b", (1,)))), "b": (bool, Param(True))},
+            ValueError,
+            "not valid for 'b'",
+        ),
+    ],
+)
+def test_param_specs_checks_references_and_annotations(
+    fields: dict[str, tuple[Any, Any]], error: type[Exception], match: str
+) -> None:
+    with pytest.raises(error, match=match):
+        param_specs(_params_class(**fields))
+
+
+def test_constraint_with_a_number_and_string_annotations() -> None:
+    p = _params_class(a=("int", Param(1, constraint="a <= 2.5e0")))  # string annotation
+    assert dict(param_specs(p))["a"].constraint == "a <= 2.5e0"
+    assert parse_params(p, {"a": 2}) == p(a=2)
+    with pytest.raises(ParamError) as exc:
+        parse_params(p, {"a": 3})
+    assert exc.value.params["reason"] == "constraint"
+
+
+# ---- parse_params (DATA_MODEL.md §5.3) -----------------------------------------------
+
+
+def test_parse_params_fills_defaults_and_accepts_valid_values() -> None:
+    assert parse_params(DummySchemaParams, {}) == DummySchemaParams()
+    values = {
+        "window": 21,
+        "polyorder": 3,
+        "scale": 2,
+        "mode": "median",
+        "deriv": 1,
+        "clip": True,
+        "label": "x",
+    }
+    parsed = parse_params(DummySchemaParams, values)
+    assert parsed == DummySchemaParams(21, 3, 2.0, "median", 1, True, "x")
+    assert type(parsed.scale) is float  # JSON integer stored as float
+    assert parse_params(NoParams, {}) == NoParams()
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ({"size": 3}, {"param_id": "size", "reason": "unknown"}),
+        ({"window": 15.0}, {"param_id": "window", "reason": "type", "value": 15.0}),
+        ({"window": True}, {"param_id": "window", "reason": "type", "value": True}),
+        ({"window": "15"}, {"param_id": "window", "reason": "type", "value": "15"}),
+        ({"scale": "1"}, {"param_id": "scale", "reason": "type", "value": "1"}),
+        ({"scale": True}, {"param_id": "scale", "reason": "type", "value": True}),
+        ({"scale": float("nan")}, {"param_id": "scale", "reason": "type"}),
+        ({"scale": 10**400}, {"param_id": "scale", "reason": "type", "value": 10**400}),
+        ({"scale": [1]}, {"param_id": "scale", "reason": "type"}),
+        ({"clip": 1}, {"param_id": "clip", "reason": "type", "value": 1}),
+        ({"label": None}, {"param_id": "label", "reason": "type"}),
+        ({"window": 3}, {"param_id": "window", "reason": "below_min", "value": 3}),
+        ({"window": 103}, {"param_id": "window", "reason": "above_max", "value": 103}),
+        ({"scale": -0.5}, {"param_id": "scale", "reason": "below_min", "value": -0.5}),
+        ({"window": 17.5}, {"param_id": "window", "reason": "type", "value": 17.5}),
+        ({"window": 16}, {"param_id": "window", "reason": "not_odd", "value": 16}),
+        ({"mode": "max"}, {"param_id": "mode", "reason": "not_a_choice", "value": "max"}),
+        ({"deriv": True}, {"param_id": "deriv", "reason": "not_a_choice", "value": True}),
+        ({"deriv": 1.0}, {"param_id": "deriv", "reason": "not_a_choice", "value": 1.0}),
+        (
+            {"window": 5, "polyorder": 5},
+            {"param_id": "polyorder", "reason": "constraint", "constraint": "polyorder < window"},
+        ),
+    ],
+)
+def test_parse_params_reports_the_first_problem(
+    values: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    with pytest.raises(ParamError) as exc:
+        parse_params(DummySchemaParams, values)
+    assert exc.value.code == BLOCK_PARAM_INVALID
+    assert exc.value.message_key == "errors.block.param_invalid"
+    assert dict(exc.value.params) == expected
+
+
+def test_float_choices_accept_json_integers() -> None:
+    p = _params_class(a=(float, Param(0.5, choices=(0.5, 1.0))))
+    parsed = parse_params(p, {"a": 1})  # JSON.stringify(1.0) == "1"
+    assert parsed == p(a=1.0)
+    assert type(parsed.a) is float
+    with pytest.raises(ParamError, match="not_a_choice"):
+        parse_params(p, {"a": True})
+
+
+def test_params_must_be_an_object() -> None:
+    with pytest.raises(ParamError) as exc:
+        parse_params(DummySchemaParams, cast(Any, []))
+    assert dict(exc.value.params) == {"reason": "type"}
+
+
+def test_hidden_parameters_are_still_validated() -> None:
+    with pytest.raises(ParamError, match="label"):
+        parse_params(DummySchemaParams, {"mode": "mean", "label": 5})
+
+
+@given(window=st.integers(-10, 120), polyorder=st.integers(-2, 10))
+def test_parse_params_accepts_exactly_the_valid_int_values(window: int, polyorder: int) -> None:
+    valid = 5 <= window <= 101 and window % 2 == 1 and 0 <= polyorder <= 6 and polyorder < window
+    try:
+        parsed = parse_params(DummySchemaParams, {"window": window, "polyorder": polyorder})
+    except ParamError:
+        assert not valid
+    else:
+        assert valid
+        assert (parsed.window, parsed.polyorder) == (window, polyorder)

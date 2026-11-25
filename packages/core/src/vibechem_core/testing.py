@@ -14,7 +14,8 @@ Like ``numpy.testing``, this module ships with the package but is meant for test
 - :func:`load_hypothesis_profile` selects the hypothesis settings profile (``ci`` on CI).
 - :class:`DummyOffset` (stateless) and :class:`DummyCenter` (fitted) are the smallest
   blocks that follow the block contract (``vibechem_core.block``), for contract,
-  registry and engine tests.
+  registry and engine tests; :class:`DummySchema` declares one parameter of every
+  implemented schema type (DATA_MODEL.md §5) for schema tests.
 
 Only numpy is imported at module level; hypothesis and PyYAML are imported inside the
 functions that need them, so the shipped package has no test-tool dependencies.
@@ -45,6 +46,8 @@ __all__ = [
     "DummyCenter",
     "DummyOffset",
     "DummyOffsetParams",
+    "DummySchema",
+    "DummySchemaParams",
     "assert_close",
     "assert_reference",
     "check_golden",
@@ -326,3 +329,29 @@ class DummyCenter(Block):
         state: State,
     ) -> SpectralDataset:
         return spectra.with_X(spectra.X - state.arrays["mean"], step="Center")
+
+
+@dataclass(frozen=True)
+class DummySchemaParams:
+    window: int = Param(15, min=5, max=101, odd_only=True, unit="points")
+    polyorder: int = Param(2, min=0, max=6, constraint="polyorder < window")
+    scale: float = Param(1.0, min=0.0, unit="%", advanced=True)
+    mode: str = Param("mean", choices=("mean", "median"))
+    deriv: int = Param(0, choices=(0, 1, 2))
+    clip: bool = Param(False)
+    label: str = Param("", visible_if=("mode", ("median",)))
+
+
+class DummySchema(Block):
+    """Stateless dummy block with one parameter per schema type; returns its input."""
+
+    block_id = "testing.schema"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = False
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"),)
+    params_type = DummySchemaParams
+
+    def apply(self, spectra: SpectralDataset, params: DummySchemaParams) -> SpectralDataset:  # noqa: ARG002
+        return spectra

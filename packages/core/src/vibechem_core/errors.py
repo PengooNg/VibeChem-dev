@@ -66,3 +66,10 @@ class BlockError(VibeChemError):
 
 class BlockInputError(BlockError):
     """A block's input data cannot be processed (e.g. ``BLOCK_CONSTANT_SPECTRA``)."""
+
+
+class ParamError(VibeChemError):
+    """A parameter value breaks the block's schema (``BLOCK_PARAM_INVALID``, DATA_MODEL.md §5.3).
+
+    Reported as a pipeline validation issue, or as a node error when found during a run.
+    """
