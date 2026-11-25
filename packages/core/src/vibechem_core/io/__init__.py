@@ -24,6 +24,7 @@ from vibechem_core.io.table import (
     read_table,
     spectra_import,
 )
+from vibechem_core.io.wdf import read_wdf
 
 __all__ = [
     "IMPORT_AXIS_MISMATCH",
@@ -43,5 +44,6 @@ __all__ = [
     "read_spa",
     "read_spc",
     "read_table",
+    "read_wdf",
     "spectra_import",
 ]

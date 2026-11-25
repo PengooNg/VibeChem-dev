@@ -10,7 +10,7 @@ Rules
 -----
 - Format from ``format_hint``, else from the extension: ``.jdx``, ``.dx``,
   ``.jcamp`` → JCAMP-DX; ``.spc`` → SPC; ``.spa`` → OMNIC SPA;
-  ``.sp`` → PerkinElmer; anything else → ``read_table``
+  ``.sp`` → PerkinElmer; ``.wdf`` → Renishaw WiRE; anything else → ``read_table``
   (CSV/TSV/Excel; it rejects unknown extensions with ``IMPORT_FORMAT_UNKNOWN``).
 - One path → that reader's result, unchanged.
 - Several paths → the rows of every file in path order and a text column
@@ -56,6 +56,7 @@ from vibechem_core.io.table import (
     _warning,  # pyright: ignore[reportPrivateUsage]
     read_table,
 )
+from vibechem_core.io.wdf import read_wdf
 
 SOURCE_FILE = "source_file"
 """Name of the file-name column added when several files are read."""
@@ -66,6 +67,7 @@ _READERS: dict[str, tuple[Callable[[Path], TableImport], frozenset[str]]] = {
     "spc": (read_spc, frozenset({".spc"})),
     "spa": (read_spa, frozenset({".spa"})),
     "perkinelmer": (read_perkinelmer, frozenset({".sp"})),
+    "wdf": (read_wdf, frozenset({".wdf"})),
 }
 
 
