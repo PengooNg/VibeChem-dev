@@ -83,7 +83,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Definition.** Keep the axis points that lie inside one or more ranges.
 - **Formula.** keep j ⇔ ∃ r: lo_r ≤ λⱼ ≤ hi_r (bounds inclusive).
 - **Steps.** 1 for each range, mark λⱼ with lo ≤ λⱼ ≤ hi (lo/hi may be given in either order) · 2 union of the marks · 3 reject an empty selection · 4 keep the marked columns in their original axis order.
-- **Parameters.** `ranges`: list of (lo, hi) in axis units, at least one (parameter type `wavelength_ranges`, DATA_MODEL.md §5.2). Default `[[-1e6, 1e6]]`: keeps every point (no-op until the user sets ranges) *(proposed T1.07)*.
+- **Parameters.** `ranges`: list of (lo, hi) in axis units, at least one (parameter type `wavelength_ranges`, DATA_MODEL.md §5.2). Default `[[-1e9, 1e9]]`: keeps every point of any real spectral axis (no-op until the user sets ranges) *(proposed T1.07)*.
 - **Edge cases.** Descending axis (wavenumbers): order kept. Overlapping ranges: union, no duplicate columns. No point selected → `BLOCK_PARAM_INVALID` (reason `constraint`). A range outside the axis selects nothing from that range (allowed if another range selects points).
 - **Reference values.** Hand-made axis with points exactly on the bounds.
 - **Tolerance.** Exact (index sets equal).
@@ -106,7 +106,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 ### Multiplicative Scatter Correction (`preprocess.msc`) · T1.07
 - **Definition.** Regress each spectrum on a reference spectrum m and remove the offset and the multiplicative effect. Fitted: m is learned in `fit`.
 - **Formula.** xᵢ = aᵢ + bᵢ·m + eᵢ, (aᵢ, bᵢ) by ordinary least squares over the p points; corrected x̃ᵢ = (xᵢ − aᵢ)/bᵢ. Default m = mean spectrum of the training rows.
-- **Steps.** `fit`: 1 m = column mean of training X (or the user reference). `apply`: 2 for each spectrum, least-squares fit of aᵢ + bᵢ·m · 3 reject bᵢ ≤ 0 or bᵢ = 0 · 4 x̃ᵢ = (xᵢ − aᵢ)/bᵢ.
+- **Steps.** `fit`: 1 m = column mean of training X (or the user reference). `apply`: 2 for each spectrum, least-squares fit of aᵢ + bᵢ·m · 3 reject bᵢ ≤ 0 or bᵢ = 0 (a constant spectrum has bᵢ = 0, detected as "all values equal" because rounding can leave a tiny positive bᵢ) · 4 x̃ᵢ = (xᵢ − aᵢ)/bᵢ. `apply` on an axis other than the fitted one → `BLOCK_INPUT_AXIS_MISMATCH` *(T1.07)*.
 - **Parameters.** `reference`: `mean` (default) or a second input port with one spectrum on the same axis (`axis_match`). A reference input with more than one row is replaced by the mean of its rows (one row = that spectrum); the history entry records which option and how many rows were used.
 - **Edge cases.** **D1:** aᵢ, bᵢ come from one least-squares solve (`np.linalg.lstsq` on [1, m]), never from `cov(x, m)` (ddof 1) / `var(m)` (ddof 0). Constant reference (var(m) = 0) → `BLOCK_CONSTANT_SPECTRA`. bᵢ ≤ 0 (spectrum anti-correlated with the reference) → node error with its own code, proposed `BLOCK_MSC_SLOPE_INVALID` (N11; T1.07 adds it to DATA_MODEL.md §7). Applied to new data: m from training only (D2).
 - **Reference values.** Exact case xᵢ = a + b·m (a, b known, 50 points) → x̃ᵢ = m (`T-exact`; this is the D1 regression test). Hand calculation on 3 × 5. Cross-check: chemotools `MultiplicativeScatterCorrection` (`T-lib`, extra check only).

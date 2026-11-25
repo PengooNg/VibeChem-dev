@@ -25,8 +25,8 @@ from vibechem_core.errors import ParamError
 
 @dataclass(frozen=True)
 class CutParams:
-    # Default keeps every point of any real axis (a no-op until the user sets ranges).
-    ranges: tuple[tuple[float, float], ...] = Param(((-1e6, 1e6),))
+    # Default keeps every point of any real spectral axis (no-op until ranges are set).
+    ranges: tuple[tuple[float, float], ...] = Param(((-1e9, 1e9),))
 
 
 class Cut(Block):

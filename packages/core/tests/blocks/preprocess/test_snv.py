@@ -141,3 +141,11 @@ def test_invalid_ddof() -> None:
         parse_params(SNVParams, {"ddof": 2})
     assert info.value.code == BLOCK_PARAM_INVALID
     assert info.value.params["reason"] == "not_a_choice"
+
+
+@pytest.mark.parametrize("value", [0.1, 1.1, 2.3])
+def test_constant_row_with_inexact_mean_is_rejected(value: float) -> None:
+    # Regression (code review): the mean of 0.1s is off by one ulp, so std is 1e-17, not 0.
+    with pytest.raises(BlockInputError) as info:
+        run([[value] * 7, [1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 4.0]])
+    assert info.value.params["rows"] == [0]

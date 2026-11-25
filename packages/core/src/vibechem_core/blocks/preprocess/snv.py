@@ -52,8 +52,11 @@ class SNV(Block):
         else:
             row_std = np.zeros_like(row_mean)
 
-        # Step 3: Reject flat spectra (std = 0 would divide by zero); no +1e-10 guard
-        flat_rows = np.flatnonzero(row_std.ravel() == 0)
+        # Step 3: Reject flat spectra (std = 0 would divide by zero); no +1e-10 guard.
+        # All values equal is tested directly: a rounded mean (e.g. of 0.1s) leaves
+        # std near 1e-17 instead of 0.
+        flat = (np.ptp(X, axis=1) == 0) | (row_std.ravel() == 0)
+        flat_rows = np.flatnonzero(flat)
         if flat_rows.size > 0:
             rows: list[ErrorParam] = [int(r) for r in flat_rows]
             raise BlockInputError(BLOCK_CONSTANT_SPECTRA, {"rows": rows})

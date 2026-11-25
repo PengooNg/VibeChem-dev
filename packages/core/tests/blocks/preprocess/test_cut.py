@@ -47,7 +47,7 @@ def test_metadata_and_default_keeps_everything() -> None:
     assert entry == {
         "param_id": "ranges",
         "type": "wavelength_ranges",
-        "default": [[-1e6, 1e6]],
+        "default": [[-1e9, 1e9]],
         "label_key": "blocks.preprocess.cut.params.ranges",
         "tooltip_key": "blocks.preprocess.cut.params.ranges.tip",
         "advanced": False,

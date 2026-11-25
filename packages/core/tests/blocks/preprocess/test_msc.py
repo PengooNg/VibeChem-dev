@@ -9,7 +9,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from vibechem_core.block import NoParams, State, load_state, save_state
+from vibechem_core.block import (
+    BLOCK_INPUT_AXIS_MISMATCH,
+    NoParams,
+    State,
+    load_state,
+    save_state,
+)
 from vibechem_core.blocks.preprocess import BLOCK_CONSTANT_SPECTRA, BLOCK_MSC_SLOPE_INVALID
 from vibechem_core.blocks.preprocess.msc import MSC
 from vibechem_core.data import Axis, SpectralDataset
@@ -92,7 +98,7 @@ def test_hand_calculation_with_training_mean() -> None:
 def test_reference_learned_in_fit_is_the_training_mean() -> None:
     state = MSC().fit(make_dataset(HAND_X), NoParams())
     assert_exact(state.arrays["m"], HAND_M, "m")
-    assert state.values == {"reference": "mean", "n_reference_rows": 3}
+    assert state.values == {"reference": "mean", "n_reference_rows": 3, "axis_unit": "cm-1"}
 
 
 @pytest.mark.parametrize(
@@ -170,3 +176,47 @@ def test_state_save_load_round_trip(tmp_path: Path) -> None:
     out = MSC().apply(make_dataset(HAND_X), NoParams(), loaded)
     assert_exact(out.X, HAND_EXPECTED, "MSC after load")
     assert loaded.values == state.values
+
+
+def test_constant_row_with_inexact_mean_is_rejected() -> None:
+    # Regression (code review): without the all-equal test, rounding gives b = 5.1e-16 > 0.
+    rng = np.random.default_rng(5)
+    train = np.linspace(0.0, 1.5, 50) * rng.uniform(0.8, 1.2, (4, 1))
+    with pytest.raises(BlockInputError) as info:
+        fit_apply(train, np.vstack([train[0], np.full(50, 2.3)]))
+    assert info.value.code == BLOCK_MSC_SLOPE_INVALID
+    assert info.value.params["rows"] == [1]
+
+
+def _on_axis(X: list[list[float]], axis: list[float]) -> SpectralDataset:
+    data = make_dataset(X)
+    return data.with_X(data.X, axis=Axis(axis, "cm-1"))
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [[4000.0, 3100.0, 2200.0, 1300.0, 401.0], [400.0, 1300.0, 2200.0, 3100.0, 4000.0]],
+    ids=["shifted", "reversed"],
+)
+def test_apply_on_another_axis_is_rejected(axis: list[float]) -> None:
+    state = MSC().fit(make_dataset(HAND_X), NoParams())  # axis 4000 ... 400, 5 points
+    with pytest.raises(BlockInputError) as info:
+        MSC().apply(_on_axis(HAND_X, axis), NoParams(), state)
+    assert info.value.code == BLOCK_INPUT_AXIS_MISMATCH
+    assert info.value.params["port_id"] == "spectra"
+    assert info.value.params["expected"] == "5 points, 4000 to 400 cm-1"
+
+
+def test_apply_with_other_point_count_is_rejected() -> None:
+    state = MSC().fit(make_dataset(HAND_X), NoParams())
+    with pytest.raises(BlockInputError) as info:
+        MSC().apply(make_dataset([[1.0, 2.0, 4.0]]), NoParams(), state)
+    assert info.value.params["found"] == "3 points, 4000 to 400 cm-1"
+
+
+def test_reference_input_on_another_axis_is_rejected() -> None:
+    reference = _on_axis([HAND_M], [4000.0, 3000.0, 2000.0, 1000.0, 500.0])
+    with pytest.raises(BlockInputError) as info:
+        MSC().fit(make_dataset(HAND_X), NoParams(), reference=reference)
+    assert info.value.code == BLOCK_INPUT_AXIS_MISMATCH
+    assert info.value.params["port_id"] == "reference"
