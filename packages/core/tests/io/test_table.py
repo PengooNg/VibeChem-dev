@@ -122,7 +122,7 @@ def test_delimiters(tmp_path: Path, name: str, text: str, fmt: str) -> None:
 
 
 def test_crlf_bom_comments_quotes_and_blank_lines(tmp_path: Path) -> None:
-    text = '﻿; exported by X\n# another comment\nid,note,1,2\n\n"s,1","a ""b""",3,4\n'
+    text = '\ufeff; exported by X\n# another comment\nid,note,1,2\n\n"s,1","a ""b""",3,4\n'
     table = read_table(write(tmp_path, "a.csv", text, newline="\r\n"))
     assert list(table.columns) == ["id", "note", "1", "2"]
     assert table.columns["id"].tolist() == ["s,1"]
@@ -147,8 +147,8 @@ def test_unsupported_format_hint(tmp_path: Path, hint: str) -> None:
 
 
 def test_headerless_multi_column_file_gives_one_row_per_spectrum(tmp_path: Path) -> None:
-    table = read_table(write(tmp_path, "a.csv", "1000,1,10\n1002,2,20\n1004,3,30\n"))
-    assert list(table.columns) == ["1000", "1002", "1004"]
+    table = read_table(write(tmp_path, "a.csv", "1000,1,10\n1002,2,20\n1004,3,30\n1006,4,40\n"))
+    assert list(table.columns) == ["1000", "1002", "1004", "1006"]
     assert table.n_rows == 2
     assert table.columns["1004"].tolist() == [3.0, 30.0]
 
@@ -411,3 +411,65 @@ def test_openpyxl_is_imported_only_when_reading_excel() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "False"
+
+
+# --- regressions from the T1.05 code review -----------------------------------------
+
+
+def test_semicolon_file_with_empty_first_header_cell_is_not_a_comment(tmp_path: Path) -> None:
+    table = read_table(write(tmp_path, "a.csv", "# exported\n;400;402\nA;1;2\n;3;4\n"))
+    assert list(table.columns) == ["column_1", "400", "402"]
+    assert table.n_rows == 2
+    assert table.columns["402"].tolist() == [2.0, 4.0]
+
+
+def test_spectra_only_csv_with_numeric_header_is_not_transposed(tmp_path: Path) -> None:
+    table = read_table(write(tmp_path, "a.csv", "400,402,404\n1,2,3\n4,5,6\n7,8,9\n"))
+    assert list(table.columns) == ["400", "402", "404"]
+    assert table.n_rows == 3
+    assert spectral_of(table)["count"] == 3
+
+
+def test_single_spectrum_with_numeric_header_is_not_transposed(tmp_path: Path) -> None:
+    table = read_table(write(tmp_path, "a.csv", "400,402\n0.5,0.6\n"))
+    assert list(table.columns) == ["400", "402"]
+    assert table.columns["402"].tolist() == [0.6]
+
+
+def test_spectral_run_restarts_at_the_turning_point(tmp_path: Path) -> None:
+    text = "id,990,1000,1004,1002,999,998,996\na,1,2,3,4,5,6,7\n"
+    spectral = spectral_of(read_table(write(tmp_path, "a.csv", text)))
+    assert (spectral["from"], spectral["to"], spectral["count"]) == ("1004", "996", 5)
+
+
+def test_empty_sample_ids_are_not_counted_as_duplicates(tmp_path: Path) -> None:
+    table = read_table(write(tmp_path, "a.csv", "sample,1,2\nA,1,2\n,1,2\n,1,2\nB,1,2\n"))
+    assert table.warnings == ()
+
+
+def test_unicode_line_separator_inside_a_cell_does_not_split_the_row(tmp_path: Path) -> None:
+    table = read_table(write(tmp_path, "a.csv", "id,note,1,2\na,x\u2028y\x0cz,3,4\n"))
+    assert table.columns["note"].tolist() == ["x\u2028y\x0cz"]
+
+
+@pytest.mark.parametrize("delimiter", ["", ";;"])
+def test_delimiter_must_be_one_character(tmp_path: Path, delimiter: str) -> None:
+    with pytest.raises(ValueError, match="one character"):
+        read_table(write(tmp_path, "a.csv", "a,b\n1,2\n"), delimiter=delimiter)
+
+
+def test_xlsx_with_wrong_stored_dimension_is_read_in_full(tmp_path: Path) -> None:
+    path = write_xlsx(tmp_path / "a.xlsx", [["id", 1, 2, 3], ["a", 4, 5, 6], ["b", 7, 8]])
+    # Rewrite the stored sheet size to "A1:B2", as some writers leave it stale.
+    target = tmp_path / "stale.xlsx"
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(target, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                data = data.replace(b'<dimension ref="A1:D3" />', b'<dimension ref="A1:B2" />')
+                assert b'ref="A1:B2"' in data
+            zout.writestr(item, data)
+    table = read_table(target)
+    assert list(table.columns) == ["id", "1", "2", "3"]
+    assert table.n_rows == 2
+    np.testing.assert_array_equal(table.columns["3"], [6.0, np.nan])

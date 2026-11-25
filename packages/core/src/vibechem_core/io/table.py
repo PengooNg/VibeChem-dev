@@ -13,13 +13,17 @@ core, TECH_STACK.md §3.1); ``.xlsx`` files with openpyxl, imported lazily.
 
 Rules
 -----
-- Lines whose first non-blank character is ``;`` or ``#`` are comments; blank
-  lines and empty rows are skipped.
+- Lines whose first non-blank character is ``#`` are comments, and so are lines
+  starting with ``;`` unless ``;`` is the delimiter; blank lines and empty rows
+  are skipped. A line is one row: quoted cells cannot span lines.
 - Delimiter: tab for ``.tsv``/``.tab``; otherwise the one of tab, ``,``, ``;`` that
-  splits the first data line into most fields, else runs of whitespace.
-- If every cell of the first row is a finite number, the file has no header
-  (e.g. Bruker ``.dpt``): the first column is the axis and every further column
-  is one spectrum. The result then has one row per spectrum.
+  splits the first line not starting with ``;`` into most fields, else runs of
+  whitespace. Decimal commas are not supported.
+- The file has no header (e.g. Bruker ``.dpt``) when every cell of the first row
+  and of the first column is a finite number, the first column is strictly
+  monotonic and there are more rows than columns: the first column is the axis
+  and every further column is one spectrum. The result then has one row per
+  spectrum.
 - Otherwise the first row is the header. An empty header cell is named
   ``column_<n>`` (1-based); such a column is dropped if all its cells are empty.
 - Spectral columns: the longest run (at least 2) of adjacent columns whose
@@ -39,6 +43,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, TypedDict
@@ -61,7 +66,6 @@ TableFormat = Literal["csv", "tsv", "xlsx"]
 
 _TEXT_EXTENSIONS = {".csv": None, ".txt": None, ".dpt": None, ".tsv": "\t", ".tab": "\t"}
 _EXCEL_EXTENSIONS = {".xlsx", ".xlsm"}
-_COMMENT_PREFIXES = (";", "#")
 
 # Normalised header names (lower case, without spaces, "_" and "-") per role.
 _SAMPLE_ID_NAMES = {"sample", "sampleid", "samplename", "id", "name", "specimen"}
@@ -159,6 +163,8 @@ def read_table(
         The file cannot be opened.
     """
     path = Path(path)
+    if delimiter is not None and len(delimiter) != 1:
+        raise ValueError(f"delimiter must be one character, got {delimiter!r}")
     # Step 1: choose the reader from the hint or the extension.
     fmt, delimiter = _choose_format(path, format_hint, delimiter)
     # Step 2: read the raw cells as text, one list per row.
@@ -200,13 +206,14 @@ def _read_text_rows(path: Path, delimiter: str | None) -> tuple[list[list[str]],
         text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
         raise _invalid("encoding") from exc
-    lines = [
-        line
-        for line in text.splitlines()
-        if line.strip() and not line.lstrip().startswith(_COMMENT_PREFIXES)
-    ]
+    # Split on line ends only: str.splitlines() would also break at form feeds etc.
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
+    lines = [line for line in lines if line.strip() and not line.lstrip().startswith("#")]
     if delimiter is None and lines:
-        delimiter = _sniff_delimiter(lines[0])
+        first = next((line for line in lines if not line.lstrip().startswith(";")), lines[0])
+        delimiter = _sniff_delimiter(first)
+    if delimiter != ";":
+        lines = [line for line in lines if not line.lstrip().startswith(";")]
     if delimiter is None:
         return [line.split() for line in lines], None
     return list(csv.reader(lines, delimiter=delimiter)), delimiter
@@ -231,13 +238,17 @@ def _read_xlsx_rows(path: Path) -> list[list[str]]:
             )
             try:
                 sheet = workbook.worksheets[0]
-                return [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
+                sheet.reset_dimensions()  # do not trust the stored sheet size (may be stale)
+                rows = [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
             finally:
                 workbook.close()
     except OSError:
         raise
     except Exception as exc:  # untrusted file: any parser failure is "invalid"
         raise _invalid("corrupt") from exc
+    # Without a trusted size, rows end at their last stored cell: pad them.
+    width = max((len(row) for row in rows), default=0)
+    return [row + [""] * (width - len(row)) for row in rows]
 
 
 def _cell_text(value: object) -> str:
@@ -279,7 +290,7 @@ def _build_table(fmt: TableFormat, rows: list[list[str]]) -> TableImport:
             raise _invalid("row_length", row=number, expected=width, found=len(row))
 
     # Step 3a: headerless numeric file → first column is the axis, columns are spectra.
-    if all(_finite_number(cell) is not None for cell in rows[0]):
+    if _is_headerless(rows):
         if width < 2:
             raise _invalid("no_spectra")
         header = [row[0].strip() for row in rows]
@@ -317,9 +328,9 @@ def _build_table(fmt: TableFormat, rows: list[list[str]]) -> TableImport:
     roles = _suggest_roles(header, spectral, columns)
     sample_id = roles["sample_id"]
     if isinstance(sample_id, str):
-        ids = np.array([c.strip() for c in cells[header.index(sample_id)]])
-        columns[sample_id] = ids
-        repeated = sum(n > 1 for n in Counter(ids.tolist()).values())
+        ids = [c.strip() for c in cells[header.index(sample_id)]]
+        columns[sample_id] = np.array(ids, dtype=np.str_)
+        repeated = sum(n > 1 for i, n in Counter(ids).items() if i)  # "" = missing
         if repeated:
             warnings.append(_warning(IMPORT_DUPLICATE_SAMPLE_IDS, count=repeated))
     if bad_count:
@@ -332,6 +343,22 @@ def _build_table(fmt: TableFormat, rows: list[list[str]]) -> TableImport:
         suggested_roles=roles,
         warnings=tuple(warnings),
     )
+
+
+def _is_headerless(rows: Sequence[Sequence[str]]) -> bool:
+    """All-numeric first row and first column, a monotonic first column, more rows than columns."""
+    if any(_finite_number(cell) is None for cell in rows[0]):
+        return False
+    if len(rows) == 1:
+        return len(rows[0]) == 1  # a lone number: headerless, then "no_spectra"
+    if len(rows) <= len(rows[0]):
+        return False  # wide: a numeric header row over spectra
+    axis = [_finite_number(row[0]) for row in rows]
+    values = [v for v in axis if v is not None]
+    if len(values) != len(axis):
+        return False
+    steps = {math.copysign(1.0, b - a) if b != a else 0.0 for a, b in pairwise(values)}
+    return steps in ({1.0}, {-1.0})
 
 
 def _warning(code: str, **params: ErrorParam) -> ImportWarning:
@@ -354,8 +381,7 @@ def _spectral_run(header: Sequence[str]) -> range:
         if _finite_number(header[start]) is None:
             start += 1
             continue
-        stop = start + 1
-        direction = 0.0
+        stop, direction, turned = start + 1, 0.0, False
         while stop < len(header):
             value = _finite_number(header[stop])
             previous = _finite_number(header[stop - 1])
@@ -363,12 +389,14 @@ def _spectral_run(header: Sequence[str]) -> range:
                 break
             step = math.copysign(1.0, value - previous)
             if direction and step != direction:
+                turned = True
                 break
             direction = step
             stop += 1
         if stop - start >= 2 and stop - start > len(best):
             best = range(start, stop)
-        start = stop
+        # A run that ended by turning round shares its last column with the next run.
+        start = stop - 1 if turned else stop
     return best
 
 
