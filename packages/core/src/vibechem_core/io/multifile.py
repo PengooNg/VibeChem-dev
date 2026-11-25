@@ -10,7 +10,8 @@ Rules
 -----
 - Format from ``format_hint``, else from the extension: ``.jdx``, ``.dx``,
   ``.jcamp`` → JCAMP-DX; ``.spc`` → SPC; ``.spa`` → OMNIC SPA;
-  ``.sp`` → PerkinElmer; ``.wdf`` → Renishaw WiRE; anything else → ``read_table``
+  ``.sp`` → PerkinElmer; ``.wdf`` → Renishaw WiRE;
+  ``.0``, ``.1``, … → Bruker OPUS (default block); anything else → ``read_table``
   (CSV/TSV/Excel; it rejects unknown extensions with ``IMPORT_FORMAT_UNKNOWN``).
 - One path → that reader's result, unchanged.
 - Several paths → the rows of every file in path order and a text column
@@ -41,6 +42,7 @@ from numpy.typing import NDArray
 
 from vibechem_core.errors import VibeChemError
 from vibechem_core.io.jcamp import read_jcamp
+from vibechem_core.io.opus import is_opus_extension, read_opus
 from vibechem_core.io.perkinelmer import read_perkinelmer
 from vibechem_core.io.spa import read_spa
 from vibechem_core.io.spc import read_spc
@@ -61,13 +63,14 @@ from vibechem_core.io.wdf import read_wdf
 SOURCE_FILE = "source_file"
 """Name of the file-name column added when several files are read."""
 
-# Spectral-file readers: format_hint → (reader, file extensions).
-_READERS: dict[str, tuple[Callable[[Path], TableImport], frozenset[str]]] = {
-    "jcamp": (read_jcamp, frozenset({".jdx", ".dx", ".jcamp"})),
-    "spc": (read_spc, frozenset({".spc"})),
-    "spa": (read_spa, frozenset({".spa"})),
-    "perkinelmer": (read_perkinelmer, frozenset({".sp"})),
-    "wdf": (read_wdf, frozenset({".wdf"})),
+# Spectral-file readers: format_hint → (reader, test on the lower-case file extension).
+_READERS: dict[str, tuple[Callable[[Path], TableImport], Callable[[str], bool]]] = {
+    "jcamp": (read_jcamp, {".jdx", ".dx", ".jcamp"}.__contains__),
+    "spc": (read_spc, {".spc"}.__contains__),
+    "spa": (read_spa, {".spa"}.__contains__),
+    "perkinelmer": (read_perkinelmer, {".sp"}.__contains__),
+    "wdf": (read_wdf, {".wdf"}.__contains__),
+    "opus": (read_opus, is_opus_extension),
 }
 
 
@@ -75,8 +78,8 @@ def read_file(path: str | Path, format_hint: str = "auto") -> TableImport:
     """Read one file with the reader for its format (see module rules)."""
     path = Path(path)
     ext = path.suffix.lower()
-    for hint, (reader, extensions) in _READERS.items():
-        if format_hint == hint or (format_hint == "auto" and ext in extensions):
+    for hint, (reader, matches) in _READERS.items():
+        if format_hint == hint or (format_hint == "auto" and matches(ext)):
             return reader(path)
     return read_table(path, format_hint)
 

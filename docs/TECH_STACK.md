@@ -32,6 +32,7 @@
 | pandas | 2.x (latest) | Excel/CSV import convenience only; drop if installer size budget requires (§12) |
 | openpyxl | 3.1.x | Excel import/export (`vibechem-core` runtime dependency since T1.05, imported lazily in `vibechem_core/io/table.py`) |
 | jcamp | 1.3.x | JCAMP-DX reader (`vibechem-core` runtime dependency since T1.06, imported lazily in `vibechem_core/io/jcamp.py`; numpy only) |
+| brukeropus | 1.4.x | Bruker OPUS reader (`vibechem-core` runtime dependency since T1.06b, imported lazily in `vibechem_core/io/opus.py`; pure Python, numpy only; its `control` submodule (Windows DDE to a running OPUS) is loaded by the package `__init__` but never used) |
 | loky | latest | Process-pool executor (ADR-004) |
 | threadpoolctl | ≥ 3.5 | BLAS thread limits per worker |
 | fastapi | 0.14x (pin minor) | Engine API (ADR-003) |
@@ -134,7 +135,7 @@ vibechem/
 │  ├─ core/                      Python package `vibechem_core` — science only
 │  │  ├─ src/vibechem_core/
 │  │  │  ├─ data/                SpectralDataset, axis, roles
-│  │  │  ├─ io/                  File readers/writers (csv, excel, jcamp, spc)
+│  │  │  ├─ io/                  File readers/writers (csv, excel, jcamp, spc, spa, perkinelmer, wdf, opus)
 │  │  │  ├─ blocks/              One file per block, grouped by class
 │  │  │  │  ├─ preprocess/ split/ validate/ select/ model/
 │  │  │  │  ├─ explore/ stats/ transfer/ imaging/ deploy/
@@ -174,7 +175,7 @@ pengoo is **not** stored in this repository. When a step ports pengoo code, Quan
 ### 3.1 Dependency boundaries (enforced by import-linter in CI)
 | Package | May import | Must never import |
 |---|---|---|
-| `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, file-format libraries listed in §1.2/§11 (openpyxl, jcamp; imported only inside `vibechem_core/io/`, decision by Quan in T1.05), `vibechem_native` (optional) | `vibechem_engine`, fastapi, pyarrow (T1.05: tables in core are column name → NumPy array mappings; the engine converts to Arrow), anything UI |
+| `vibechem_core` | numpy, scipy, scikit-learn, approved chemometrics libraries from §11, file-format libraries listed in §1.2/§11 (openpyxl, jcamp, brukeropus; imported only inside `vibechem_core/io/`, decision by Quan in T1.05), `vibechem_native` (optional) | `vibechem_engine`, fastapi, pyarrow (T1.05: tables in core are column name → NumPy array mappings; the engine converts to Arrow), anything UI |
 | `vibechem_engine` | `vibechem_core`, numpy, loky, fastapi (+ starlette, pydantic), uvicorn, pyarrow | renderer code |
 | `vibechem_native` (Python wrapper) | numpy, `vibechem_core` reference functions (for fallback) | `vibechem_engine` |
 | `app/renderer` | engine **only via HTTP/WS API** | Node.js APIs (sandboxed) |
@@ -271,9 +272,9 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved; in use since T1.06 (1.3.2, wrapped in `vibechem_core/io/jcamp.py`) |
 | SPC (T1.06) | port of osp `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0) | GPL-3.0 | Reader | **ported in T1.06** → `vibechem_core/io/spc.py` (new LSB format only; upstream's per-subfile x decoding fixed). `spc-io` (MIT, needs pandas + pydantic, last release 2025-04) rejected as a dependency, used only as the independent reference for test values; `spc_spectra` rejected (last release 2018) |
 | Quasar / Orange port source (T1.00, ADR-009 port-max) | `quasars/orange-spectroscopy` + non-Qt `biolab/orange3` | GPL-3.0-or-later / GPL-3.0+ | Preprocessing, readers, interferogram FFT, permutation test, PLS diagnostics | **port source** (never a dependency); per-module decisions in §11.1, commits pinned in `THIRD_PARTY.md` |
-| Bruker OPUS (proposed T1.06b) | `brukeropus` | MIT | OPUS reader (pure Python, NumPy only; v1.4.3, 2025-11) | candidate (T1.00) |
+| Bruker OPUS (T1.06b) | `brukeropus` | MIT | OPUS reader (pure Python, NumPy only; v1.4.3, 2025-11) | approved; in use since T1.06b (1.4.3, wrapped in `vibechem_core/io/opus.py`; its docstring SyntaxWarning is silenced at import) |
 | Bruker OPUS | `opusFC` (what Quasar calls) | MIT declared | OPUS reader | rejected (T1.00: compiled binary wheels only, no source distribution or public repository — cannot be reviewed or ported; a native dependency) |
-| Renishaw WDF (proposed T1.06b) | `renishawWiRE` (py-wdf-reader) | MIT | WDF reader | candidate (T1.00: last release 2023-01 — maintenance concern; small, so vendor/port with MIT notice is the fallback) |
+| Renishaw WDF (T1.06b) | `renishawWiRE` (py-wdf-reader) | MIT | WDF reader | rejected as a dependency (T1.06b: no release or commit since 2023-01); its WDF1/XLST/DATA parsing **ported** → `vibechem_core/io/wdf.py` (MIT notice kept). rosettasciio 0.15.0 (GPL-3.0, HyperSpy) used only as the independent reference for test values |
 | ENVI cubes (P2 imaging) | `spectral` (Spectral Python) | MIT | ENVI `.hdr/.raw` reader (what Quasar uses) | candidate (T1.00; v0.26, 2026-11) |
 | Agilent FPA images/mosaics (P2 imaging) | `agilent-format` | MIT | Agilent `.seq/.dmt/.bsp` reader (what Quasar uses) | candidate (T1.00; v0.4.7, 2026-01) |
 | Peak fitting (P1) | `lmfit` | BSD-3 | Constrained peak models (what Quasar's Peak Fit uses) | candidate (T1.00; v1.3.4, 2025-07) |
@@ -316,10 +317,10 @@ Catalog references are `C§<section> <function> · <tier>` (FUNCTION_CATALOG.md;
 | Upstream module · reader | Our catalog function | Decision (reason) | Coupling | Own third-party deps | Upstream tests / sample data | Target |
 |---|---|---|---|---|---|---|
 | `io/omnic.py` · `SPCReader` + `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, commit f35b90f, 2019) | C§1 Thermo SPC · P0 | port (pure `struct` + NumPy; single-x and multi-x files) | T: reader returns Table — thin | — (matplotlib only in an unused plot method — drop) | `tests/test_readers.py`; `datasets/m_xyxy.spc` | T1.06 |
-| `io/omnic.py` · `SPAReader` | C§1 Other vendor formats → proposed P1 "Thermo OMNIC SPA" | port (pure `struct`) | T: thin | — | `tests/test_readers.py`; `datasets/sample1.spa` | proposed T1.06b |
-| `io/opus.py` · `OPUSReader` | C§1 Bruker OPUS · P1 | wrap `brukeropus` instead (Quasar calls the closed binary `opusFC`, rejected in §11); keep Quasar's block-selection behaviour (data blocks as "sheets") | T: thin | opusFC, Pillow (visible image) | `tests/test_readers.py`; `datasets/peach_juice.0` | proposed T1.06b |
-| `io/perkinelmer.py` · `PerkinElmerReader` + `utils/specio/` (BSD-3, Lemaitre 2017 + Diamond) | C§1 Other vendor formats → proposed P1 "PerkinElmer .sp" | port (BSD-3 notice kept) | T: thin | — | `tests/test_readers.py`; `datasets/perkinelmer/single_PE_spectrum.sp` | proposed T1.06b |
-| `io/wire.py` · `WiREReaders` | C§1 Other vendor formats → proposed P1 "Renishaw WDF" | wrap `renishawWiRE` (candidate; MIT; vendor if it stays unmaintained) | T: thin | renishawWiRE | `tests/test_readers.py`; `datasets/renishaw_test_files/*.wdf` | proposed T1.06b |
+| `io/omnic.py` · `SPAReader` | C§1 Other vendor formats → proposed P1 "Thermo OMNIC SPA" | port (pure `struct`) | T: thin | — | `tests/test_readers.py`; `datasets/sample1.spa` | **ported in T1.06b** → `io/spa.py` |
+| `io/opus.py` · `OPUSReader` | C§1 Bruker OPUS · P1 | wrap `brukeropus` instead (Quasar calls the closed binary `opusFC`, rejected in §11); keep Quasar's block-selection behaviour (data blocks as "sheets") | T: thin | opusFC, Pillow (visible image) | `tests/test_readers.py`; `datasets/peach_juice.0` | **wrapped in T1.06b** → `io/opus.py` |
+| `io/perkinelmer.py` · `PerkinElmerReader` + `utils/specio/` (BSD-3, Lemaitre 2017 + Diamond) | C§1 Other vendor formats → proposed P1 "PerkinElmer .sp" | port (BSD-3 notice kept) | T: thin | — | `tests/test_readers.py`; `datasets/perkinelmer/single_PE_spectrum.sp` | **ported in T1.06b** → `io/perkinelmer.py` (`.sp` only; `.fsm` images P2) |
+| `io/wire.py` · `WiREReaders` | C§1 Other vendor formats → proposed P1 "Renishaw WDF" | port the needed parts of `renishawWiRE` (MIT; unmaintained since 2023-01) | T: thin | renishawWiRE | `tests/test_readers.py`; `datasets/renishaw_test_files/*.wdf` | **ported in T1.06b** → `io/wdf.py` (maps P2) |
 | `io/ascii.py` · `AsciiColReader` (incl. Bruker `.dpt`), `AsciiMapReader` | C§1 CSV/TSV · P0 | skip (covered by our table reader); its `;`-comment and headerless two-column rules go into T1.05 tests | T | — | `tests/test_readers.py`; `datasets/peach_juice.dpt`, `map_test.xyz` | T1.05 (behaviour only) |
 | `io/matlab.py` · `MatlabReader` | C§1 MATLAB .mat · P1 | wrap `scipy.io.loadmat` (as Quasar does); port its variable-role rules | T | SciPy | `tests/test_readers.py`; `datasets/matlab/*.mat` | v1.1+ (P1) |
 | `io/envi.py`, `io/meta.py` · `EnviMapReader`, `HDRMetaReader`, `DatMetaReader` | C§1 ENVI cubes · P2 | wrap `spectral` (candidate) | T | spectral | `tests/test_readers.py` | P2 |

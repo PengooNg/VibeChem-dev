@@ -8,6 +8,7 @@ File-format libraries (openpyxl, jcamp, brukeropus) are imported only inside thi
 
 from vibechem_core.io.jcamp import read_jcamp
 from vibechem_core.io.multifile import SOURCE_FILE, read_file, read_files
+from vibechem_core.io.opus import read_opus
 from vibechem_core.io.perkinelmer import read_perkinelmer
 from vibechem_core.io.spa import read_spa
 from vibechem_core.io.spc import read_spc
@@ -40,6 +41,7 @@ __all__ = [
     "read_file",
     "read_files",
     "read_jcamp",
+    "read_opus",
     "read_perkinelmer",
     "read_spa",
     "read_spc",

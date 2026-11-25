@@ -70,6 +70,18 @@ wheels = [
 ]
 
 [[package]]
+name = "brukeropus"
+version = "1.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/a2/c132b13b718ef926d96f66ec05b5fec2feb29d8d717f6a110fce0c036ed6/brukeropus-1.4.3.tar.gz", hash = "sha256:0e67c27d6dcc8fbe06e8c56eec616aec9d55457ae06666520e7bcdc5c91b59cb", size = 68392, upload-time = "2025-11-14T04:16:31.664Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/14/ffc40f49847bb9eb60c304d54e1f6fe07cd6cbf486703ed5dea81620af1a/brukeropus-1.4.3-py3-none-any.whl", hash = "sha256:428b275158182c74adf106ffc9ad2e48c85825032b4c4997c070a21fa753c528", size = 70744, upload-time = "2025-11-14T04:16:30.319Z" },
+]
+
+[[package]]
 name = "cfgv"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1362,6 +1374,7 @@ name = "vibechem-core"
 version = "0.0.0"
 source = { editable = "packages/core" }
 dependencies = [
+    { name = "brukeropus" },
     { name = "jcamp" },
     { name = "numpy" },
     { name = "openpyxl" },
@@ -1370,6 +1383,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "brukeropus", specifier = ">=1.4.3,<1.5" },
     { name = "jcamp", specifier = ">=1.3.2,<1.4" },
     { name = "numpy", specifier = ">=2.5" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
