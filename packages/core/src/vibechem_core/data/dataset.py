@@ -17,9 +17,9 @@ mapped onto any downstream object (leakage safety, ARCHITECTURE.md §3.2).
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -224,3 +224,69 @@ class SpectralDataset:
     def n_variables(self) -> int:
         """Number of variables (axis points)."""
         return int(self.X.shape[1])
+
+    def with_X(
+        self, X: ArrayLike, *, axis: Axis | None = None, step: str | None = None
+    ) -> SpectralDataset:
+        """Return a copy with new signal values; all annotations are kept.
+
+        Parameters
+        ----------
+        X : array_like, shape (n, p')
+            New signal values for the same rows.
+        axis : Axis, optional
+            New axis; required when ``p'`` differs from the current axis.
+        step : str, optional
+            Entry appended to ``history`` (e.g. ``"SNV(ddof=1)"``).
+        """
+        return replace(
+            self,
+            X=X,
+            axis=self.axis if axis is None else axis,
+            history=self.history if step is None else (*self.history, step),
+        )
+
+    def subset(self, indices: ArrayLike) -> SpectralDataset:
+        """Return the rows at positions ``indices`` (in that order).
+
+        Every row-aligned field (``X``, ``sample_ids``, ``row_index``, ``group_ids``,
+        ``y``, ``classes``, ``metadata`` columns, ``spatial.pixel``) is selected with
+        the same positions, so ``row_index`` still names each row's source row.
+
+        Parameters
+        ----------
+        indices : array_like of int, shape (m,)
+            Unique positions in ``[0, n_samples)``. Boolean masks are rejected.
+        """
+        idx = np.asarray(indices)
+        if idx.ndim != 1:
+            raise ValueError(f"subset indices must be 1-D, got shape {idx.shape}")
+        if idx.size and not np.issubdtype(idx.dtype, np.integer):
+            raise ValueError(f"subset indices must be integers, got dtype {idx.dtype}")
+        idx = idx.astype(np.intp)
+        n = self.n_samples
+        if idx.size and (idx.min() < 0 or idx.max() >= n):
+            raise ValueError(f"subset indices must lie in [0, {n})")
+        if np.unique(idx).size != idx.size:
+            raise ValueError("subset indices must be unique")
+        positions = cast("list[int]", idx.tolist())
+
+        def pick(values: tuple[str, ...] | None) -> tuple[str, ...] | None:
+            return None if values is None else tuple(values[i] for i in positions)
+
+        spatial = self.spatial
+        if spatial is not None:
+            spatial = Spatial(spatial.height, spatial.width, spatial.pixel[idx], spatial.cube_id)
+        return replace(
+            self,
+            X=self.X[idx],
+            sample_ids=pick(self.sample_ids),
+            row_index=self.row_index[idx],
+            group_ids=pick(self.group_ids),
+            y=None if self.y is None else self.y[idx],
+            classes=pick(self.classes),
+            metadata=None
+            if self.metadata is None
+            else {k: v[idx] for k, v in self.metadata.items()},
+            spatial=spatial,
+        )

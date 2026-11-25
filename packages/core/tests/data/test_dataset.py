@@ -7,6 +7,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from hypothesis.extra import numpy as hnp
 
 from vibechem_core.data import Axis, Spatial, SpectralDataset
 
@@ -161,3 +164,175 @@ def test_axis_must_be_an_axis() -> None:
 def test_zero_rows_are_allowed() -> None:
     ds = make_dataset(n=0, p=3)
     assert (ds.n_samples, ds.n_variables) == (0, 3)
+
+
+# --- with_X -------------------------------------------------------------------
+
+
+def test_with_x_replaces_signal_and_keeps_annotations() -> None:
+    ds = make_dataset(n=4, p=3)
+    new = ds.with_X(ds.X * 2.0, step="Scale(2)")
+    assert new is not ds
+    np.testing.assert_array_equal(new.X, ds.X * 2.0)
+    assert not new.X.flags.writeable
+    assert new.history == ("Cut(1100-1104)", "Scale(2)")
+    assert new.axis is ds.axis
+    assert new.sample_ids == ds.sample_ids
+    np.testing.assert_array_equal(new.row_index, ds.row_index)
+    assert new.metadata is not None
+    assert ds.metadata is not None
+    assert new.metadata.keys() == ds.metadata.keys()
+    assert new.classes == ds.classes
+    assert new.spatial is ds.spatial
+    np.testing.assert_array_equal(ds.X, np.arange(12.0).reshape(4, 3))  # original unchanged
+
+
+def test_with_x_without_step_keeps_history() -> None:
+    ds = make_dataset()
+    assert ds.with_X(ds.X).history == ds.history
+
+
+def test_with_x_changing_p_needs_a_new_axis() -> None:
+    ds = make_dataset(n=4, p=3)
+    with pytest.raises(ValueError, match="axis has 3"):
+        ds.with_X(ds.X[:, :2])
+    cut = ds.with_X(ds.X[:, :2], axis=Axis(ds.axis.values[:2], "nm"), step="Cut")
+    assert cut.n_variables == 2
+    assert cut.axis.p == 2
+
+
+def test_with_x_rejects_a_different_row_count() -> None:
+    ds = make_dataset(n=4, p=3)
+    with pytest.raises(ValueError, match="sample_ids has 4"):
+        ds.with_X(ds.X[:3])
+
+
+# --- subset -------------------------------------------------------------------
+
+
+def test_subset_selects_rows_in_the_given_order() -> None:
+    ds = make_dataset(n=4, p=3)
+    sub = ds.subset([3, 0])
+    np.testing.assert_array_equal(sub.X, ds.X[[3, 0]])
+    assert sub.sample_ids == ("S003", "S000")
+    np.testing.assert_array_equal(sub.row_index, [13, 10])
+    assert sub.group_ids == ("G1", "G0")
+    assert sub.y is not None
+    assert ds.y is not None
+    np.testing.assert_array_equal(sub.y, ds.y[[3, 0]])
+    assert sub.classes == ("a", "b")
+    assert sub.metadata is not None
+    assert sub.metadata["origin"].tolist() == ["o3", "o0"]
+    assert sub.spatial is not None
+    np.testing.assert_array_equal(sub.spatial.pixel, [6, 0])
+    assert (sub.spatial.height, sub.spatial.width, sub.spatial.cube_id) == (4, 2, "cube_1")
+    # unchanged fields
+    assert sub.axis is ds.axis
+    assert (sub.signal_unit, sub.source_id, sub.history) == (
+        ds.signal_unit,
+        ds.source_id,
+        ds.history,
+    )
+    assert (sub.y_columns, sub.y_units, sub.class_column) == (ds.y_columns, ds.y_units, "kind")
+
+
+def test_subset_of_minimal_dataset_and_empty_selection() -> None:
+    ds = minimal_dataset(n=3)
+    assert ds.subset(np.array([2])).sample_ids == ("2",)
+    empty = make_dataset().subset([])
+    assert (empty.n_samples, empty.n_variables) == (0, 3)
+    assert empty.row_index.dtype == np.int64
+
+
+@pytest.mark.parametrize(
+    ("indices", "match"),
+    [
+        ([0, 0], "unique"),
+        ([4], r"\[0, 4\)"),
+        ([-1], r"\[0, 4\)"),
+        ([0.0, 1.0], "integers"),
+        ([[0, 1]], "1-D"),
+        ([True, False, True, False], "integers"),
+    ],
+    ids=["duplicate", "too-large", "negative", "float", "2-d", "bool-mask"],
+)
+def test_subset_rejects_invalid_indices(indices: list[Any], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        make_dataset(n=4).subset(indices)
+
+
+# --- properties (hypothesis) --------------------------------------------------
+
+
+@st.composite
+def datasets_and_indices(draw: st.DrawFn) -> tuple[SpectralDataset, list[int]]:
+    n = draw(st.integers(min_value=1, max_value=12))
+    p = draw(st.integers(min_value=1, max_value=6))
+    X = draw(hnp.arrays(np.float64, (n, p), elements=st.floats(allow_nan=True, width=64)))
+    row_index = draw(st.lists(st.integers(0, 10_000), min_size=n, max_size=n, unique=True))
+    ds = make_dataset(n=n, p=p, X=X, row_index=row_index)
+    indices = draw(st.permutations(range(n)).map(lambda perm: perm[: draw(st.integers(0, n))]))
+    return ds, list(indices)
+
+
+def _same_rows(sub: SpectralDataset, ds: SpectralDataset, indices: list[int]) -> None:
+    np.testing.assert_array_equal(sub.X, ds.X[indices])
+    np.testing.assert_array_equal(sub.row_index, ds.row_index[indices])
+    assert sub.sample_ids == tuple(ds.sample_ids[i] for i in indices)
+    assert ds.group_ids is not None
+    assert ds.classes is not None
+    assert sub.group_ids == tuple(ds.group_ids[i] for i in indices)
+    assert sub.classes == tuple(ds.classes[i] for i in indices)
+    assert sub.y is not None
+    assert ds.y is not None
+    np.testing.assert_array_equal(sub.y, ds.y[indices])
+    assert sub.metadata is not None
+    assert ds.metadata is not None
+    for name, column in ds.metadata.items():
+        np.testing.assert_array_equal(sub.metadata[name], column[indices])
+    assert sub.spatial is not None
+    assert ds.spatial is not None
+    np.testing.assert_array_equal(sub.spatial.pixel, ds.spatial.pixel[indices])
+
+
+@given(datasets_and_indices())
+def test_property_subset_keeps_every_row_field_aligned(
+    case: tuple[SpectralDataset, list[int]],
+) -> None:
+    ds, indices = case
+    sub = ds.subset(indices)
+    assert (sub.n_samples, sub.n_variables) == (len(indices), ds.n_variables)
+    _same_rows(sub, ds, indices)
+    # row_index maps each subset row back to the same source row as in the parent
+    position = {int(r): i for i, r in enumerate(ds.row_index)}
+    for k, r in enumerate(sub.row_index):
+        assert ds.sample_ids[position[int(r)]] == sub.sample_ids[k]
+
+
+@given(datasets_and_indices(), st.data())
+def test_property_subset_composes(
+    case: tuple[SpectralDataset, list[int]], data: st.DataObject
+) -> None:
+    ds, outer = case
+    inner = data.draw(st.permutations(range(len(outer))))
+    inner = inner[: data.draw(st.integers(0, len(inner)))]
+    twice = ds.subset(outer).subset(inner)
+    _same_rows(twice, ds, [outer[i] for i in inner])
+
+
+@given(datasets_and_indices())
+def test_property_operations_never_mutate_and_stay_read_only(
+    case: tuple[SpectralDataset, list[int]],
+) -> None:
+    ds, indices = case
+    before = (ds.X.copy(), ds.row_index.copy(), ds.sample_ids, ds.history)
+    results = [ds.subset(indices), ds.with_X(ds.X + 1.0, step="AddOne")]
+    np.testing.assert_array_equal(ds.X, before[0])
+    np.testing.assert_array_equal(ds.row_index, before[1])
+    assert (ds.sample_ids, ds.history) == before[2:]
+    for result in results:
+        assert ds.y is not None
+        arrays = [result.X, result.row_index, result.y]
+        assert result.metadata is not None
+        arrays += list(result.metadata.values())
+        assert all(a is not None and not a.flags.writeable for a in arrays)
