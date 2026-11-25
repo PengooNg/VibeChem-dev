@@ -125,7 +125,7 @@ N = 4  # rows of make_dataset() in the cases below
     [
         ({"X": np.zeros(3)}, "X must be 2-D"),
         ({"X": np.zeros((N, 2))}, "axis has 3"),
-        ({"X": np.full((N, 3), "a")}, "X must be numeric"),
+        ({"X": np.full((N, 3), "a")}, "X must be real"),
         ({"signal_unit": ""}, "signal_unit"),
         ({"source_id": ""}, "source_id"),
         ({"sample_ids": ["a", "b", "c"]}, "sample_ids has 3"),
@@ -268,7 +268,11 @@ def test_subset_rejects_invalid_indices(indices: list[Any], match: str) -> None:
 def datasets_and_indices(draw: st.DrawFn) -> tuple[SpectralDataset, list[int]]:
     n = draw(st.integers(min_value=1, max_value=12))
     p = draw(st.integers(min_value=1, max_value=6))
-    X = draw(hnp.arrays(np.float64, (n, p), elements=st.floats(allow_nan=True, width=64)))
+    X = draw(
+        hnp.arrays(
+            np.float64, (n, p), elements=st.floats(allow_nan=True, allow_infinity=False, width=64)
+        )
+    )
     row_index = draw(st.lists(st.integers(0, 10_000), min_size=n, max_size=n, unique=True))
     ds = make_dataset(n=n, p=p, X=X, row_index=row_index)
     indices = draw(st.permutations(range(n)).map(lambda perm: perm[: draw(st.integers(0, n))]))
@@ -326,7 +330,7 @@ def test_property_operations_never_mutate_and_stay_read_only(
 ) -> None:
     ds, indices = case
     before = (ds.X.copy(), ds.row_index.copy(), ds.sample_ids, ds.history)
-    results = [ds.subset(indices), ds.with_X(ds.X + 1.0, step="AddOne")]
+    results = [ds.subset(indices), ds.with_X(ds.X * 0.5, step="Half")]
     np.testing.assert_array_equal(ds.X, before[0])
     np.testing.assert_array_equal(ds.row_index, before[1])
     assert (ds.sample_ids, ds.history) == before[2:]
@@ -336,3 +340,56 @@ def test_property_operations_never_mutate_and_stay_read_only(
         assert result.metadata is not None
         arrays += list(result.metadata.values())
         assert all(a is not None and not a.flags.writeable for a in arrays)
+
+
+# --- review follow-ups: input validation ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"X": np.ones((N, 3)) * (1 + 2j)}, "X must be real"),
+        ({"y": np.ones((N, 2)) * 1j}, "y must be real"),
+        ({"X": np.full((N, 3), np.inf)}, "X must not contain inf"),
+        ({"y": np.full((N, 2), -np.inf)}, "y must not contain inf"),
+        ({"sample_ids": "abcd"}, "sample_ids must be a sequence of strings"),
+        ({"history": "SNV"}, "history must be a sequence of strings"),
+        ({"signal_unit": 1}, "signal_unit must be a non-empty string"),
+        ({"source_id": 42}, "source_id must be a non-empty string"),
+        ({"class_column": ""}, "class_column must be a non-empty string"),
+        ({"class_column": "fat"}, "class_column 'fat' is also a y column"),
+        ({"metadata": {"fat": np.zeros(N)}}, "metadata column 'fat' clashes"),
+        ({"metadata": {"kind": np.zeros(N)}}, "metadata column 'kind' clashes"),
+        ({"metadata": {"sample_id": np.zeros(N)}}, "metadata column 'sample_id' clashes"),
+        ({"metadata": {1: np.zeros(N)}}, "metadata column names must be strings"),
+        ({"metadata": {"o": np.array([[1], [2], [3], [4]], dtype=object).ravel()}}, "dtype"),
+        ({"row_index": np.array([0, 1, 2, 2**63 + 5], dtype=np.uint64)}, "int64"),
+    ],
+)
+def test_invalid_inputs_found_in_review_are_rejected(overrides: dict[str, Any], match: str) -> None:
+    with pytest.raises((ValueError, TypeError), match=match):
+        make_dataset(n=N, p=3, **overrides)
+
+
+def test_metadata_accepts_table_dtypes() -> None:
+    columns = {
+        "f": np.zeros(N),
+        "i": np.arange(N),
+        "u": np.arange(N, dtype=np.uint8),
+        "b": np.ones(N, dtype=bool),
+        "s": np.array(["a", "b", "c", "d"]),
+    }
+    ds = make_dataset(n=N, metadata=columns)
+    assert ds.metadata is not None
+    assert list(ds.metadata) == list(columns)
+
+
+def test_nan_is_allowed_in_x_and_y() -> None:
+    X = np.ones((N, 3))
+    X[0, 0] = np.nan
+    y = np.ones((N, 2))
+    y[1, 1] = np.nan
+    ds = make_dataset(n=N, X=X, y=y)
+    assert np.isnan(ds.X[0, 0])
+    assert ds.y is not None
+    assert np.isnan(ds.y[1, 1])

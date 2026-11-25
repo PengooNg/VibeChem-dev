@@ -24,15 +24,12 @@ from typing import Any, cast
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from vibechem_core.data.axis import Axis, Spatial, frozen_array
+from vibechem_core.data._validate import index_array, real_array, text
+from vibechem_core.data._validate import strings as _strings
+from vibechem_core.data.axis import Axis, Spatial
 
-
-def _strings(name: str, values: Iterable[object]) -> tuple[str, ...]:
-    """Check run-time types too: callers may pass ids read from files."""
-    items = tuple(values)
-    if not all(isinstance(item, str) for item in items):
-        raise TypeError(f"{name} must be strings")
-    return tuple(str(item) for item in items)
+_METADATA_KINDS = "biufU"  # bool, int, unsigned, float, str: the Table dtypes of DATA_MODEL §4.2
+_VIEW_COLUMNS = ("sample_id", "group_id")  # fixed columns of the Spectra -> Table view (§4.4)
 
 
 def _check_length(name: str, size: int, n: int) -> None:
@@ -44,9 +41,10 @@ def _numeric_2d(name: str, values: ArrayLike) -> NDArray[np.float64]:
     array = np.asarray(values)
     if array.ndim != 2:
         raise ValueError(f"{name} must be 2-D (samples x columns), got shape {array.shape}")
-    if not np.issubdtype(array.dtype, np.number):
-        raise ValueError(f"{name} must be numeric, got dtype {array.dtype}")
-    return frozen_array(array, np.float64)
+    frozen = real_array(name, array)
+    if np.isinf(frozen).any():
+        raise ValueError(f"{name} must not contain inf (NaN marks a missing value)")
+    return frozen
 
 
 @dataclass(frozen=True, eq=False)
@@ -127,23 +125,16 @@ class SpectralDataset:
             raise TypeError(f"axis must be an Axis, got {type(axis).__name__}")
         if x.shape[1] != axis.p:
             raise ValueError(f"X has {x.shape[1]} variables but the axis has {axis.p} values")
-        if not signal_unit:
-            raise ValueError("signal_unit must be a non-empty string")
-        if not source_id:
-            raise ValueError("source_id must be a non-empty string")
+        signal_unit = text("signal_unit", signal_unit)
+        source_id = text("source_id", source_id)
 
         # Sample identity and provenance
         ids = _strings("sample_ids", sample_ids)
         _check_length("sample_ids", len(ids), n)
         if len(set(ids)) != n:
             raise ValueError("sample_ids must be unique")
-        rows = np.asarray(row_index)
-        if rows.ndim != 1:
-            raise ValueError(f"row_index must be 1-D, got shape {rows.shape}")
-        _check_length("row_index", rows.size, n)
-        if n and not np.issubdtype(rows.dtype, np.integer):
-            raise ValueError(f"row_index must be integers, got dtype {rows.dtype}")
-        rows_frozen = frozen_array(rows, np.int64)
+        rows_frozen = index_array("row_index", row_index)
+        _check_length("row_index", rows_frozen.size, n)
         if n and rows_frozen.min() < 0:
             raise ValueError("row_index must be >= 0")
         if np.unique(rows_frozen).size != n:
@@ -177,15 +168,32 @@ class SpectralDataset:
             _check_length("classes", len(labels), n)
         if (labels is None) != (class_column is None):
             raise ValueError("class_column must be set exactly when classes is set")
+        if class_column is not None:
+            class_column = text("class_column", class_column)
+            if class_column in y_cols:
+                raise ValueError(f"class_column {class_column!r} is also a y column")
 
         # Other annotations
         meta = None
         if metadata is not None:
+            taken = {*_VIEW_COLUMNS, *y_cols, *(() if class_column is None else (class_column,))}
             columns: dict[str, NDArray[Any]] = {}
             for name, values in metadata.items():
+                if not isinstance(name, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+                    raise TypeError("metadata column names must be strings")
+                if name in taken:
+                    raise ValueError(
+                        f"metadata column {name!r} clashes with another column of the "
+                        "Spectra -> Table view (sample_id, group_id, y columns, class column)"
+                    )
                 column = np.array(values, copy=True)
                 if column.ndim != 1:
                     raise ValueError(f"metadata column {name!r} must be 1-D")
+                if column.dtype.kind not in _METADATA_KINDS:
+                    raise ValueError(
+                        f"metadata column {name!r} has dtype {column.dtype}; "
+                        "allowed: float, int, bool, string"
+                    )
                 _check_length(f"metadata column {name!r}", column.size, n)
                 column.flags.writeable = False
                 columns[name] = column
@@ -258,12 +266,7 @@ class SpectralDataset:
         indices : array_like of int, shape (m,)
             Unique positions in ``[0, n_samples)``. Boolean masks are rejected.
         """
-        idx = np.asarray(indices)
-        if idx.ndim != 1:
-            raise ValueError(f"subset indices must be 1-D, got shape {idx.shape}")
-        if idx.size and not np.issubdtype(idx.dtype, np.integer):
-            raise ValueError(f"subset indices must be integers, got dtype {idx.dtype}")
-        idx = idx.astype(np.intp)
+        idx = index_array("subset indices", indices)
         n = self.n_samples
         if idx.size and (idx.min() < 0 or idx.max() >= n):
             raise ValueError(f"subset indices must lie in [0, {n})")

@@ -15,17 +15,12 @@ from typing import Literal, get_args
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from vibechem_core.data._validate import index_array, real_array, text
+
 AxisUnit = Literal["nm", "cm-1", "um", "index"]
 """Units allowed for a spectral axis (DATA_MODEL.md §4.2)."""
 
 AXIS_UNITS: tuple[AxisUnit, ...] = get_args(AxisUnit)
-
-
-def frozen_array[ScalarT: np.generic](values: ArrayLike, dtype: type[ScalarT]) -> NDArray[ScalarT]:
-    """Return a read-only copy of ``values`` as ``dtype``."""
-    array = np.array(values, dtype=dtype, copy=True)
-    array.flags.writeable = False
-    return array
 
 
 @dataclass(frozen=True, eq=False)
@@ -48,9 +43,7 @@ class Axis:
         array = np.asarray(values)
         if array.ndim != 1 or array.size == 0:
             raise ValueError(f"axis values must be a non-empty 1-D array, got shape {array.shape}")
-        if not np.issubdtype(array.dtype, np.number):
-            raise ValueError(f"axis values must be numeric, got dtype {array.dtype}")
-        frozen = frozen_array(array, np.float64)
+        frozen = real_array("axis values", array)
         if not np.isfinite(frozen).all():
             raise ValueError("axis values must be finite")
         steps = np.diff(frozen)
@@ -94,14 +87,15 @@ class Spatial:
     cube_id: str
 
     def __init__(self, height: int, width: int, pixel: ArrayLike, cube_id: str) -> None:
+        sizes = (height, width)  # run-time check: sizes may come from files
+        if any(isinstance(v, bool) or not isinstance(v, int | np.integer) for v in sizes):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(
+                f"spatial height and width must be integers, got {height!r} x {width!r}"
+            )
+        height, width = int(height), int(width)
         if height < 1 or width < 1:
             raise ValueError(f"spatial height and width must be >= 1, got {height} x {width}")
-        array = np.asarray(pixel)
-        if array.ndim != 1:
-            raise ValueError(f"spatial pixel must be 1-D, got shape {array.shape}")
-        if array.size and not np.issubdtype(array.dtype, np.integer):
-            raise ValueError(f"spatial pixel must be integers, got dtype {array.dtype}")
-        frozen = frozen_array(array, np.int64)
+        frozen = index_array("spatial pixel", pixel)
         if frozen.size and (frozen.min() < 0 or frozen.max() >= height * width):
             raise ValueError(f"spatial pixel must lie in [0, {height * width})")
         if np.unique(frozen).size != frozen.size:
@@ -109,7 +103,7 @@ class Spatial:
         object.__setattr__(self, "height", height)
         object.__setattr__(self, "width", width)
         object.__setattr__(self, "pixel", frozen)
-        object.__setattr__(self, "cube_id", cube_id)
+        object.__setattr__(self, "cube_id", text("spatial cube_id", cube_id))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Spatial):

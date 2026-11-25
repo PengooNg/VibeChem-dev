@@ -74,3 +74,26 @@ def test_spatial_holds_read_only_int64_pixels() -> None:
 def test_spatial_rejects_invalid(height: int, width: int, pixel: list[float]) -> None:
     with pytest.raises(ValueError, match="spatial"):
         Spatial(height=height, width=width, pixel=pixel, cube_id="c")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"height": 2.5}, "height and width must be integers"),
+        ({"width": True}, "height and width must be integers"),
+        ({"cube_id": ""}, "cube_id must be a non-empty string"),
+        ({"pixel": np.array([2**63 + 1], dtype=np.uint64)}, "int64"),
+    ],
+)
+def test_spatial_rejects_bad_scalars(kwargs: dict[str, object], match: str) -> None:
+    args: dict[str, object] = {"height": 2, "width": 3, "pixel": [0, 1], "cube_id": "c"}
+    args.update(kwargs)
+    with pytest.raises((ValueError, TypeError), match=match):
+        Spatial(**args)  # type: ignore[arg-type]
+
+
+def test_axis_rejects_complex_and_non_numeric_values() -> None:
+    with pytest.raises(ValueError, match="axis values must be real"):
+        Axis(np.array([1.0, 2.0]) + 1j, "nm")
+    with pytest.raises(ValueError, match="axis values must be real"):
+        Axis(["a", "b"], "nm")
