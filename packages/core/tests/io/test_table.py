@@ -16,6 +16,7 @@ import pytest
 
 from vibechem_core.errors import VibeChemError
 from vibechem_core.io import (
+    IMPORT_AXIS_MISMATCH,
     IMPORT_DUPLICATE_SAMPLE_IDS,
     IMPORT_FILE_INVALID,
     IMPORT_FORMAT_UNKNOWN,
@@ -23,6 +24,7 @@ from vibechem_core.io import (
     SpectralColumns,
     TableImport,
     read_table,
+    spectra_import,
 )
 from vibechem_core.reference_datasets import load_reference_dataset
 
@@ -473,3 +475,65 @@ def test_xlsx_with_wrong_stored_dimension_is_read_in_full(tmp_path: Path) -> Non
     assert list(table.columns) == ["id", "1", "2", "3"]
     assert table.n_rows == 2
     np.testing.assert_array_equal(table.columns["3"], [6.0, np.nan])
+
+
+# --- spectra_import (shared by the JCAMP-DX and SPC readers, T1.06) ---
+
+
+def test_spectra_import_same_axis_keeps_it() -> None:
+    x = np.array([3.0, 2.0, 1.0])
+    table = spectra_import("spc", [(x, [1.0, 2.0, 3.0]), (x, [4.0, 5.0, 6.0])], "cm-1")
+    assert list(table.columns) == ["3.0", "2.0", "1.0"]
+    np.testing.assert_array_equal(table.columns["2.0"], [2.0, 5.0])
+    assert table.warnings == ()
+    assert not table.needs_interpolation
+    assert spectral_of(table)["axis_unit"] == "cm-1"
+
+
+def test_spectra_import_union_axis_in_first_direction() -> None:
+    table = spectra_import(
+        "spc", [([3.0, 2.0], [1.0, 2.0]), ([1.0, 2.5, 4.0], [7.0, 8.0, 9.0])], None
+    )
+    assert list(table.columns) == ["4.0", "3.0", "2.5", "2.0", "1.0"]
+    np.testing.assert_array_equal(table.columns["3.0"], [1.0, np.nan])
+    np.testing.assert_array_equal(table.columns["2.5"], [np.nan, 8.0])
+    assert table.warnings == ({"code": IMPORT_AXIS_MISMATCH, "params": {"axes": 2}},)
+    assert table.needs_interpolation
+    assert spectral_of(table)["axis_unit"] == "cm-1"  # guessed: decreasing
+
+
+def test_spectra_import_non_finite_values_become_nan() -> None:
+    table = spectra_import("spc", [([1.0, 2.0, 3.0], [np.inf, 1.0, np.nan])], "nm")
+    np.testing.assert_array_equal(table.columns["1.0"], [np.nan])
+    assert table.warnings == (
+        {"code": IMPORT_NON_NUMERIC_VALUES, "params": {"count": 2, "column": "1.0"}},
+    )
+
+
+def test_spectra_import_duplicate_titles_warn() -> None:
+    x = [1.0, 2.0]
+    table = spectra_import("jcamp", [(x, x), (x, x)], "nm", {"title": ["a", "a"]})
+    # Not unique → not suggested as sample ID by the T1.05 rule, so no duplicate warning.
+    assert table.suggested_roles["sample_id"] is None
+    table = spectra_import("jcamp", [(x, x), (x, x)], "nm", {"Sample": ["a", "a"]})
+    assert table.warnings == ({"code": IMPORT_DUPLICATE_SAMPLE_IDS, "params": {"count": 1}},)
+
+
+@pytest.mark.parametrize(
+    ("spectra", "reason"),
+    [
+        ([], "empty"),
+        ([([1.0], [1.0])], "empty"),
+        ([([1.0, 2.0], [1.0])], "corrupt"),
+        ([([1.0, 1.0], [1.0, 2.0])], "axis"),
+        ([([1.0, 3.0, 2.0], [1.0, 2.0, 3.0])], "axis"),
+        ([([1.0, np.nan], [1.0, 2.0])], "axis"),
+    ],
+)
+def test_spectra_import_rejects_bad_spectra(
+    spectra: list[tuple[list[float], list[float]]], reason: str
+) -> None:
+    with pytest.raises(VibeChemError) as exc:
+        spectra_import("spc", spectra, None)
+    assert exc.value.code == IMPORT_FILE_INVALID
+    assert exc.value.params["reason"] == reason

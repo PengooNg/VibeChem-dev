@@ -31,7 +31,7 @@
 | pyarrow | latest | Parquet, Arrow IPC to the UI (engine only; CSV/TSV is read in core with stdlib `csv` + NumPy since T1.05) |
 | pandas | 2.x (latest) | Excel/CSV import convenience only; drop if installer size budget requires (§12) |
 | openpyxl | 3.1.x | Excel import/export (`vibechem-core` runtime dependency since T1.05, imported lazily in `vibechem_core/io/table.py`) |
-| jcamp | latest | JCAMP-DX reader (wrapped behind our reader interface) |
+| jcamp | 1.3.x | JCAMP-DX reader (`vibechem-core` runtime dependency since T1.06, imported lazily in `vibechem_core/io/jcamp.py`; numpy only) |
 | loky | latest | Process-pool executor (ADR-004) |
 | threadpoolctl | ≥ 3.5 | BLAS thread limits per worker |
 | fastapi | 0.14x (pin minor) | Engine API (ADR-003) |
@@ -268,8 +268,8 @@ Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **app
 | Preprocessing grid search (T2.10) | pengoo (Quan's local copy, port selected parts) | owner | Search logic | candidate (port; no numba) — T1.00b: pengoo provided (local `pengoo/`, git-excluded); per-function decisions for preprocessing, metrics, CV, LV rules, splits, grid search, variable selection and EDA in §11.2 |
 | Wavelet denoising (P1, pengoo `wavelet_denoise`) | `PyWavelets` | MIT | DWT/IDWT kernels | candidate (T1.00b; pengoo depends on it; check Python 3.14 wheels when the P1 step starts) |
 | CSV/TSV and Excel import (T1.05) | stdlib `csv` + NumPy; `openpyxl` 3.1.5 (+ `et-xmlfile`); pyarrow CSV; pandas | PSF / MIT / Apache-2.0 / BSD-3 | Parsing, quoting, delimiter sniffing; xlsx cells | approved (T1.05: stdlib `csv` + NumPy for text tables, `openpyxl` as a `vibechem-core` runtime dependency read with `read_only=True, data_only=True, keep_links=False`; pyarrow CSV rejected by Quan — core stays free of pyarrow; pandas not needed; no `defusedxml` — the bundled expat limits entity expansion, covered by a malformed-file test) |
-| JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved |
-| SPC (T1.06) | Existing SPC readers on PyPI/GitHub — search first | to check | Reader | candidate (T1.00: two options for T1.06 — **port** the SPC reader vendored in orange-spectroscopy `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0, pure `struct` + NumPy; recommended), or `spc-io` (MIT; needs pandas + pydantic; last release 2025-04, borderline maintenance); `spc_spectra` rejected: last release 2018) |
+| JCAMP-DX (T1.06) | `jcamp` | MIT | Reader | approved; in use since T1.06 (1.3.2, wrapped in `vibechem_core/io/jcamp.py`) |
+| SPC (T1.06) | port of osp `utils/spc/` (Rohan Isaac's `spc`, GPL-3.0) | GPL-3.0 | Reader | **ported in T1.06** → `vibechem_core/io/spc.py` (new LSB format only; upstream's per-subfile x decoding fixed). `spc-io` (MIT, needs pandas + pydantic, last release 2025-04) rejected as a dependency, used only as the independent reference for test values; `spc_spectra` rejected (last release 2018) |
 | Quasar / Orange port source (T1.00, ADR-009 port-max) | `quasars/orange-spectroscopy` + non-Qt `biolab/orange3` | GPL-3.0-or-later / GPL-3.0+ | Preprocessing, readers, interferogram FFT, permutation test, PLS diagnostics | **port source** (never a dependency); per-module decisions in §11.1, commits pinned in `THIRD_PARTY.md` |
 | Bruker OPUS (proposed T1.06b) | `brukeropus` | MIT | OPUS reader (pure Python, NumPy only; v1.4.3, 2025-11) | candidate (T1.00) |
 | Bruker OPUS | `opusFC` (what Quasar calls) | MIT declared | OPUS reader | rejected (T1.00: compiled binary wheels only, no source distribution or public repository — cannot be reviewed or ported; a native dependency) |

@@ -16,7 +16,9 @@ Libraries installed as dependencies (PyPI, npm) are not listed here; they are de
 
 ## Ported or vendored code (shipped)
 
-None yet.
+| Component | Source path | Commit | Licence | Our file |
+|---|---|---|---|---|
+| SPC reader (byte parsing of the Galactic SPC new LSB format) | https://github.com/quasars/orange-spectroscopy `orangecontrib/spectroscopy/utils/spc/{spc,sub,global_fun}.py` and `io/omnic.py` (`SPCReader`); the `utils/spc/` code is Rohan Isaac's `spc`, https://github.com/rohanisaac/spc | osp `df9246d7d6d7537b18ef5852e30c6ce212ebc92c`; spc `f35b90f` | GPL-3.0 (spc, Rohan Isaac) inside GPL-3.0-or-later (osp) | `packages/core/src/vibechem_core/io/spc.py` (source header lists the changes, including the fix for per-subfile x values) |
 
 ### Pinned port sources (no code copied yet)
 Quasar is the first port source for spectroscopy algorithms and readers (ARCHITECTURE.md ADR-009, port-max). These commits were inventoried in T1.00 (`docs/TECH_STACK.md` §11.1); every later port names its upstream path and one of these commits in its source header and adds a row to the table above. A port from a newer commit updates the pin here in the same PR.
@@ -35,4 +37,7 @@ Quasar is the first port source for spectroscopy algorithms and readers (ARCHITE
 | Noto Sans JP (variable) | npm `@fontsource-variable/noto-sans-jp` (font by Google, https://github.com/notofonts/noto-cjk) | 5.3.1 | SIL Open Font License 1.1 | as above |
 | Gasoline NIR spectra and octane numbers (`gasoline_nir`) | Kalivas JH (1997) Chemometr Intell Lab Syst 37:255–259, doi:10.1016/S0169-7439(97)00038-5; values taken from the R package `pls` (CRAN), `data/gasoline.RData` | pls 2.9-0 | Factual measurement data, credited to the author and paper; the `pls` package itself is GPL-2 and none of its code is used (licence treatment open for Quan to confirm) | `testdata/datasets/gasoline_nir.csv` (tests and development; details in `PROVENANCE.md` there) |
 | Bruker DPT sample `peach_juice.dpt` (test data only, not shipped) | https://github.com/quasars/orange-spectroscopy `orangecontrib/spectroscopy/datasets/peach_juice.dpt` | commit `df9246d7d6d7537b18ef5852e30c6ce212ebc92c` | GPL-3.0-or-later (repository licence; TECH_STACK.md §11.1 rule 4) | `packages/core/tests/io/data/peach_juice.dpt` (details in `PROVENANCE.md` there) |
+| JCAMP-DX samples `ethanol2.jdx`, `isopropanol_ASDF.jdx` (test data only, not shipped) | https://github.com/nzhagen/jcamp `data/infrared_spectra/` | commit `9a4af7d3f0cf6aa8d27913426334dec1f5b06130` | MIT (repository licence, Copyright (c) 2013 Nathan Hagen; no per-file notes, empty `##OWNER`) | `packages/core/tests/io/data/` (details in `PROVENANCE.md` there) |
+| SPC samples `Ft-ir.spc`, `raman.spc` (upstream `RAMAN.SPC`), `nir.spc` (test data only, not shipped) | https://github.com/rohanisaac/spc `test_data/` | commit `f35b90fedb995778ad11b276582d89e233774e5e` | GPL-3.0 (repository licence; no per-file notes) | `packages/core/tests/io/data/` (details in `PROVENANCE.md` there) |
+| SPC sample `m_xyxy.spc` (test data only, not shipped) | https://github.com/quasars/orange-spectroscopy `orangecontrib/spectroscopy/datasets/m_xyxy.spc` | commit `df9246d7d6d7537b18ef5852e30c6ce212ebc92c` | GPL-3.0-or-later (repository licence; TECH_STACK.md §11.1 rule 4) | `packages/core/tests/io/data/m_xyxy.spc` |
 | Olive oil FTIR spectra (`olive_oil_ftir`) | https://github.com/QIBChemometrics/FTIR-Spectra-Olive-Oils (Quadram Institute Bioscience); Tapp, Defernez, Kemsley (2003) J Agric Food Chem 51:6110–6115, doi:10.1021/jf030232s | commit `3cde178f8e333aa832d31dbc384ade5486a1d7db` | CC0-1.0 | `testdata/datasets/olive_oil_ftir.csv` (transposed; details in `PROVENANCE.md` there) |

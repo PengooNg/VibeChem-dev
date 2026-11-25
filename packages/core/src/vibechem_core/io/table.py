@@ -49,7 +49,7 @@ from types import MappingProxyType
 from typing import Literal, TypedDict
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from vibechem_core.errors import ErrorParam, VibeChemError
 
@@ -61,8 +61,10 @@ IMPORT_DUPLICATE_SAMPLE_IDS = "IMPORT_DUPLICATE_SAMPLE_IDS"
 """Warning: sample IDs occur more than once; params ``count`` = number of such IDs."""
 IMPORT_NON_NUMERIC_VALUES = "IMPORT_NON_NUMERIC_VALUES"
 """Warning: spectral cells that are empty or not finite numbers (read as NaN); params ``count``, ``column``."""
+IMPORT_AXIS_MISMATCH = "IMPORT_AXIS_MISMATCH"
+"""Warning: spectra on different axes were put on the union axis (missing points NaN); params ``axes``."""
 
-TableFormat = Literal["csv", "tsv", "xlsx"]
+TableFormat = Literal["csv", "tsv", "xlsx", "jcamp", "spc"]
 
 _TEXT_EXTENSIONS = {".csv": None, ".txt": None, ".dpt": None, ".tsv": "\t", ".tab": "\t"}
 _EXCEL_EXTENSIONS = {".xlsx", ".xlsm"}
@@ -107,7 +109,7 @@ class TableImport:
 
     Attributes
     ----------
-    detected_format : {"csv", "tsv", "xlsx"}
+    detected_format : {"csv", "tsv", "xlsx", "jcamp", "spc"}
         Format actually read (``tsv`` when the delimiter was a tab).
     columns : mapping of str to ndarray
         Column name → 1-D array (float64 or text), all of length ``n_rows``,
@@ -118,12 +120,16 @@ class TableImport:
         (``{"from", "to", "count", "axis_unit"}`` or None), as in §2.5.
     warnings : tuple of mapping
         ``{"code": ..., "params": {...}}`` items.
+    needs_interpolation : bool
+        True when spectra on different axes were put on their union axis
+        (``IMPORT_AXIS_MISMATCH``, DATA_MODEL.md §2.5).
     """
 
     detected_format: TableFormat
     columns: Mapping[str, NDArray[np.float64] | NDArray[np.str_]]
     suggested_roles: SuggestedRoles
     warnings: tuple[ImportWarning, ...]
+    needs_interpolation: bool = False
 
     @property
     def n_rows(self) -> int:
@@ -330,9 +336,7 @@ def _build_table(fmt: TableFormat, rows: list[list[str]]) -> TableImport:
     if isinstance(sample_id, str):
         ids = [c.strip() for c in cells[header.index(sample_id)]]
         columns[sample_id] = np.array(ids, dtype=np.str_)
-        repeated = sum(n > 1 for i, n in Counter(ids).items() if i)  # "" = missing
-        if repeated:
-            warnings.append(_warning(IMPORT_DUPLICATE_SAMPLE_IDS, count=repeated))
+        warnings.extend(_duplicate_id_warnings(ids))
     if bad_count:
         warnings.append(_warning(IMPORT_NON_NUMERIC_VALUES, count=bad_count, column=bad_column))
     for array in columns.values():
@@ -363,6 +367,11 @@ def _is_headerless(rows: Sequence[Sequence[str]]) -> bool:
 
 def _warning(code: str, **params: ErrorParam) -> ImportWarning:
     return {"code": code, "params": params}
+
+
+def _duplicate_id_warnings(ids: Iterable[str]) -> list[ImportWarning]:
+    repeated = sum(n > 1 for i, n in Counter(ids).items() if i)  # "" = missing
+    return [_warning(IMPORT_DUPLICATE_SAMPLE_IDS, count=repeated)] if repeated else []
 
 
 def _typed_column(cells: Iterable[str]) -> NDArray[np.float64] | NDArray[np.str_]:
@@ -444,3 +453,120 @@ def _suggest_roles(
         "metadata": metadata,
         "spectral_columns": spectral_columns,
     }
+
+
+def spectra_import(
+    fmt: TableFormat,
+    spectra: Sequence[tuple[ArrayLike, ArrayLike]],
+    axis_unit: str | None,
+    text_columns: Mapping[str, Sequence[str]] | None = None,
+) -> TableImport:
+    """Spectra read from a spectral file (JCAMP-DX, SPC) as a ``TableImport``.
+
+    One row per spectrum ``(x, y)``: the text columns first, then one float64
+    column per axis value, named ``repr(float(value))``. Spectra on different
+    axes are put on the union axis (in the direction of the first spectrum),
+    missing points NaN, with an ``IMPORT_AXIS_MISMATCH`` warning and
+    ``needs_interpolation``. Non-finite intensities become NaN
+    (``IMPORT_NON_NUMERIC_VALUES``). ``axis_unit`` None → guessed as for CSV.
+
+    Raises
+    ------
+    VibeChemError
+        ``IMPORT_FILE_INVALID``: ``empty`` (no spectrum, or one with fewer than
+        2 points), ``corrupt`` (x and y lengths differ), ``axis`` (x not finite
+        and strictly monotonic).
+    """
+    # Step 1: check every spectrum; non-finite intensities become NaN.
+    if not spectra:
+        raise _invalid("empty")
+    axes: list[NDArray[np.float64]] = []
+    values: list[NDArray[np.float64]] = []
+    bad_x: list[float] = []
+    for x_in, y_in in spectra:
+        x = np.asarray(x_in, dtype=np.float64)
+        y = np.asarray(y_in, dtype=np.float64)
+        if x.ndim != 1 or x.shape != y.shape:
+            raise _invalid("corrupt")
+        if len(x) < 2:
+            raise _invalid("empty")
+        if not _strictly_monotonic(x):
+            raise _invalid("axis")
+        finite = np.isfinite(y)
+        bad_x.extend(x[np.logical_not(finite)].tolist())
+        axes.append(x)
+        values.append(np.where(finite, y, np.nan))
+    # Step 2: common axis, one row per spectrum.
+    axis, n_axes = _union_axis(axes)
+    names = [repr(v) for v in axis.tolist()]
+    rows = [_on_axis(axis, x, y) for x, y in zip(axes, values, strict=True)]
+    matrix = np.stack(rows)
+    warnings: list[ImportWarning] = []
+    if bad_x:
+        position = {v: i for i, v in enumerate(axis.tolist())}
+        column = names[min(position[v] for v in bad_x)]
+        warnings.append(_warning(IMPORT_NON_NUMERIC_VALUES, count=len(bad_x), column=column))
+    # Step 3: columns, roles and warnings.
+    columns: dict[str, NDArray[np.float64] | NDArray[np.str_]] = {
+        name: np.array(cells, dtype=np.str_) for name, cells in (text_columns or {}).items()
+    }
+    n_text = len(columns)
+    for i, name in enumerate(names):
+        columns[name] = matrix[:, i].copy()
+    header = list(columns)
+    roles = _suggest_roles(header, range(n_text, len(header)), columns)
+    if axis_unit is not None and roles["spectral_columns"] is not None:
+        roles["spectral_columns"]["axis_unit"] = axis_unit
+    sample_id = roles["sample_id"]
+    if isinstance(sample_id, str):
+        warnings.extend(_duplicate_id_warnings(columns[sample_id].tolist()))
+    if n_axes > 1:
+        warnings.append(_warning(IMPORT_AXIS_MISMATCH, axes=n_axes))
+    for array in columns.values():
+        array.flags.writeable = False
+    return TableImport(
+        detected_format=fmt,
+        columns=MappingProxyType(columns),
+        suggested_roles=roles,
+        warnings=tuple(warnings),
+        needs_interpolation=n_axes > 1,
+    )
+
+
+def _strictly_monotonic(x: NDArray[np.float64]) -> bool:
+    steps = np.diff(x)
+    return bool(np.isfinite(x).all() and ((steps > 0).all() or (steps < 0).all()))
+
+
+def _union_axis(axes: Sequence[NDArray[np.float64]]) -> tuple[NDArray[np.float64], int]:
+    """Union of strictly monotonic axes, ordered like the first; and the number of distinct axes.
+
+    Empty axes (a file without spectral columns) are left out; an axis and its
+    reverse are the same axis.
+    """
+    distinct: list[NDArray[np.float64]] = []
+    for axis in axes:
+        if len(axis) and not any(
+            np.array_equal(axis, seen) or np.array_equal(axis[::-1], seen) for seen in distinct
+        ):
+            distinct.append(axis)
+    if not distinct:
+        return np.empty(0), 1
+    if len(distinct) == 1:
+        return distinct[0], 1
+    union = np.unique(np.concatenate(distinct))
+    first = next((a for a in axes if len(a) >= 2), union)
+    return (union[::-1] if first[0] > first[-1] else union), len(distinct)
+
+
+def _on_axis(
+    axis: NDArray[np.float64], x: NDArray[np.float64], y: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """``y`` placed on ``axis``, which contains every value of ``x``; other points NaN."""
+    if np.array_equal(axis, x):
+        return y.copy()
+    descending = len(axis) >= 2 and axis[0] > axis[-1]
+    index = np.searchsorted(axis[::-1] if descending else axis, x)
+    row = np.full(len(axis), np.nan)
+    row[len(axis) - 1 - index if descending else index] = y
+    return row
