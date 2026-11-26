@@ -46,20 +46,27 @@ class SplitParams:
     group_aware: bool = Param(True)
 
 
-def n_test_units(params: SplitParams, n_units: int) -> int:
-    """Number of test units; ``BLOCK_PARAM_INVALID`` unless 1 <= n_test <= n_units - 1."""
+def n_test_units(
+    params: SplitParams, n_units: int, n_pool: int | None = None, n_strata: int = 1
+) -> int:
+    """Number of test units (``ceil(f * n_units)`` or ``n_test``).
+
+    ``BLOCK_PARAM_INVALID`` unless both sets get at least ``n_strata`` units of the
+    ``n_pool`` units that can be drawn (default: all ``n_units``).
+    """
     if params.size_by == "count":
         param_id, n_test = "n_test", params.n_test
     else:
         # round first: 0.3 * 10 is 3.0000000000000004 and must not become 4
         param_id, n_test = "test_fraction", math.ceil(round(params.test_fraction * n_units, 9))
-    if not 1 <= n_test <= n_units - 1:
+    high = (n_units if n_pool is None else n_pool) - n_strata
+    if not n_strata <= n_test <= high:
         raise ParamError(
             BLOCK_PARAM_INVALID,
             {
                 "param_id": param_id,
                 "reason": "constraint",
-                "constraint": f"1 <= n_test <= {n_units - 1}",
+                "constraint": f"{n_strata} <= n_test <= {high}",
             },
         )
     return n_test
