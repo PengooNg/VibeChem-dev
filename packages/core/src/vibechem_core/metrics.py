@@ -37,7 +37,7 @@ _ISO_MINIMUM = {"se": 20, "bias": 10}
 
 
 def _names(set_: MetricSet) -> dict[str, str]:
-    s = {"c": "c", "cv": "cv", "p": "p"}[set_]
+    s = set_
     return {
         "rmse": f"rmse{s}",
         "bias": f"bias_{s}",
@@ -51,8 +51,8 @@ def _names(set_: MetricSet) -> dict[str, str]:
     }
 
 
-def _warn(code: str, **params: ErrorParam) -> None:
-    warnings.warn(VibeChemWarning(code, params), stacklevel=4)
+def _warn(code: str, params: dict[str, ErrorParam], stacklevel: int = 4) -> None:
+    warnings.warn(VibeChemWarning(code, params), stacklevel=stacklevel)
 
 
 def _pair(y: ArrayLike, y_pred: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -60,6 +60,8 @@ def _pair(y: ArrayLike, y_pred: ArrayLike) -> tuple[NDArray[np.float64], NDArray
     b = np.asarray(y_pred, dtype=np.float64)
     if a.ndim != 1 or a.shape != b.shape:
         raise ValueError(f"y and y_pred need the same 1-D shape, got {a.shape} and {b.shape}")
+    if a.size == 0:
+        raise ValueError("y and y_pred are empty")
     if not (np.isfinite(a).all() and np.isfinite(b).all()):
         raise ValueError("y and y_pred must be finite")
     return a, b
@@ -71,7 +73,7 @@ def regression_metrics(y: ArrayLike, y_pred: ArrayLike, set_: MetricSet) -> dict
     For CV with ``fold_mean`` aggregation use :func:`cv_metrics`.
     """
     a, b = _pair(y, y_pred)
-    return _regression(a, b, set_, float(np.sqrt(np.mean((b - a) ** 2))) if a.size else math.nan)
+    return _regression(a, b, set_, float(np.sqrt(np.mean((b - a) ** 2))))
 
 
 def _regression(
@@ -80,7 +82,7 @@ def _regression(
     names = _names(set_)
     n = y.size
     e = y_pred - y
-    bias = float(e.mean()) if n else math.nan
+    bias = float(e.mean())
     m = {"rmse": rmse, "bias": bias}
     undefined: dict[str, str] = {}
     if n < 2:
@@ -89,34 +91,35 @@ def _regression(
             undefined[key] = "n_lt_2"
     else:
         m["se"] = float(np.sqrt(np.sum((e - bias) ** 2) / (n - 1)))
-        sst = float(np.sum((y - y.mean()) ** 2))
-        sxx = float(np.sum((y_pred - y_pred.mean()) ** 2))
-        if sst == 0.0:
+        # Constant means equal values: the sums of squares keep rounding noise (6e-34 for 0.1s)
+        if np.ptp(y) == 0.0:
             for key in ("r2", "rpd", "rpiq"):
                 m[key] = math.nan
                 undefined[key] = "constant_y"
         else:
-            m["r2"] = 1.0 - float(np.sum(e**2)) / sst
-        if sxx == 0.0:
+            m["r2"] = 1.0 - float(np.sum(e**2)) / float(np.sum((y - y.mean()) ** 2))
+            if rmse == 0.0:
+                m["rpd"] = m["rpiq"] = math.nan
+                undefined["rpd"] = undefined["rpiq"] = "zero_rmse"
+            else:
+                q1, q3 = np.quantile(y, [0.25, 0.75])
+                m["rpd"] = float(np.std(y, ddof=1)) / rmse
+                m["rpiq"] = float(q3 - q1) / rmse
+        if np.ptp(y_pred) == 0.0:
             m["slope"] = m["intercept"] = math.nan
             undefined["slope"] = undefined["intercept"] = "constant_prediction"
         else:
             # Reference on prediction: y = intercept + slope * y_pred (ISO 12099 §5.4.1)
-            m["slope"] = float(np.sum((y_pred - y_pred.mean()) * (y - y.mean()))) / sxx
+            dp = y_pred - y_pred.mean()
+            m["slope"] = float(np.sum(dp * (y - y.mean()))) / float(np.sum(dp**2))
             m["intercept"] = float(y.mean()) - m["slope"] * float(y_pred.mean())
-        if sst > 0.0:
-            q1, q3 = np.quantile(y, [0.25, 0.75])
-            # RMSE 0 (perfect fit) gives inf, as pengoo
-            with np.errstate(divide="ignore", invalid="ignore"):
-                m["rpd"] = float(np.float64(np.std(y, ddof=1)) / np.float64(rmse))
-                m["rpiq"] = float(np.float64(q3 - q1) / np.float64(rmse))
     m["rss"] = float(np.sum(e**2))
     for key, reason in undefined.items():
-        _warn(METRIC_UNDEFINED, metric=names[key], reason=reason)
+        _warn(METRIC_UNDEFINED, {"metric": names[key], "reason": reason})
     if set_ != "c":
         for key, minimum in _ISO_MINIMUM.items():
             if n < minimum:
-                _warn(METRIC_FEW_SAMPLES, metric=names[key], n=n, minimum=minimum)
+                _warn(METRIC_FEW_SAMPLES, {"metric": names[key], "n": n, "minimum": minimum})
     return {names[key]: m[key] for key in names}
 
 
@@ -146,23 +149,33 @@ def cv_metrics(
     a, b = _pair(y, y_pred)
     per_fold = fold_rmse(a, b, fold)
     if aggregation == "pooled":
-        rmse = float(np.sqrt(np.mean((b - a) ** 2))) if a.size else math.nan
+        rmse = float(np.sqrt(np.mean((b - a) ** 2)))
     elif aggregation == "fold_mean":
-        rmse = float(per_fold.mean()) if per_fold.size else math.nan
+        rmse = float(per_fold.mean())
     else:
         raise ValueError(f"unknown aggregation {aggregation!r}")
     return _regression(a, b, "cv", rmse)
 
 
+def _check_labels(classes: ArrayLike, *labels: ArrayLike) -> None:
+    # scikit-learn's labels= would silently drop such samples
+    unknown = set(np.concatenate([np.asarray(x).ravel() for x in labels]).tolist()) - set(
+        np.asarray(classes).tolist()
+    )
+    if unknown:
+        raise ValueError(f"labels not in classes: {sorted(map(str, unknown))}")
+
+
 def confusion_matrix(y_true: ArrayLike, y_pred: ArrayLike, classes: ArrayLike) -> NDArray[np.int64]:
     """C[t, p] = samples of true class t predicted as p, in the order of ``classes``."""
+    _check_labels(classes, y_true, y_pred)
     C: NDArray[np.int64] = sk_confusion_matrix(y_true, y_pred, labels=classes)  # pyright: ignore[reportUnknownVariableType]
     return C
 
 
 def accuracy(C: NDArray[np.int64]) -> float:
     """Fraction of samples on the diagonal of the confusion matrix."""
-    return float(np.trace(C) / C.sum()) if C.sum() else math.nan
+    return float(np.trace(C) / C.sum())
 
 
 def _per_class(
@@ -170,7 +183,7 @@ def _per_class(
 ) -> NDArray[np.float64]:
     labels = np.asarray(classes)
     for g in np.flatnonzero(den == 0):
-        _warn(METRIC_UNDEFINED, metric=metric, reason=reason, **{"class": str(labels[g])})
+        _warn(METRIC_UNDEFINED, {"metric": metric, "reason": reason, "class": str(labels[g])})
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(den > 0, num / np.maximum(den, 1), np.nan)
 
@@ -193,6 +206,7 @@ def roc_auc(y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike) -> float:
     Binary: AUC of the second class's column. More classes: one-vs-rest AUC of each
     class's column, then the unweighted mean (NaN if any class's AUC is undefined).
     """
+    _check_labels(classes, y_true)
     labels = np.asarray(classes)
     truth = np.asarray(y_true)
     s = np.asarray(scores, dtype=np.float64)
@@ -203,7 +217,7 @@ def roc_auc(y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike) -> float:
         positive = truth == labels[g]
         if positive.all() or not positive.any():
             reason = "only_class" if positive.all() else "class_absent"
-            _warn(METRIC_UNDEFINED, metric="auc", reason=reason, **{"class": str(labels[g])})
+            _warn(METRIC_UNDEFINED, {"metric": "auc", "reason": reason, "class": str(labels[g])}, 3)
             aucs.append(math.nan)
         else:
             aucs.append(float(roc_auc_score(positive, s[:, g])))  # pyright: ignore[reportUnknownArgumentType]

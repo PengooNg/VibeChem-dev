@@ -232,3 +232,30 @@ def test_absent_class_gives_nan_with_coded_warnings() -> None:
         (METRIC_UNDEFINED, {"metric": "sensitivity", "class": "c", "reason": "class_absent"}),
         (METRIC_UNDEFINED, {"metric": "auc", "class": "c", "reason": "class_absent"}),
     ]
+
+
+def test_review_regressions() -> None:
+    # y constant up to rounding: sum (y - mean)^2 is 6e-34, not 0, but y is constant.
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        m = regression_metrics(np.full(3, 0.1), np.array([0.1, 0.2, 0.3]), "c")
+        flat = regression_metrics(np.array([1.0, 2.0, 3.0]), np.full(3, 0.1), "c")
+        perfect = regression_metrics(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]), "c")
+    for name in ("r2c", "rpd_c", "rpiq_c"):
+        assert math.isnan(m[name]), name
+    assert math.isnan(flat["slope_c"])
+    assert math.isnan(perfect["rpd_c"])
+    assert math.isnan(perfect["rpiq_c"])
+    assert (METRIC_UNDEFINED, {"metric": "rpd_c", "reason": "zero_rmse"}) in codes(record)
+
+    # Linear-interpolation quartiles (NumPy default): 1..6 -> Q1 2.25, Q3 4.75.
+    y = np.arange(1.0, 7.0)
+    m = regression_metrics(y, y + np.array([1.0, 0, 0, 0, 0, 0]), "c")
+    hand("Metric rpiq_c", "hand calculation, 6 samples", m["rpiq_c"], 2.5 / math.sqrt(1 / 6))
+
+    with pytest.raises(ValueError, match="empty"):
+        regression_metrics(np.array([]), np.array([]), "c")
+    with pytest.raises(ValueError, match="not in classes"):
+        confusion_matrix(np.array(["a", "b", "x"]), np.array(["a", "b", "a"]), ["a", "b"])
+    with pytest.raises(ValueError, match="not in classes"):
+        roc_auc(np.array(["a", "b", "x"]), np.eye(2)[[0, 1, 0]], ["a", "b"])
