@@ -398,9 +398,18 @@ def test_simpls_warns_when_scores_lose_orthogonality(
     # nothing (the published-results test runs with warnings as errors).
     with warnings.catch_warnings(record=True) as caught:  # also MLR and rank-stop warnings
         warnings.simplefilter("always")
-        PLS().fit(gasoline[0], params(n_components=49, algorithm="simpls"))
+        state = PLS().fit(gasoline[0], params(n_components=49, algorithm="simpls"))
     lost = [
         w.message for w in caught if getattr(w.message, "code", None) == BLOCK_PLS_PRECISION_LOST
     ]
     assert len(lost) == 1
-    assert 10 < lost[0].params["n_components"] <= 49  # type: ignore[union-attr]
+    first = lost[0].params["n_components"]  # type: ignore[union-attr]
+    assert isinstance(first, int)
+    assert 10 < first <= 49
+    # From the first lost component on nothing is added (components dropped, as a rank stop).
+    sweep = predict_sweep(state, gasoline[1])
+    np.testing.assert_array_equal(
+        sweep[first:], np.broadcast_to(sweep[first - 1], sweep[first:].shape)
+    )
+    T = state.arrays["scores"][:, : first - 1]
+    assert np.abs(T.T @ T - np.eye(first - 1)).max() <= 1e-6  # the warning threshold

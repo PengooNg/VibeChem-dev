@@ -275,9 +275,10 @@ def _simpls(
     sign[sign == 0] = 1.0
     for matrix in (R, T, P, Q):
         np.multiply(matrix, sign, out=matrix)
-    # B = R Q' needs orthonormal scores; S = X0'Y0 loses digits once little covariance is left.
+    # B = R Q' needs orthonormal scores; S = X0'Y0 loses digits once little covariance is left,
+    # so components from the first non-orthonormal one on are dropped (set to 0, as a rank stop).
     used = int((np.linalg.norm(T, axis=0) > 0).sum())
-    deviation = np.triu(np.abs(T[:, :used].T @ T[:, :used] - np.eye(used))).max(axis=0)
+    deviation = np.triu(np.abs(T[:, :used].T @ T[:, :used] - np.eye(used))).max(axis=0, initial=0)
     lost = np.flatnonzero(deviation > 1e-6)  # T-iter rtol (METHODS.md §1)
     if lost.size:
         warnings.warn(
@@ -287,6 +288,8 @@ def _simpls(
             ),
             stacklevel=3,
         )
+        for matrix in (R, T, P, Q):
+            matrix[:, lost[0] :] = 0.0
     norms = np.linalg.norm(R, axis=0)
     # Step 7: B = R Q' (back in original X and Y units, as scikit-learn's coef_)
     return {
