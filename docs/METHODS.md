@@ -210,7 +210,7 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 - **Formula.** d_xy(i, j) = d_x(i, j) / max d_x + d_y(i, j) / max d_y, with d_x as in Kennard–Stone and d_y(i, j) = ‖yᵢ − yⱼ‖₂ (|yᵢ − yⱼ| for one response).
 - **Steps.** 1 d_x · 2 d_y · 3 normalise each by its maximum · 4 sum · 5 Kennard–Stone order on d_xy.
 - **Parameters.** As Kennard–Stone (incl. `start`, N5); requires y (`requires: ["y"]`).
-- **Edge cases.** All y equal, or with groups all unit-mean y equal (max d_y = 0) → node error, proposed code `BLOCK_CONSTANT_RESPONSE` (N13); no silent fall-back to Kennard–Stone. NaN in y → removed at entry (N1).
+- **Edge cases.** All y equal, or with groups all unit-mean y equal (max d_y = 0, up to rounding: max d_y ≤ 10⁻¹⁰ · max |y|) → node error, proposed code `BLOCK_CONSTANT_RESPONSE` (N13); no silent fall-back to Kennard–Stone. NaN in y → removed at entry (N1).
 - **Reference values.** Hand-worked example (5 samples, 1 response) where SPXY and KS give different orders.
 - **Tolerance.** Exact (orders equal); distances `T-exact`.
 - **Implementation.** Port pengoo SPXY distance (`Dx/max + Dy/max`).
