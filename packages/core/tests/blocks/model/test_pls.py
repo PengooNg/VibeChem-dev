@@ -19,11 +19,17 @@ from vibechem_core.block import (
     parse_params,
     save_state,
 )
-from vibechem_core.blocks.model.pls import PLS, PLSParams, predict_sweep
+from vibechem_core.blocks.model.pls import (
+    BLOCK_PLS_COMPONENTS_CAPPED,
+    BLOCK_PLS_EQUIVALENT_MLR,
+    PLS,
+    PLSParams,
+    predict_sweep,
+)
 from vibechem_core.blocks.preprocess.scaling import Autoscale, ScalingParams
 from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE, BLOCK_MISSING_VALUES
 from vibechem_core.data import Axis, SpectralDataset
-from vibechem_core.errors import BlockInputError, ParamError
+from vibechem_core.errors import BlockInputError, ParamError, VibeChemWarning
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
 from vibechem_core.testing import assert_close, assert_reference
 
@@ -167,7 +173,9 @@ def test_lv_sweep_equals_separate_fits(k: int, check: Any, scale: bool) -> None:
 def test_pls2_with_all_components_is_least_squares() -> None:
     # Full-rank X0 and A = p: PLS spans the same space as ordinary least squares.
     X, Y = random_data(30, 5, 3, seed=4)
-    state = PLS().fit(make_dataset(X, Y), params(n_components=5))
+    with pytest.warns(VibeChemWarning) as caution:
+        state = PLS().fit(make_dataset(X, Y), params(n_components=5))
+    assert [w.message.code for w in caution] == [BLOCK_PLS_EQUIVALENT_MLR]  # type: ignore[union-attr]
     design = np.column_stack([np.ones(30), X])
     beta = np.linalg.lstsq(design, Y, rcond=None)[0]
     X_new = X[:4] - 0.3
@@ -218,11 +226,27 @@ def test_state_round_trip(tmp_path: Path) -> None:
     )
 
 
+def test_searched_maximum_is_capped_at_n_min() -> None:
+    # Quan 2026-11-26: a searched maximum above n_min = min(n - 1, p) is capped, with a
+    # warning, and n_min components warn that the fit equals MLR.
+    X, y = random_data(6, 4, 1, seed=9)
+    data = make_dataset(X, y)
+    with pytest.warns(VibeChemWarning) as caught:
+        state = PLS().fit(data, params(n_components=20))
+    found = [(w.message.code, w.message.params) for w in caught]  # type: ignore[union-attr]
+    assert found == [
+        (BLOCK_PLS_COMPONENTS_CAPPED, {"from": 20, "to": 4}),
+        (BLOCK_PLS_EQUIVALENT_MLR, {"n_components": 4}),
+    ]
+    assert state.values["n_components"] == 4
+    assert predict_sweep(state, data).shape == (5, 6, 1)
+
+
 def test_errors() -> None:
     X, y = random_data(6, 4, 1, seed=8)
     data = make_dataset(X, y)
     with pytest.raises(ParamError) as too_many:
-        PLS().fit(data, params(n_components=5))  # bound = min(6 - 1, 4) = 4
+        PLS().fit(data, params(n_components=5, n_components_mode="fixed"))  # n_min = 4
     assert too_many.value.code == BLOCK_PARAM_INVALID
     assert too_many.value.params["constraint"] == "1 <= n_components <= 4"
 

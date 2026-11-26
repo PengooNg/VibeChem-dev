@@ -14,7 +14,11 @@ Implementation: scikit-learn ``PLSRegression`` (NIPALS), wrapped; LV sweep own N
 Fitted:         Yes (means, weights, loadings and rotations learned in ``fit``)
 Reviewer:       Quan
 
-``apply`` predicts with all ``n_components`` latent variables; :func:`predict_sweep`
+``n_components_mode`` says what ``n_components`` is (Quan, 2026-11-26): ``search_max``
+(default) is the upper end of the LV sweep, capped at n_min = min(n_train - 1, p) with
+warning ``BLOCK_PLS_COMPONENTS_CAPPED``; ``fixed`` is the chosen model size, and above
+n_min the block does not run. A fit with exactly n_min components warns
+``BLOCK_PLS_EQUIVALENT_MLR``. ``apply`` predicts with all fitted latent variables; :func:`predict_sweep`
 gives the predictions for every LV count 0 ... A from the same fit. When the
 ``y_transform`` input (a scaling block fitted with ``target = y``) is connected, the
 state keeps its mean and scale and every prediction is mapped back to original Y
@@ -24,6 +28,7 @@ units (METHODS.md §1, #y-scaling). The predictions table has the columns
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -42,7 +47,12 @@ from vibechem_core.block import (
 from vibechem_core.blocks.preprocess import check_axis
 from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE, BLOCK_MISSING_VALUES
 from vibechem_core.data import Axis, AxisUnit, SpectralDataset
-from vibechem_core.errors import BlockInputError, ErrorParam, ParamError
+from vibechem_core.errors import BlockInputError, ErrorParam, ParamError, VibeChemWarning
+
+# Warning: the searched maximum LV count was above n_min and was capped (``from``, ``to``).
+BLOCK_PLS_COMPONENTS_CAPPED = "BLOCK_PLS_COMPONENTS_CAPPED"
+# Warning: fitted with n_min components, which equals multiple linear regression.
+BLOCK_PLS_EQUIVALENT_MLR = "BLOCK_PLS_EQUIVALENT_MLR"
 
 # State array name -> PLSRegression attribute (the means and SDs are private in 1.9.1).
 _FITTED_ATTRIBUTES = {
@@ -62,6 +72,7 @@ _FITTED_ATTRIBUTES = {
 @dataclass(frozen=True)
 class PLSParams:
     n_components: int = Param(20, min=1)
+    n_components_mode: str = Param("search_max", choices=("search_max", "fixed"))
     scale: bool = Param(False, advanced=True)
 
 
@@ -91,9 +102,15 @@ class PLS(Block):
     ) -> State:
         y = _response(spectra)
         X = _no_nan(spectra.X, y)
-        A = params.n_components
+        n_lv = params.n_components
         bound = min(spectra.n_samples - 1, spectra.n_variables)
-        if bound < A:
+        if bound < n_lv and params.n_components_mode == "search_max" and bound >= 1:
+            warnings.warn(
+                VibeChemWarning(BLOCK_PLS_COMPONENTS_CAPPED, {"from": n_lv, "to": bound}),
+                stacklevel=2,
+            )
+            n_lv = bound
+        elif bound < n_lv:  # fixed size above n_min, or a single training row
             raise ParamError(
                 BLOCK_PARAM_INVALID,
                 {
@@ -105,11 +122,15 @@ class PLS(Block):
         if bool((np.ptp(y, axis=0) == 0).all()):
             raise BlockInputError(BLOCK_CONSTANT_RESPONSE, {"port_id": "spectra"})
         inverse = _inverse_arrays(y_transform, spectra.y_columns, y)
+        if bound == n_lv:
+            warnings.warn(
+                VibeChemWarning(BLOCK_PLS_EQUIVALENT_MLR, {"n_components": n_lv}), stacklevel=2
+            )
 
         # Step 1: Centre X and Y with the training means (scale = true also divides by
         # the training SDs, ddof 1; Q4). Step 2: NIPALS loop; scikit-learn makes the
         # largest-|w| element of each weight vector positive (sign rule N16)
-        pls: Any = PLSRegression(n_components=A, scale=params.scale, max_iter=500, tol=1e-06)
+        pls: Any = PLSRegression(n_components=n_lv, scale=params.scale, max_iter=500, tol=1e-06)
         pls.fit(X, y)
         fit = {
             name: np.asarray(getattr(pls, attribute), dtype=np.float64)
@@ -133,7 +154,7 @@ class PLS(Block):
         }
         return State(
             {
-                "n_components": A,
+                "n_components": n_lv,
                 "scale": params.scale,
                 "y_columns": list(spectra.y_columns),
                 "axis_unit": spectra.axis.unit,
