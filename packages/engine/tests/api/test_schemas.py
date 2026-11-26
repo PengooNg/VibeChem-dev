@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from vibechem_core.block import Block
 from vibechem_core.blocks.model.pls import PLS
+from vibechem_core.blocks.model.plsda import PLSDA
 from vibechem_core.blocks.preprocess.cut import Cut
 from vibechem_core.blocks.preprocess.detrend import Detrend
 from vibechem_core.blocks.preprocess.msc import MSC
@@ -42,6 +43,7 @@ from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, Wavele
         *(MeanCentre, Autoscale, Pareto, RandomSplit, KennardStone, SPXY),
         *(KFold, VenetianBlinds, ContiguousBlocks, LeaveOneOut, RepeatedKFold, GroupKFold),
         PLS,
+        PLSDA,
     ],
 )
 def test_block_detail_is_valid_and_round_trips(block: type[Block]) -> None:
