@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -86,6 +87,26 @@ def test_failure_sets_exit_code_and_prints_failed_output_only(
     assert "---- types: FAIL ----" in out
     assert "boom from pyright" in out
     assert "---- format/lint" not in out
+    assert "types .............. FAIL" in out
+
+
+def test_output_not_encodable_by_the_console_is_replaced_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for #42: a cp932 (Japanese Windows) stdout cannot encode these characters.
+    raw = io.BytesIO()
+    stdout = io.TextIOWrapper(raw, encoding="cp932")
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    class UnicodeRunner(FakeRunner):
+        def __call__(self, args: Sequence[str]) -> check.CommandResult:
+            result = super().__call__(args)
+            return check.CommandResult(result.returncode, result.output + " — ✓ �")
+
+    assert check.main([], runner=UnicodeRunner(fail_on="pyright")) == 1
+    stdout.flush()
+    out = raw.getvalue().decode("cp932")
+    assert "boom from pyright ? ? ?" in out
     assert "types .............. FAIL" in out
 
 
