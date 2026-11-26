@@ -6,13 +6,13 @@
 ## Now
 | Phase | Branch | Phase PR | Last merged step | Next step | Updated | Machine |
 |---|---|---|---|---|---|---|
-| 1 | `phase-1` | #32 | T1.14 Metrics | T1.15 gate PR #57 ready (👤); S1 #58 first | 2026-11-26 | laptop |
+| 1 | `phase-1` | #32 | BUG #58 SPXY groups (#59) | T1.15 gate PR #57 ready for Quan's merge (👤); then #32 → `main` | 2026-11-27 | laptop |
 
 ## Needs you
 <!-- One line per open item: date · step · stop code · exact action · PR. Remove the line when resolved (move it to Stops with "resolved"). -->
-- 2026-11-26 · T1.15 · S1_BUG + HUMAN_STEP · decide #58 (SPXY, suspected S1; recommended: a `[BUG #58]` fix on `phase-1` before the phase merge), then the Phase 1 gate decisions in "Phase gates", merge #57, then the phase PR #32 · #57, #32
+- 2026-11-27 · T1.15 · HUMAN_STEP · gate decisions recorded ("Phase gates"); run QA §9.1 item 2, merge #57 into `phase-1`, then #32 into `main` (merge commit); then Dependabot #25/#26 into `main` · #57, #32
+- 2026-11-27 · Phase 1 gate · side task · R script for R32 (SIMPLS PLS2, VIP) in RStudio; deliver the JSON, a later step adds it to `testdata/expected/` · R32
 - 2026-11-25 · T1.00b · noted · pengoo defects found while porting (TECH_STACK.md §11.2): **D1** MSC slope off by n/(n−1); **D2** per-fold preprocessing refits MSC/centring/scaling on the validation fold (LOO + centring/autoscaling → validation spectra all zero, wrong RMSECV). Re-check earlier pengoo results made with those settings. VibeChem is not affected (fitted blocks)
-- 2026-11-25 · T1.00b · approve at the Phase 1 gate · proposed catalog rows (SNIP baseline P0, median smoothing P0, ISO 12099 bias/slope tests P0, rank-rotate split P1, MW-PLS P1), Duplex added to T1.10, PyWavelets candidate; the **(T1.04)** behaviour choices are answered in T1.04 · #30
 - 2026-11-25 · repo · noted · remote branch `PengooNg-patch-1` ("Add files via upload") holds pengoo `model_metrics.py` on GitHub — against D-016 (pengoo is not stored in the repo). Delete that branch on GitHub if it was not meant to be there (Claude Code does not delete other branches)
 - 2026-11-25 · CI · noted · macOS jobs cancelled after about 15 min with no runner (PRs #8, #24, #28); workaround `gh run rerun <id> --failed`; marked by Quan for later · issue #29
 - 2026-11-24 · tools · QUESTION · apply the gate fix patch (false denies on `'\n'` and on commands that only *mention* the gate) — see the `[SYNC] Tools + permission gate` PR. (The Bun + gstack setup part is obsolete: gstack is dropped in tooling v0.5.)
@@ -21,7 +21,7 @@
 | Date | Step | Result | PR | Size est → actual (cp) | Reuse decision | Notes |
 |---|---|---|---|---|---|---|
 | 2026-11-27 | BUG #58 | S1 fix (R37, R38; decision by Quan 2026-11-27: use recommendation on #58): `split.spxy` raises `BLOCK_CONSTANT_RESPONSE` when the unit-mean max d_y is 0 up to rounding (≤ 1e-10 · max |y|; equal group-mean y gave NaN distances and an input-order split); one shared helper `vibechem_core.blocks.group_codes` for `sampling_units` (split) and the fold blocks, so an empty group label raises `BLOCK_INPUT_REQUIREMENT_MISSING` everywhere. Regression tests: equal group-mean repro from the issue, permuted series (means differ by 5.6e-17); empty label in KS, SPXY, random | #59 | S (2) → 3 | reuse — folds `_groups` moved to `blocks/__init__.py` | Group numbering unchanged (first appearance in splits, sorted in folds); whitespace-only labels left open (R47) |
-| 2026-11-26 | T1.15 | Phase 1 gate. `packages/core/tests/test_published_result.py`: Mevik & Wehrens (2007) gasoline protocol end to end with Phase 1 blocks (`validate.loo` → `model.pls` → `cv_metrics`/`regression_metrics`), LOO RMSECV 0–10 LV, test RMSEP 1–10 LV, cumulative X variance (31 report rows, `T-pub`). `vibechem-core` 0.1.0; CI `wheels` jobs build the core wheel and run `scripts/smoke_core_wheel.py` from the installed wheel on 3 OS (run 45838520289 green). Gate report in "Phase gates"; audits mle-reviewer, silent-failure-hunter, cpp-reviewer, ponytail-audit, ponytail-debt → R37–R46; council: go with conditions | #57 | M (3) → 3 | reuse — own blocks + metrics; `uv build`; smoke script modelled on `smoke_engine.py` | Stopped S1_BUG: #58 (SPXY group-mean fallback) found by mle-reviewer, blocks the phase merge. Fixed a literal NUL byte in RISKS.md R35 (made the file binary for grep) |
+| 2026-11-26 | T1.15 | Phase 1 gate. `packages/core/tests/test_published_result.py`: Mevik & Wehrens (2007) gasoline protocol end to end with Phase 1 blocks (`validate.loo` → `model.pls` → `cv_metrics`/`regression_metrics`), LOO RMSECV 0–10 LV, test RMSEP 1–10 LV, cumulative X variance (31 report rows, `T-pub`). `vibechem-core` 0.1.0; CI `wheels` jobs build the core wheel and run `scripts/smoke_core_wheel.py` from the installed wheel on 3 OS (run 45838520289 green). Gate report in "Phase gates"; audits mle-reviewer, silent-failure-hunter, cpp-reviewer, ponytail-audit, ponytail-debt → R37–R46; council: go with conditions | #57 | M (3) → 3 | reuse — own blocks + metrics; `uv build`; smoke script modelled on `smoke_engine.py` | Stopped S1_BUG: #58 (SPXY group-mean fallback) found by mle-reviewer, blocks the phase merge. Fixed a literal NUL byte in RISKS.md R35 (made the file binary for grep). 2026-11-27: merged `phase-1` (#59) into the branch, recorded Quan's gate decisions (TASKS v0.9: T2.00, R39/R40 guards; ADR-010 accepted; METRIC codes accepted; R48 gasoline licence) |
 | 2026-11-26 | T1.14 | `vibechem_core.metrics`: `regression_metrics` (c/cv/p, METHODS §8 names: RMSE, bias = mean(ŷ − y), SEP ddof 1, R² with the set mean, slope/intercept of y on ŷ, RPD, RPIQ, RSS/PRESS), `cv_metrics` (`pooled` default / `fold_mean`; RPDcv, RPIQcv divide by the reported RMSECV), `fold_rmse`; `confusion_matrix`, `accuracy`, `sensitivity`, `specificity`, `roc_auc` (binary; macro one-vs-rest). Undefined → NaN + `METRIC_UNDEFINED`; ISO 12099 small sets → `METRIC_FEW_SAMPLES` (both proposed in DATA_MODEL §7). Tests: 5-sample and 6-sample hand values, identity RMSE² = ē² + SEP²(n−1)/n, unequal folds 3 + 2, gasoline LOO RMSECV (pooled, per-fold y autoscaling, original units) vs Mevik & Wehrens 2007 (`T-pub`), 3-class confusion matrix, AUC by pair counting. Review fixed: constant y missed by rounding (exact-zero sum of squares), labels outside `classes` dropped silently, empty input; RMSE 0 → RPD/RPIQ NaN (not inf); open: R36 | #56 | S (2) → 3 | port pengoo `regression_metrics` + RMSECV aggregation definitions; scikit-learn `confusion_matrix`, `roc_auc_score`; rest one NumPy line each | Per-fold SD/SE, repeated-CV aggregation and classification names in `Results.metrics` left to T2.10a (R36) |
 | 2026-11-26 | T1.13 | `vibechem_core.blocks.model.plsda.PLSDA` (`model.plsda`, requires `classes`): sorted class list, G-column indicator matrix (NumPy, also for two classes), PLS2 fit through `model.pls` (NIPALS, `scale = false`; `n_components`/`n_components_mode` with the PLS rules); max rule, ties → lowest class index; predictions table `row_index`, `sample_id`, `class_pred`, `score_<class>` (DATA_MODEL §4.2 `Results`); one class → `BLOCK_CONSTANT_RESPONSE`. Tests: hand-worked binary example (4 × 2, A = 1, exact fractions), tie, row sums = 1 and binary rule "score > 0.5" (2–4 classes), olive_oil_ftir leave-one-oil-out accuracy ≥ 0.90 at 16 LV (loose floor, R34); review findings left open: R35 | #55 | S (2) → 2 | reuse — our `model.pls` block; NumPy indicator (one line, not `LabelBinarizer`) | Per-fold "class missing from a training fold" warning left to the CV loop (engine, Phase 2): the block only sees training rows |
 | 2026-11-26 | T1.12b | `model.pls` parameter `algorithm` (`nipals` default, `simpls`): own SIMPLS (de Jong 1993, steps checked against R `pls` `simpls.fit`), same `n_components`/`n_components_mode`/`scale` rules and sign rule; state arrays keep their names (SIMPLS: W = R with unit columns, unit-length T); rank stop (no covariance left) and precision drop (`BLOCK_PLS_PRECISION_LOST`: scores lose orthonormality > 1e-6, components dropped) warn. `vip(state, n_lv)` ported from pengoo `calculate_vip` (PLS1/PLS2). Reference: gasoline T-pub for SIMPLS; SIMPLS = NIPALS (PLS1); PLS2 against de Jong criterion solved directly; full rank = OLS; VIP hand calculation (A = 1, 2), Σ VIP² = p, PLS2 [y, y] = PLS1 | #54 | M (3) → 4 | build SIMPLS (no maintained SIMPLS in the stack; `mbpls`/`pyls` not worth a dependency), port VIP | QUESTION answered by Quan 2026-11-26 ("yes all three"): SIMPLS VIP uses R with unit columns (MATLAB `plsregress` convention); components dropped on precision loss with `BLOCK_PLS_PRECISION_LOST`; `algorithm` default `nipals`. R reference values not obtained (R32); constant-X gap (R33) |
@@ -64,7 +64,8 @@
 ## Stops
 | Date | Step | Code | What was needed | Resolved (date, how) |
 |---|---|---|---|---|
-| 2026-11-26 | T1.15 | S1_BUG, HUMAN_STEP | Suspected S1 #58 (SPXY) from the gate mle-reviewer; Phase 1 gate review and merges | — |
+| 2026-11-26 | T1.15 | S1_BUG, HUMAN_STEP | Suspected S1 #58 (SPXY) from the gate mle-reviewer; Phase 1 gate review and merges | S1_BUG resolved 2026-11-27: Quan approved the recommendation, fixed in #59; gate decisions recorded 2026-11-27; HUMAN_STEP (merges) open |
+| 2026-11-25 | T1.00b | HUMAN_STEP (gate item) | Approve proposed catalog rows, Duplex, PyWavelets candidate | resolved 2026-11-27 at the Phase 1 gate: all approved |
 | 2026-11-26 | T1.12b | QUESTION | Confirm VIP weights for SIMPLS models (R, unit columns), dropping SIMPLS components on precision loss, `algorithm` default `nipals` | 2026-11-26, Quan: yes to all three |
 | 2026-11-26 | T1.12a | QUESTION | Confirm the `model.pls` port layout (DATA_MODEL §4.5) and the `n_components` bound rule | 2026-11-26, Quan: layout accepted; fixed size above n_min → error, searched maximum above n_min → capped with warning, n_min components → MLR caution warning |
 | 2026-11-26 | T1.10 | QUESTION | `group_aware` default and the multi-output return convention | 2026-11-26, Quan: both accepted (`group_aware` default true; several data outputs → dict keyed by `port_id`, DATA_MODEL §4.2); recorded in T1.11 |
@@ -77,7 +78,7 @@
 <!-- Gate report per CLAUDE.md §14.4: exit criteria + evidence, health summary, estimate accuracy, reuse ratio, ADR recommendations, QA §9.1 items, open issues, Quan's decision. -->
 
 ### Phase 1 gate — Core library (prepared 2026-11-26, T1.15)
-**Quan's decision:** _pending_ (S1 #58 first, then the decisions below, QA §9.1 item 2, merge `phase-1 → main`).
+**Quan's decision:** go (chat, 2026-11-27) — every item below decided; S1 #58 fixed in #59. Left for Quan: QA §9.1 item 2, merge #57, then `phase-1 → main` (#32).
 
 **Exit criteria and evidence**
 | Criterion | Evidence | Met |
@@ -86,13 +87,13 @@
 | About 15 blocks pass reference tests | 19 method blocks (cut, SNV, MSC, detrend, Savitzky–Golay, mean-centre, autoscale, Pareto, random/KS/SPXY split, k-fold, venetian, contiguous, LOO, repeated k-fold, group k-fold, PLS, PLS-DA), each with a reference test against an independent value; plus 7 readers and the metrics module; `reports/reference_report.md` 237/237 within tolerance | yes |
 | A published PLS result reproduced | `packages/core/tests/test_published_result.py`: Mevik & Wehrens (2007) gasoline protocol end to end with Phase 1 blocks (`validate.loo` → `model.pls` → `cv_metrics` / `regression_metrics`): LOO RMSECV 0–10 LV, test RMSEP 1–10 LV, cumulative X variance 1–10 LV, 31 rows within `T-pub` rtol 1e-3 (report method "Published result (PLS, LOO)"). Intercept-only test RMSEP not compared (pls uses the test-set mean; PROVENANCE.md) | yes |
 
-**Health summary** (`uv run python scripts/check.py --fast` on `t1-15-phase-gate` = `phase-1` @ `562190a` + this PR, Windows laptop)
+**Health summary** (`uv run python scripts/check.py --fast` on `t1-15-phase-gate` = `phase-1` @ `078187a` (incl. BUG #58 fix #59) + this PR, Windows laptop, 2026-11-27)
 ```
 VibeChem health summary
 format/lint ........ PASS
 types .............. PASS
 boundaries ......... PASS
-tests .............. PASS  (997 passed, 0 failed) (app: 29 passed, 0 failed)
+tests .............. PASS  (1002 passed, 0 failed) (app: 29 passed, 0 failed)
 reference report ... PASS  (237/237 within tolerance)
 leakage suite ...... SKIP  (arrives in T2.05)
 golden pipeline .... SKIP  (arrives in T2.13)
@@ -105,7 +106,7 @@ coverage ........... PASS  core 99% | engine 99% | native 87%
 | Tests passing on 3 OS | yes (CI `check` jobs on every step PR) |
 | Coverage | core 99 % · engine 99 % · native 87 % · app not measured |
 | Blocks with reference tests / total | 19 / 19 method blocks (+ 7 readers, metrics) |
-| Open S1/S2 bugs | **1 S1 (suspected): #58** SPXY group-mean fallback (R37) |
+| Open S1/S2 bugs | 0 — S1 #58 (SPXY group-mean fallback, R37) fixed in #59 on 2026-11-27 |
 | Nightly pass rate | not tracked yet (nightly runs on `main` + newest `phase-*`; no S2 nightly issue open) |
 | Speed-up | n/a in Phase 1 (engine executor is T2.07) |
 | Installer size | unchanged from Phase 0 (no packaging change) |
@@ -150,25 +151,25 @@ GO WITH CONDITIONS. Exit criteria met with CI evidence (wheel on 3 OS, 237/237, 
 ADR-001…009 stay `Accepted`; no new evidence against them in Phase 1.
 
 **For Quan's gate review (decisions)**
-1. **#58 / R37 (S1, suspected):** confirm severity; approve the bug PR before the phase merge.
-2. **R34:** PLS-DA olive-oil check at fixed 16 LV with a 0.90 floor (leave-one-oil-out). Recommended: keep it as a regression floor (not a validation of the published 96 %), replace the fixed LV with nested CV in T2.10b.
-3. **R35:** fitted `State` carries no `block_id`; empty class label accepted. Recommended: stamp `block_id`/`version` into states in T2.03 (format), reject `""` class labels at dataset build.
-4. **R36:** per-fold SD/SE, repeated-CV aggregation and classification metric names → T2.10a. Recommended: accept the hand-over.
-5. **DATA_MODEL §7 proposed codes** `METRIC_UNDEFINED` (reasons `n_lt_2`, `constant_y`, `constant_prediction`, `zero_rmse`, `class_absent`, `only_class`) and `METRIC_FEW_SAMPLES` (ISO 12099: SEP 20, bias 10). Recommended: accept (drop the *proposed T1.14* marks).
-6. **METHODS §8 rule** RMSE = 0 (perfect fit) → RPD, RPIQ = NaN with `METRIC_UNDEFINED` (`zero_rmse`), not infinity. Recommended: accept.
-7. **R32:** SIMPLS PLS2 and VIP have no values from other software (R not installed). Recommended: run the small R script on any machine with R and add the values to `testdata/expected/` in Phase 2; treat SIMPLS PLS2/VIP as provisional until then.
-8. **ADR-010:** accept.
-9. Carried over: T1.00b proposed catalog rows (#30); gasoline dataset licence (deferred at Phase 0); R13 `narwhals<2.29.0` constraint can be dropped after 2026-12-01; Dependabot #25–#27 against `main`; R15 branch `PengooNg-patch-1`.
+1. **#58 / R37 (S1, suspected):** confirm severity; approve the bug PR before the phase merge. Decision by Quan: recommendation approved; fixed in #59 (R37, R38 closed; R47 open).
+2. **R34:** PLS-DA olive-oil check at fixed 16 LV with a 0.90 floor (leave-one-oil-out). Recommended: keep it as a regression floor (not a validation of the published 96 %), replace the fixed LV with nested CV in T2.10b. Decision by Quan: accepted as recommended.
+3. **R35:** fitted `State` carries no `block_id`; empty class label accepted. Recommended: stamp `block_id`/`version` into states in T2.03 (format), reject `""` class labels at dataset build. Decision by Quan: accepted as recommended.
+4. **R36:** per-fold SD/SE, repeated-CV aggregation and classification metric names → T2.10a. Recommended: accept the hand-over. Decision by Quan: accepted as recommended (T2.10a).
+5. **DATA_MODEL §7 proposed codes** `METRIC_UNDEFINED` (reasons `n_lt_2`, `constant_y`, `constant_prediction`, `zero_rmse`, `class_absent`, `only_class`) and `METRIC_FEW_SAMPLES` (ISO 12099: SEP 20, bias 10). Recommended: accept (drop the *proposed T1.14* marks). Decision by Quan: accepted; marks removed in DATA_MODEL §7.
+6. **METHODS §8 rule** RMSE = 0 (perfect fit) → RPD, RPIQ = NaN with `METRIC_UNDEFINED` (`zero_rmse`), not infinity. Recommended: accept. Decision by Quan: accepted.
+7. **R32:** SIMPLS PLS2 and VIP have no values from other software (R not installed). Recommended: run the small R script on any machine with R and add the values to `testdata/expected/` in Phase 2; treat SIMPLS PLS2/VIP as provisional until then. Decision by Quan: option B — Quan runs an R script himself in RStudio as a side task (`pls` SIMPLS PLS2 on oliveoil; `plsVarSel` VIP PLS1 on gasoline rows 1–50; `mixOmics` VIP PLS2 on oliveoil with autoscaled Y); the script is not added to the repo. SIMPLS PLS2/VIP stay provisional until he delivers the JSON; a later step adds it to `testdata/expected/` with reference tests. VIP on SIMPLS models stays provisional (no R equivalent; MATLAB `plsregress` convention). R32 updated, still open.
+8. **ADR-010:** accept. Decision by Quan: accepted (ARCHITECTURE.md ADR-010 status `Accepted`, D-023 updated, D-025 added).
+9. Carried over: T1.00b proposed catalog rows (#30); gasoline dataset licence (deferred at Phase 0); R13 `narwhals<2.29.0` constraint can be dropped after 2026-12-01; Dependabot #25–#27 against `main`; R15 branch `PengooNg-patch-1`. Decision by Quan: gasoline data (Kalivas 1997, copy from R `pls`) kept as the popular published benchmark — recorded in PROVENANCE.md, new risk R48 (re-check the licence before any installer bundles it as demo data; the unreleased CI skeleton installers still copy `testdata/` until T4.01). #30 T1.00b candidates all approved: SNIP baseline P0, median smoothing P0, ISO 12099 bias/slope tests P0, rank-rotate split P1, MW-PLS P1 and Duplex marked approved in FUNCTION_CATALOG.md (and METHODS #duplex); PyWavelets approved as a TECH_STACK §11 candidate (not installed). Dependabot: Quan merges #25/#26 into `main` after #32 merges; #27 (app majors, red CI) closed by Quan — Phase 4 outline item T4.11b added. R13 and R15 unchanged (noted).
 
 **QA.md §9.1 items for this phase (Quan, on his machine)**
 2. **Reference result:** `uv run pytest packages/core/tests/test_published_result.py -q` passes, and the `reports/reference_report.md` rows "Published result (PLS, LOO)" match Mevik & Wehrens (2007) section 2 (e.g. RMSECV 2 LV 0.2966, test RMSEP 2 LV 0.2445). Optional wheel check: `uv build --package vibechem-core --wheel --out-dir dist`, then `uv run --isolated --no-project --python 3.14 --with dist/vibechem_core-0.1.0-py3-none-any.whl python -I scripts/smoke_core_wheel.py` → `PASS`.
 
 Item 1 (installer) is unchanged since Phase 0 (no packaging change); items 3–10 arrive in later phases.
 
-**Next phase:** Phase 2 is already detailed in TASKS.md; Phases 3 and 4 are detailed at the Phase 2 gate (T2.14). Suggested Phase 2 additions from this gate (Quan approves): a small first step for R42 (CI false passes), and the R39/R40 lines in the T2.04/T2.05/T2.10a "Done when".
+**Next phase:** Phase 2 is already detailed in TASKS.md; Phases 3 and 4 are detailed at the Phase 2 gate (T2.14). Suggested Phase 2 additions from this gate (Quan approves): a small first step for R42 (CI false passes), and the R39/R40 lines in the T2.04/T2.05/T2.10a "Done when". Decision by Quan: approved — TASKS.md v0.9 adds **T2.00 CI false-pass guards 👤** (workflow parts done in the step; the `merge_step.py` required-names and `check.py` exit-5 parts are Quan-only files, prepared as patches) with its status row, the R39 guard in T2.05, and the R40 guard (row_index helper, offset row_index test) in T2.04 and T2.10a.
 
 ### Phase 0 gate — Foundations + walking skeleton (prepared 2026-11-24, T0.15)
-**Quan's decision:** _pending_ (install test, QA §9.1 items 1–2, risk review, ADR decisions, merge `phase-0 → main`).
+**Quan's decision:** go, 2026-11-24 (decision log D-022) — ADR-003…009 accepted (provisional; set to `Accepted` in tooling v0.5, D-024), ADR-007 in-memory pickling to loky workers only, Quasar port-max under ADR-009, Phase 1 sizes revised, new step T1.00; Windows install test passed ("Gate decisions" below). Quan merged `phase-0 → main` on 2026-11-25 (#8, merge commit `a4098d0`). *Filled in retroactively at the Phase 1 gate (2026-11-27) from D-022 and the git history.*
 
 **Exit criteria and evidence**
 | Criterion | Evidence | Met |

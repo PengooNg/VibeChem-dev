@@ -1,6 +1,7 @@
 # VibeChem — Tasks
 
-> Status: v0.8 · Last updated: 2026-11-26
+> Status: v0.9 · Last updated: 2026-11-27
+> v0.9: Phase 1 gate (Quan, 2026-11-27) — new first Phase 2 step **T2.00 CI false-pass guards** (R42); leakage and row_index guards in the T2.04, T2.05 and T2.10a "Done when" (R39, R40); Phase 4 outline gains app dependency major upgrades (Dependabot #27).
 > v0.8: tooling v0.5 — K removed from the workflow: the `· K ·` / `· Q ·` area tags are gone from the step headings, Quan reviews everything (CLAUDE.md §10), risks go to `docs/RISKS.md`.
 > v0.7: T1.00b pengoo port inventory (Quan's request) — Phase 1 and T2.10 reuse lines name the pengoo function to port and the defect to fix (TECH_STACK.md §11.2); Duplex in T1.10 *proposed (T1.00b)*.
 > v0.6: T1.00 Quasar port inventory — Phase 1 and Phase 6 reuse lines name the Quasar/Orange module to port or the library to wrap (TECH_STACK.md §11.1); **T1.06b vendor readers** *proposed (T1.00)* — Quan approves by merging the T1.00 PR, or deletes the T1.06b row and block.
@@ -33,8 +34,8 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
-| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.01 Port types |
-| | [x] T1.00b pengoo port inventory | |
+| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.00 CI false-pass guards 👤 |
+| | [x] T1.00b pengoo port inventory | [ ] T2.01 Port types |
 | [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
 | [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
 | [x] T0.04 App workspace | [x] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
@@ -301,6 +302,12 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ## Phase 2 — Pipeline engine (`vibechem_engine`)
 **Exit:** nested-CV pipeline runs from the CLI; identical results on 1 and 8 cores; ≥ 4× speed-up on 8 cores; leakage suite passes; pipeline format v1 frozen.
 
+### T2.00 · CI false-pass guards 👤 · Size S
+- **Read:** `docs/RISKS.md` R42 (also R01, R20, R21); `.github/workflows/ci.yml`, `.github/workflows/nightly.yml`; `scripts/merge_step.py`, `scripts/check.py`
+- **Reuse:** — (CTest `--no-tests=error`, GitHub Actions status functions)
+- **Do:** `ctest --no-tests=error` in the `check` and `sanitizer` jobs; nightly report job `if: failure() || cancelled()` so a cancelled or timed-out run also opens the S2 issue. `scripts/merge_step.py` (refuse unless every expected required job name passed) and `scripts/check.py` (pytest exit 5, nothing collected → FAIL) are Quan-only files (R21): prepare each as a patch with a failing test in `scripts/tests/`, attach it to the PR and stop `HUMAN_STEP`; Quan applies the patches and merges.
+- **Done when:** a CI run with a test-less CTest build fails; the nightly condition is visible in the workflow; both patches attached with failing-first tests; R42 updated. 👤 Quan: apply the two patches, merge.
+
 ### T2.01 · Port type registry · Size S
 - **Read:** DATA_MODEL.md §4; `vibechem_core/block.py`
 - **Reuse:** —
@@ -325,13 +332,13 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Reuse:** —
 - **Files:** `vibechem_engine/compiler/`
 - **Do:** user graph → task graph; fit/apply split; per-fold expansion hooks.
-- **Done when:** compiled task graphs for 3 example pipelines match expected structures.
+- **Done when:** compiled task graphs for 3 example pipelines match expected structures; fold rows are taken by `row_index` through one helper (e.g. `SpectralDataset.rows(row_index)`), never as positions, with a failing-first test on a dataset whose `row_index` is offset from its positions (R40).
 
 ### T2.05 · Leakage rules and leakage test suite · Size M
 - **Read:** ARCHITECTURE.md §3.2; QA.md §3 (leakage); PRD.md F-42
 - **Reuse:** scikit-learn `Pipeline` + `cross_val_score` as the independent reference in tests
 - **Files:** `compiler/leakage.py`, `packages/engine/tests/leakage/`
-- **Done when:** leaky pipelines rejected with `PIPELINE_LEAKAGE`; noise-data tests show no score inflation. Test design summarised in the PR for Quan's spot-check at the gate.
+- **Done when:** leaky pipelines rejected with `PIPELINE_LEAKAGE`; noise-data tests show no score inflation; an MSC `reference` input wired from rows outside the training set (e.g. the unsplit dataset) is rejected, with a failing-first test (R39). Test design summarised in the PR for Quan's spot-check at the gate.
 
 ### T2.06 · Content-addressed cache · Size M
 - **Read:** ARCHITECTURE.md §2.3, §3.3
@@ -361,7 +368,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Reuse:** scikit-learn `ParameterGrid`; pengoo (TECH_STACK.md §11.2): LV rules from `select_n_components`/`find_knee` (T2.10a); grid search from `grid_search.py` — fixed-order product, dedup, shared folds, LV sweep per fold, Excel pipeline list (T2.10b). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
 - **Files:** `vibechem_engine/runners/`
 - **Do:** CV runner, nested CV (inner tuning of LVs, preprocessing chains, selection params), grid search, LV selection rules. METHODS.md entries for CV and LV rules must exist (add them in T2.10a and stop `HUMAN_STEP` for Quan's approval if they are new).
-- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset.
+- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset. T2.10a also: the CV runner selects fold rows by `row_index` through the T2.04 helper (not positions), tested on an offset `row_index` dataset, and asserts one out-of-fold prediction per row per repeat (R40, R41).
 
 ### T2.11 · Python API and CLI · Size S
 - **Read:** TECH_STACK.md §7; `graph/`, `runners/`
@@ -390,7 +397,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 T3.01 production native build hardening · T3.02 sanitizer + clang-tidy gating · T3.03–T3.06 one step per hotspot kernel from the T2.12 profiling report (likely KS/SPXY, CARS, SPA, PDS windows), each with a Python reference, equivalence tests and automatic fallback — **only if no existing fast implementation can be reused** and NumPy/SciPy vectorisation is not enough · every step gets a cpp-reviewer pass (TOOLS.md §3) · T3.07 phase gate 👤.
 
 ## Phase 4 — Engine API + UI (outline; detailed at the Phase 2 gate)
-T4.01 full engine server (DATA_MODEL §2; remove the skeleton endpoint) · T4.02 WebSocket events (§3) · T4.03 OpenAPI → TS client · T4.04 preview service (decimation, density) · **T4.04g glyph set and block widget 👤** (Claude Code drafts glyphs for all P0 blocks and the block node at three zoom levels per UI_GUIDE §4/§6 and Quan's preferences in §4.0, as a contact-sheet page with variants via `prototype`; S3 recognition study 👤; Quan picks, UI_GUIDE §4 loses its *draft* mark) · T4.05 block library panel · T4.06 canvas with typed ports and states · T4.07 auto-generated inspector (evaluate JSON-schema form libraries first) · T4.08 spectra viewer QoL · T4.09 jobs panel · T4.10 i18n completeness check (+ break-ui with long JA/VI strings) · T4.11 engine restart handling in UI · T4.12 phase gate 👤 (details Phase 5).
+T4.01 full engine server (DATA_MODEL §2; remove the skeleton endpoint) · T4.02 WebSocket events (§3) · T4.03 OpenAPI → TS client · T4.04 preview service (decimation, density) · **T4.04g glyph set and block widget 👤** (Claude Code drafts glyphs for all P0 blocks and the block node at three zoom levels per UI_GUIDE §4/§6 and Quan's preferences in §4.0, as a contact-sheet page with variants via `prototype`; S3 recognition study 👤; Quan picks, UI_GUIDE §4 loses its *draft* mark) · T4.05 block library panel · T4.06 canvas with typed ports and states · T4.07 auto-generated inspector (evaluate JSON-schema form libraries first) · T4.08 spectra viewer QoL · T4.09 jobs panel · T4.10 i18n completeness check (+ break-ui with long JA/VI strings) · T4.11 engine restart handling in UI · T4.11b app dependency major upgrades (TypeScript 7, ESLint 10, Vite 8, Vitest 5, electron-vite 6, React 19.3; R11, Dependabot #27 closed by Quan) · T4.12 phase gate 👤 (details Phase 5).
 
 ## Phase 5 — Desktop hardening · Alpha (outline; detailed at the Phase 4 gate)
 T5.01 production Electron shell + supervision · T5.02 engine bundle size budget · T5.03 installers + first-launch guide (EN/JA/VI) · T5.04 update check + diagnostics · T5.05 e2e tests (Playwright) for core flows · T5.06 S5 usability test 👤 · T5.07 phase gate 👤 (= Alpha; details Phase 6).
