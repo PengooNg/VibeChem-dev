@@ -17,13 +17,18 @@ from vibechem_core.blocks.preprocess.cut import Cut
 from vibechem_core.blocks.preprocess.detrend import Detrend
 from vibechem_core.blocks.preprocess.msc import MSC
 from vibechem_core.blocks.preprocess.savgol import SavitzkyGolay
+from vibechem_core.blocks.preprocess.scaling import Autoscale, MeanCentre, Pareto
 from vibechem_core.blocks.preprocess.snv import SNV
 from vibechem_core.testing import DummyCenter, DummyOffset, DummySchema
 from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, WavelengthRangesParam
 
 
 @pytest.mark.parametrize(
-    "block", [DummyOffset, DummyCenter, DummySchema, Cut, SNV, MSC, Detrend, SavitzkyGolay]
+    "block",
+    [
+        *(DummyOffset, DummyCenter, DummySchema, Cut, SNV, MSC, Detrend, SavitzkyGolay),
+        *(MeanCentre, Autoscale, Pareto),
+    ],
 )
 def test_block_detail_is_valid_and_round_trips(block: type[Block]) -> None:
     detail = json.loads(json.dumps(block.metadata().to_detail_dict()))  # as sent over HTTP

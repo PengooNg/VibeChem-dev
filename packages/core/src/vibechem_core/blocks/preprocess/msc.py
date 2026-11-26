@@ -24,8 +24,12 @@ from typing import cast
 
 import numpy as np
 
-from vibechem_core.block import BLOCK_INPUT_AXIS_MISMATCH, Block, NoParams, State, port
-from vibechem_core.blocks.preprocess import BLOCK_CONSTANT_SPECTRA, BLOCK_MSC_SLOPE_INVALID
+from vibechem_core.block import Block, NoParams, State, port
+from vibechem_core.blocks.preprocess import (
+    BLOCK_CONSTANT_SPECTRA,
+    BLOCK_MSC_SLOPE_INVALID,
+    check_axis,
+)
 from vibechem_core.data import Axis, AxisUnit, SpectralDataset
 from vibechem_core.errors import BlockInputError, ErrorParam
 
@@ -51,7 +55,7 @@ class MSC(Block):
         # Step 1: Reference spectrum m: column mean of the training rows, or the user's
         # reference input (mean of its rows; one row = that spectrum)
         if reference is not None:
-            _check_axis("reference", reference.axis, spectra.axis)
+            check_axis("reference", reference.axis, spectra.axis)
         source = spectra if reference is None else reference
         m = source.X.mean(axis=0)
         kind = "mean" if reference is None else "input"
@@ -75,7 +79,7 @@ class MSC(Block):
         X = spectra.X
         m = state.arrays["m"]
         fitted_axis = Axis(state.arrays["axis"], cast(AxisUnit, state.values["axis_unit"]))
-        _check_axis("spectra", spectra.axis, fitted_axis)
+        check_axis("spectra", spectra.axis, fitted_axis)
 
         # Step 2: Least-squares fit x_i = a_i + b_i * m for all spectra in one solve
         # (D1: never cov(x, m) / var(m) with mixed ddof)
@@ -97,23 +101,3 @@ class MSC(Block):
             f"MSC(reference={state.values['reference']}, rows={state.values['n_reference_rows']})"
         )
         return spectra.with_X(X_msc, step=step)
-
-
-def _check_axis(port_id: str, found: Axis, expected: Axis) -> None:
-    """``BLOCK_INPUT_AXIS_MISMATCH`` unless ``found`` equals ``expected`` (DATA_MODEL.md
-    §4.5: same unit and values, relative tolerance 1e-9)."""
-    same = (
-        found.unit == expected.unit
-        and found.p == expected.p
-        and bool(np.allclose(found.values, expected.values, rtol=1e-9, atol=0))
-    )
-    if not same:
-        raise BlockInputError(
-            BLOCK_INPUT_AXIS_MISMATCH,
-            {"port_id": port_id, "expected": _describe(expected), "found": _describe(found)},
-        )
-
-
-def _describe(axis: Axis) -> str:
-    values = axis.values
-    return f"{axis.p} points, {values[0]:g} to {values[-1]:g} {axis.unit}"
