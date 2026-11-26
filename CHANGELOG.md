@@ -30,3 +30,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `scripts/check.py` no longer crashes with `UnicodeEncodeError` when its output goes to a console that cannot show every character (for example a Japanese cp932 Windows console); such characters are printed as `?` (#42).
+- The permission gate no longer blocks Bash commands that mention `~` only in a shell comment (`# ~ approx`, also in heredoc lines) or in quoted text (`"~ 5 s"`); real home-folder paths such as `~/.ssh` are still blocked (#44).
