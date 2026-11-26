@@ -40,16 +40,10 @@ from sklearn.model_selection import LeaveOneGroupOut  # pyright: ignore[reportMi
 from sklearn.model_selection import LeaveOneOut as SkLeaveOneOut  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 from sklearn.model_selection import RepeatedKFold as SkRepeatedKFold  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
-from vibechem_core.block import (
-    BLOCK_INPUT_REQUIREMENT_MISSING,
-    BLOCK_PARAM_INVALID,
-    Block,
-    NoParams,
-    Param,
-    port,
-)
+from vibechem_core.block import BLOCK_PARAM_INVALID, Block, NoParams, Param, port
+from vibechem_core.blocks import group_codes
 from vibechem_core.data import Fold, FoldSet, SpectralDataset
-from vibechem_core.errors import BlockInputError, ParamError
+from vibechem_core.errors import ParamError
 
 FOLDS_OUTPUT = (port("folds", "Folds"),)
 
@@ -78,19 +72,6 @@ def _check_k(k: int, n_units: int) -> None:
             BLOCK_PARAM_INVALID,
             {"param_id": "k", "reason": "constraint", "constraint": f"2 <= k <= {n_units}"},
         )
-
-
-def _groups(spectra: SpectralDataset) -> NDArray[np.intp]:
-    """Group number of each row (groups in sorted label order).
-
-    Absent groups or an empty group label raise ``BLOCK_INPUT_REQUIREMENT_MISSING``.
-    """
-    labels = spectra.group_ids
-    if labels is None or "" in labels:
-        raise BlockInputError(
-            BLOCK_INPUT_REQUIREMENT_MISSING, {"port_id": "spectra", "requirement": "groups"}
-        )
-    return np.unique(np.asarray(labels), return_inverse=True)[1]
 
 
 def _seeds(seed: int, rng: np.random.Generator | None) -> tuple[int, int]:
@@ -228,7 +209,7 @@ class LeaveOneOut(Block):
 
     def apply(self, spectra: SpectralDataset, params: NoParams) -> FoldSet:  # noqa: ARG002
         n = spectra.n_samples
-        groups = None if spectra.group_ids is None else _groups(spectra)
+        groups = None if spectra.group_ids is None else group_codes(spectra)
 
         # Step 1: One fold per row, or with groups one fold per group (groups in
         # sorted label order)
@@ -288,7 +269,7 @@ class GroupKFold(Block):
         params: ShuffledFoldParams,
         rng: np.random.Generator | None = None,
     ) -> FoldSet:
-        groups = _groups(spectra)
+        groups = group_codes(spectra)
         _check_k(params.k, int(groups.max()) + 1)
 
         # Step 1: Assign whole groups to k folds: shuffled groups cut into k near-equal

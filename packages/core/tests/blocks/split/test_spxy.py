@@ -59,6 +59,34 @@ def test_constant_response_is_an_error_not_a_fallback() -> None:
     assert info.value.code == BLOCK_CONSTANT_RESPONSE
 
 
+@pytest.mark.parametrize(
+    ("y", "size"),
+    [
+        ([1.0, 2.0] * 4, 2),  # every group mean exactly 1.5
+        ([0.1, 0.2, 0.3, 0.3, 0.2, 0.1], 3),  # means 0.2 differ by 5.6e-17 (summing order)
+    ],
+)
+def test_equal_group_mean_response_is_an_error(y: list[float], size: int) -> None:
+    # issue #58 (R37): rows differ but every group has the same mean y, so the unit-mean
+    # max d_y is 0 (or rounding noise); this gave NaN or noise distances, not SPXY
+    n = len(y)
+    data = SpectralDataset(
+        np.random.default_rng(0).normal(size=(n, 3)),
+        Axis(np.arange(1.0, 4.0), "nm"),
+        signal_unit="absorbance",
+        sample_ids=[f"s{i}" for i in range(n)],
+        row_index=np.arange(n),
+        source_id="ds_test",
+        group_ids=[f"g{i // size}" for i in range(n)],
+        y=[[v] for v in y],
+        y_columns=["c"],
+        y_units=["%"],
+    )
+    with pytest.raises(BlockInputError) as info:
+        SPXY().apply(data, KennardStoneParams())
+    assert info.value.code == BLOCK_CONSTANT_RESPONSE
+
+
 def test_constant_y_with_uneven_groups_is_caught_before_averaging() -> None:
     # Means of 0.1 over groups of 3 and 2 rows differ by rounding noise (~1e-17).
     data = make_dataset(np.arange(14.0).reshape(7, 2), [[0.1]] * 7)

@@ -67,9 +67,10 @@ class SPXY(Block):
         d_y = squareform(pdist(y))
 
         # Step 3: Normalise each by its maximum (all y equal -> error, no fall-back to KS)
-        # checked on the rows: unit means of equal values can differ by rounding noise
+        # on the unit means, up to rounding: groups can share one mean y while rows differ,
+        # and means of the same values summed in another order differ in the last bits
         max_x, max_y = float(d_x.max()), float(d_y.max())
-        if not np.ptp(spectra.y, axis=0).any():
+        if max_y <= 1e-10 * float(np.abs(spectra.y).max()):
             raise BlockInputError(BLOCK_CONSTANT_RESPONSE, {"port_id": "spectra"})
         max_x = max_x or 1.0  # identical spectra: the x term is 0 for every pair
 
