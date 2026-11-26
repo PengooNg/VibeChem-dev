@@ -147,3 +147,8 @@ def test_pca_variance_keeps_fewest_components_above_the_fraction() -> None:
     for variance, k in ((0.99, 1), (0.995, 2)):
         params = parse_params(KennardStoneParams, {"space": "pca", "variance": variance})
         assert distance_space(X, params).shape == (4, k)
+
+
+def test_identical_spectra_give_a_full_order() -> None:
+    order = ks_order(np.zeros((4, 4)), np.zeros(4), "most_distant")
+    assert order.tolist() == [0, 1, 2, 3]

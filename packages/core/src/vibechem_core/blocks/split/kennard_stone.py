@@ -72,7 +72,8 @@ def ks_order(D: NDArray[np.float64], to_mean: NDArray[np.float64], start: str) -
     if n <= 2:
         return np.arange(n, dtype=np.intp)
     if start == "most_distant":
-        first = list(np.unravel_index(int(np.argmax(D)), D.shape))
+        i, j = (int(v) for v in np.unravel_index(int(np.argmax(D)), D.shape))
+        first = [i, j] if i != j else [0, 1]  # all distances 0: argmax is the diagonal (0, 0)
     else:
         first = [int(np.argmin(to_mean))]
     order = np.empty(n, dtype=np.intp)

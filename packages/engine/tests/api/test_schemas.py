@@ -19,6 +19,9 @@ from vibechem_core.blocks.preprocess.msc import MSC
 from vibechem_core.blocks.preprocess.savgol import SavitzkyGolay
 from vibechem_core.blocks.preprocess.scaling import Autoscale, MeanCentre, Pareto
 from vibechem_core.blocks.preprocess.snv import SNV
+from vibechem_core.blocks.split.kennard_stone import KennardStone
+from vibechem_core.blocks.split.random_split import RandomSplit
+from vibechem_core.blocks.split.spxy import SPXY
 from vibechem_core.testing import DummyCenter, DummyOffset, DummySchema
 from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, WavelengthRangesParam
 
@@ -27,7 +30,7 @@ from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, Wavele
     "block",
     [
         *(DummyOffset, DummyCenter, DummySchema, Cut, SNV, MSC, Detrend, SavitzkyGolay),
-        *(MeanCentre, Autoscale, Pareto),
+        *(MeanCentre, Autoscale, Pareto, RandomSplit, KennardStone, SPXY),
     ],
 )
 def test_block_detail_is_valid_and_round_trips(block: type[Block]) -> None:

@@ -590,6 +590,7 @@ Summary `content`: `{ "kind", "producer", "n_fitted": n, ... block-specific (e.g
 | `seed` | int \| null | Seed used (null for deterministic schemes) |
 
 Summary `content`: `{ "scheme", "n_folds", "n_repeats", "n_samples", "groups_respected" }`.
+Core: `vibechem_core.data.FoldSet` with `Fold(fold, repeat, train, validation)` entries *(T1.10)*. Hold-out split blocks set `groups_respected: false` when the input has `group_ids` and `group_aware` is off; the engine turns that into `VALIDATION_GROUPS_IGNORED`. A block with several data outputs returns a dict keyed by output `port_id` *(proposed T1.10)*.
 
 **`Results`**
 | Field | Type | Notes |
@@ -767,6 +768,8 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |
 | `BLOCK_AXIS_NOT_UNIFORM` | warning (node) | `core/blocks/preprocess` | Savitzky–Golay: the axis steps deviate by more than 1 % from the mean step, so derivatives are taken per point (`params.max_deviation`: largest relative deviation, e.g. `0.46`) *(proposed T1.08)* |
 | `BLOCK_CONSTANT_COLUMNS` | warning (node) | `core/blocks/preprocess` | Autoscaling/Pareto: training columns with zero variance are centred and left unscaled (scale 1) (`params.columns`: column positions in X, or in y with `target = y`) *(proposed T1.09)* |
+| `BLOCK_CONSTANT_RESPONSE` | node error | `core/blocks/split` | SPXY: every response value is equal, so the y term of the joint distance is undefined (METHODS.md N13; no fall-back to Kennard–Stone); `params.port_id` *(proposed T1.10)* |
+| `BLOCK_SPLIT_STRATUM_TOO_SMALL` | warning (node) | `core/blocks/split` | Stratified random split: strata with fewer than 2 sampling units are put in training (`params.strata`: stratum labels — class names, or y-bin numbers from 0) *(proposed T1.10)* |
 | `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3); scaling blocks with `target = y` raise it themselves when y is absent or its columns differ from the fitted ones (`params.port_id`, `params.requirement` = `y`, `params.expected`: fitted y column names) *(proposed T1.09)* |
 | `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
 | `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |
