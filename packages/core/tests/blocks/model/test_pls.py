@@ -420,6 +420,7 @@ def assert_against_r(actual: Any, expected: Any, *, method: str, dataset: str, t
     """One report row per array: the element furthest outside T-iter (METHODS §1)."""
     a, e = np.asarray(actual, dtype=np.float64), np.asarray(expected, dtype=np.float64)
     assert a.shape == e.shape, f"{method} on {dataset}: shape {a.shape} != {e.shape}"
+    assert np.isfinite(e).all(), f"{method} on {dataset}: non-finite R value"  # NaN == NaN passes
     i = np.unravel_index(np.argmax(np.abs(a - e) / (1e-9 + 1e-6 * np.abs(e))), a.shape)
     assert_reference(method=method, dataset=f"{dataset}, worst element {tuple(map(int, i))}",
                      actual=float(a[i]), expected=float(e[i]), rtol=1e-6, atol=1e-9,
