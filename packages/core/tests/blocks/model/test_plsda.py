@@ -67,11 +67,12 @@ def test_binary_matches_hand_calculation() -> None:
 
 
 def test_tie_goes_to_the_lowest_class_index() -> None:
-    X = [[0.0, 0.0], [1.0, 2.0], [2.0, 1.0], [3.0, 3.0]]
-    state = PLSDA().fit(make_dataset(X, "bbaa"), params(n_components=1))
-    table = PLSDA().apply(make_dataset([[1.5, 1.5]], None), params(), state)  # at the mean
-    assert table["score_a"][0] == table["score_b"][0] == 0.5
-    assert table["class_pred"][0] == "a"
+    X, y = clustered(1, ["a", "b", "c", "b", "c"], seed=3)  # class shares 1/5, 2/5, 2/5
+    state = PLSDA().fit(make_dataset(X, y), params(n_components=2, n_components_mode="fixed"))
+    at_mean = make_dataset([state.arrays["x_mean"]], None)  # prediction = training class shares
+    table = PLSDA().apply(at_mean, params(), state)
+    assert table["score_b"][0] == table["score_c"][0] > table["score_a"][0]
+    assert table["class_pred"][0] == "b"
 
 
 @pytest.mark.parametrize("labels", [["no", "yes"], ["c", "a", "b"], ["d", "b", "c", "a"]])

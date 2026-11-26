@@ -20,7 +20,10 @@ classes the rows of the predicted indicator matrix sum to 1, so the rule equals
 "score of the second class > 0.5". ``n_components`` and ``n_components_mode`` follow
 ``model.pls`` (same caps, warnings and errors); X and the indicator matrix are
 mean-centred only. The predictions table has the columns ``row_index``, ``sample_id``,
-``class_pred`` and ``score_<class>`` (DATA_MODEL.md §4.2 ``Results``).
+``class_pred`` and ``score_<class>`` (DATA_MODEL.md §4.2 ``Results``). ``apply`` uses all fitted latent
+variables; the state is a ``model.pls`` state plus ``classes``, so
+:func:`vibechem_core.blocks.model.pls.predict_sweep` gives the scores for every LV count
+(argmax over the last axis = predicted class index) for choosing the LV count in CV.
 """
 
 from __future__ import annotations
