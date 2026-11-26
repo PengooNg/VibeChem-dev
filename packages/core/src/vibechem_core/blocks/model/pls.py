@@ -104,24 +104,22 @@ class PLS(Block):
         X = _no_nan(spectra.X, y)
         n_lv = params.n_components
         bound = min(spectra.n_samples - 1, spectra.n_variables)
-        if bound < n_lv and params.n_components_mode == "search_max" and bound >= 1:
+        capped = bound < n_lv and params.n_components_mode == "search_max" and bound >= 1
+        if bound < n_lv and not capped:  # fixed size above n_min, or one training row
+            constraint = "n_train >= 2" if bound < 1 else f"1 <= n_components <= {bound}"
+            raise ParamError(
+                BLOCK_PARAM_INVALID,
+                {"param_id": "n_components", "reason": "constraint", "constraint": constraint},
+            )
+        if bool((np.ptp(y, axis=0) == 0).all()):
+            raise BlockInputError(BLOCK_CONSTANT_RESPONSE, {"port_id": "spectra"})
+        inverse = _inverse_arrays(y_transform, spectra.y_columns, y)
+        if capped:
             warnings.warn(
                 VibeChemWarning(BLOCK_PLS_COMPONENTS_CAPPED, {"from": n_lv, "to": bound}),
                 stacklevel=2,
             )
             n_lv = bound
-        elif bound < n_lv:  # fixed size above n_min, or a single training row
-            raise ParamError(
-                BLOCK_PARAM_INVALID,
-                {
-                    "param_id": "n_components",
-                    "reason": "constraint",
-                    "constraint": f"1 <= n_components <= {bound}",
-                },
-            )
-        if bool((np.ptp(y, axis=0) == 0).all()):
-            raise BlockInputError(BLOCK_CONSTANT_RESPONSE, {"port_id": "spectra"})
-        inverse = _inverse_arrays(y_transform, spectra.y_columns, y)
         if bound == n_lv:
             warnings.warn(
                 VibeChemWarning(BLOCK_PLS_EQUIVALENT_MLR, {"n_components": n_lv}), stacklevel=2

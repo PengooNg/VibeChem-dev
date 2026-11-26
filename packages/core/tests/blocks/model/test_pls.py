@@ -241,6 +241,14 @@ def test_searched_maximum_is_capped_at_n_min() -> None:
     assert state.values["n_components"] == 4
     assert predict_sweep(state, data).shape == (5, 6, 1)
 
+    with pytest.warns(VibeChemWarning) as fixed:
+        PLS().fit(data, params(n_components=4, n_components_mode="fixed"))
+    assert [w.message.code for w in fixed] == [BLOCK_PLS_EQUIVALENT_MLR]  # type: ignore[union-attr]
+    for mode in ("search_max", "fixed"):  # one training row: no LV possible
+        with pytest.raises(ParamError) as one_row:
+            PLS().fit(make_dataset(X[:1], y[:1]), params(n_components=2, n_components_mode=mode))
+        assert one_row.value.params["constraint"] == "n_train >= 2"
+
 
 def test_errors() -> None:
     X, y = random_data(6, 4, 1, seed=8)

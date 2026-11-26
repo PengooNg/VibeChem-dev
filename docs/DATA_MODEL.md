@@ -657,7 +657,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 | Slope/bias correction | `model: Model` · `reference: Spectra` (`requires: ["y"]`) | `model: Model` |
 | Domain adaptation (di-PLS) | `source: Spectra` (`requires: ["y"]`) · `target: Spectra` (`axis_match: source`, Y not needed) | `model: Model` |
 | Prediction map (`imaging.predict_map`) | `cube: ImageCube` · `model: Model` | `map: ImageCube` (one band per predicted Y column / class score) |
-| PLS regression (`model.pls`) *(accepted, Quan 2026-11-26)* | `spectra: Spectra` (`requires: ["y"]`) · `y_transform: Transform` (optional; a y scaling fitted with `target = y`, kept in the model state so every prediction is mapped back to original Y units, METHODS.md §1) | `predictions: Table` (`row_index`, `sample_id`, `y_pred_<col>` with all `n_components` LVs) · `model: Model` (`kind: regression`; state holds means, W, P, Q, R, T, B, explained variance; LV sweep from the state) |
+| PLS regression (`model.pls`) *(accepted, Quan 2026-11-26)* | `spectra: Spectra` (`requires: ["y"]`) · `y_transform: Transform` (optional; a y scaling fitted with `target = y`, kept in the model state so every prediction is mapped back to original Y units, METHODS.md §1) | `predictions: Table` (`row_index`, `sample_id`, `y_pred_<col>` with all fitted LVs) · `model: Model` (`kind: regression`; state holds means, W, P, Q, R, T, B, explained variance; LV sweep from the state) |
 | Refold (`imaging.refold`) | `spectra: Spectra` (`requires: ["spatial"]`) | `cube: ImageCube` |
 | ROI / mask (`imaging.roi`) | `cube: ImageCube` | `cube: ImageCube` (with `mask`) · `mean_spectra: Spectra` (one row per ROI) |
 
