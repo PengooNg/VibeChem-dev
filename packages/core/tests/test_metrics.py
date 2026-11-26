@@ -20,9 +20,14 @@ from vibechem_core.errors import VibeChemWarning
 from vibechem_core.metrics import (
     METRIC_FEW_SAMPLES,
     METRIC_UNDEFINED,
+    accuracy,
+    confusion_matrix,
     cv_metrics,
     fold_rmse,
     regression_metrics,
+    roc_auc,
+    sensitivity,
+    specificity,
 )
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
 from vibechem_core.testing import assert_close, assert_reference
@@ -30,6 +35,11 @@ from vibechem_core.testing import assert_close, assert_reference
 
 def exact(actual: Any, expected: Any, name: str) -> None:
     assert_close(actual, expected, rtol=1e-10, atol=1e-12, name=name)  # T-exact (METHODS §1)
+
+
+def hand(method: str, dataset: str, actual: float, expected: float) -> None:
+    assert_reference(method=method, dataset=dataset, actual=actual, expected=expected,
+                     rtol=1e-10, atol=1e-12, source="hand calculation (METHODS.md §8)")  # fmt: skip
 
 
 def codes(record: list[warnings.WarningMessage]) -> list[tuple[str, Any]]:
@@ -78,7 +88,7 @@ def test_regression_metrics_match_hand_calculation(set_: str) -> None:
         m = regression_metrics(Y, Y_PRED, set_)  # type: ignore[arg-type]
     assert list(m) == NAMES[set_]
     for name, key in zip(NAMES[set_], HAND, strict=True):
-        exact(m[name], HAND[key], name)
+        hand(f"Metric {name}", "hand calculation, 5 samples", m[name], HAND[key])
     sklearn_r2: float = r2_score(Y, Y_PRED)  # pyright: ignore[reportUnknownVariableType]
     exact(m[NAMES[set_][3]], sklearn_r2, "r2 vs scikit-learn")  # T-lib check
     # Identity RMSE^2 = bias^2 + SE^2 (n - 1) / n
@@ -179,3 +189,46 @@ def test_gasoline_loo_rmsecv_in_original_units_matches_published() -> None:
                          rtol=expected["tolerance"]["rtol"], atol=0.0,
                          source="Mevik & Wehrens 2007, testdata/expected/gasoline_nir_pls.json")  # fmt: skip
         exact(mae, float(np.abs(sweep[a] - y).mean()), "LOO fold_mean = mean absolute error")
+
+
+# 3-class example, worked by hand: rows true, columns predicted, classes a < b < c.
+TRUE = np.array(["a", "a", "a", "b", "b", "c", "c", "c"])
+PRED = np.array(["a", "a", "b", "b", "c", "c", "c", "a"])
+
+
+def test_classification_metrics_match_hand_calculation() -> None:
+    C = confusion_matrix(TRUE, PRED, ["a", "b", "c"])
+    np.testing.assert_array_equal(C, [[2, 1, 0], [0, 1, 1], [1, 0, 2]])
+    hand("Metric accuracy", "hand calculation, 3 classes", accuracy(C), 5 / 8)
+    exact(sensitivity(C, ["a", "b", "c"]), [2 / 3, 1 / 2, 2 / 3], "sensitivity")
+    # Specificity of a: rows b, c (5 samples), predicted not a: 2 + 2
+    exact(specificity(C, ["a", "b", "c"]), [4 / 5, 5 / 6, 4 / 5], "specificity")
+
+
+def test_roc_auc_matches_pair_counting() -> None:
+    # Positives 0.35, 1.3, 0.4 vs negatives -0.2, 0.4: 4 pairs right, one tie (1/2) of 6.
+    # PLS-DA scores outside [0, 1] are accepted.
+    scores = np.array([[0, -0.2], [0, 0.4], [0, 0.35], [0, 1.3], [0, 0.4]])
+    auc = roc_auc(np.array([0, 0, 1, 1, 1]), scores, [0, 1])
+    hand("Metric ROC-AUC (binary)", "pair counting, 5 samples", auc, 4.5 / 6)
+
+    # One-vs-rest per class: a 7/8, b 7.5/8 (one tie), c 7/8; macro mean.
+    true = np.array(["a", "a", "b", "b", "c", "c"])
+    scores = np.array([[0.9, 0.6, 0.7, 0.1, 0.2, 0.3],
+                       [0.1, 0.2, 0.8, 0.5, 0.5, 0.0],
+                       [0.0, 0.2, -0.5, 0.4, 0.3, 0.7]]).T  # fmt: skip
+    auc = roc_auc(true, scores, ["a", "b", "c"])
+    hand("Metric ROC-AUC (macro one-vs-rest)", "pair counting, 3 classes", auc, (7 + 7.5 + 7) / 24)
+
+
+def test_absent_class_gives_nan_with_coded_warnings() -> None:
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        C = confusion_matrix(np.array(["a", "a", "b"]), np.array(["a", "b", "b"]), ["a", "b", "c"])
+        assert math.isnan(sensitivity(C, ["a", "b", "c"])[2])
+        auc = roc_auc(np.array(["a", "a", "b"]), np.eye(3)[[0, 1, 1]], ["a", "b", "c"])
+    assert math.isnan(auc)
+    assert codes(record) == [
+        (METRIC_UNDEFINED, {"metric": "sensitivity", "class": "c", "reason": "class_absent"}),
+        (METRIC_UNDEFINED, {"metric": "auc", "class": "c", "reason": "class_absent"}),
+    ]

@@ -51,7 +51,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.15 Phase gate 👤 | [x] T1.12a PLS: NIPALS wrap + LV sweep | |
 | | [x] T1.12b PLS: SIMPLS + VIP | |
 | | [x] T1.13 PLS-DA | |
-| | [ ] T1.14 Metrics | |
+| | [x] T1.14 Metrics | |
 | | [ ] T1.15 Reproduce published result + gate 👤 | |
 
 Phases 3–7: outlines at the end of this file; their status rows are added when they are detailed.

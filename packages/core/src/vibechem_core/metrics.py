@@ -22,6 +22,8 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from sklearn.metrics import confusion_matrix as sk_confusion_matrix  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
+from sklearn.metrics import roc_auc_score  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
 from vibechem_core.errors import ErrorParam, VibeChemWarning
 
@@ -150,3 +152,59 @@ def cv_metrics(
     else:
         raise ValueError(f"unknown aggregation {aggregation!r}")
     return _regression(a, b, "cv", rmse)
+
+
+def confusion_matrix(y_true: ArrayLike, y_pred: ArrayLike, classes: ArrayLike) -> NDArray[np.int64]:
+    """C[t, p] = samples of true class t predicted as p, in the order of ``classes``."""
+    C: NDArray[np.int64] = sk_confusion_matrix(y_true, y_pred, labels=classes)  # pyright: ignore[reportUnknownVariableType]
+    return C
+
+
+def accuracy(C: NDArray[np.int64]) -> float:
+    """Fraction of samples on the diagonal of the confusion matrix."""
+    return float(np.trace(C) / C.sum()) if C.sum() else math.nan
+
+
+def _per_class(
+    num: NDArray[np.int64], den: NDArray[np.int64], classes: ArrayLike, metric: str, reason: str
+) -> NDArray[np.float64]:
+    labels = np.asarray(classes)
+    for g in np.flatnonzero(den == 0):
+        _warn(METRIC_UNDEFINED, metric=metric, reason=reason, **{"class": str(labels[g])})
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(den > 0, num / np.maximum(den, 1), np.nan)
+
+
+def sensitivity(C: NDArray[np.int64], classes: ArrayLike) -> NDArray[np.float64]:
+    """Per class: correctly predicted / samples of that class (NaN if the class is absent)."""
+    return _per_class(np.diag(C), C.sum(axis=1), classes, "sensitivity", "class_absent")
+
+
+def specificity(C: NDArray[np.int64], classes: ArrayLike) -> NDArray[np.float64]:
+    """Per class g: samples of other classes not predicted as g / samples of other classes."""
+    others = C.sum() - C.sum(axis=1)
+    not_predicted_g = others - (C.sum(axis=0) - np.diag(C))
+    return _per_class(not_predicted_g, others, classes, "specificity", "only_class")
+
+
+def roc_auc(y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike) -> float:
+    """ROC-AUC of the predicted values (``scores``: one column per class, ``classes`` order).
+
+    Binary: AUC of the second class's column. More classes: one-vs-rest AUC of each
+    class's column, then the unweighted mean (NaN if any class's AUC is undefined).
+    """
+    labels = np.asarray(classes)
+    truth = np.asarray(y_true)
+    s = np.asarray(scores, dtype=np.float64)
+    if s.shape != (truth.size, labels.size):
+        raise ValueError(f"scores need shape {(truth.size, labels.size)}, got {s.shape}")
+    aucs: list[float] = []
+    for g in [1] if labels.size == 2 else range(labels.size):
+        positive = truth == labels[g]
+        if positive.all() or not positive.any():
+            reason = "only_class" if positive.all() else "class_absent"
+            _warn(METRIC_UNDEFINED, metric="auc", reason=reason, **{"class": str(labels[g])})
+            aucs.append(math.nan)
+        else:
+            aucs.append(float(roc_auc_score(positive, s[:, g])))  # pyright: ignore[reportUnknownArgumentType]
+    return float(np.mean(aucs))
