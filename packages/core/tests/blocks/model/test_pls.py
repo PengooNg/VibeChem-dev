@@ -25,6 +25,7 @@ from vibechem_core.blocks.model.pls import (
     PLS,
     PLSParams,
     predict_sweep,
+    vip,
 )
 from vibechem_core.blocks.preprocess.scaling import Autoscale, ScalingParams
 from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE, BLOCK_MISSING_VALUES
@@ -102,20 +103,21 @@ def test_gasoline_matches_published_results(
     values = load_expected("gasoline_nir_pls")["values"]
     rtol = load_expected("gasoline_nir_pls")["tolerance"]["rtol"]  # T-pub
     state = PLS().fit(train, params(n_components=10, algorithm=algorithm))
+    pls = "PLS" if algorithm == "nipals" else "PLS (SIMPLS)"
 
     sweep = predict_sweep(state, test)
     y = test.y
     assert y is not None
     for a in range(1, 11):
         rmsep = float(np.sqrt(((sweep[a] - y) ** 2).mean()))
-        assert_reference(method="PLS RMSEP (test)", dataset=f"gasoline_nir, {a} LV",
+        assert_reference(method=f"{pls} RMSEP (test)", dataset=f"gasoline_nir, {a} LV",
                          actual=rmsep, expected=values["rmsep_test"][a], rtol=rtol, atol=0.0,
                          source=SOURCE)  # fmt: skip
-        assert_reference(method="PLS explained X variance", dataset=f"gasoline_nir, LV {a}",
+        assert_reference(method=f"{pls} explained X variance", dataset=f"gasoline_nir, LV {a}",
                          actual=100 * float(state.arrays["x_explained"][a - 1]),
                          expected=values["x_variance_explained_per_component_pct"][a - 1],
                          rtol=rtol, atol=0.0, source=SOURCE)  # fmt: skip
-        assert_reference(method="PLS explained Y variance", dataset=f"gasoline_nir, {a} LV",
+        assert_reference(method=f"{pls} explained Y variance", dataset=f"gasoline_nir, {a} LV",
                          actual=100 * float(state.arrays["y_explained"][:a].sum()),
                          expected=values["y_variance_explained_cumulative_pct"][a - 1],
                          rtol=rtol, atol=0.0, source=SOURCE)  # fmt: skip
@@ -124,7 +126,7 @@ def test_gasoline_matches_published_results(
     expected = values["test_predictions_2_components"]["octane"]
     for sample, actual, value in zip(test.sample_ids, predicted(PLS().apply(test, params(), two)),
                                      expected, strict=True):  # fmt: skip
-        assert_reference(method="PLS prediction", dataset=f"gasoline_nir, sample {sample}, 2 LV",
+        assert_reference(method=f"{pls} prediction", dataset=f"gasoline_nir, sample {sample}, 2 LV",
                          actual=float(actual[0]), expected=value, rtol=rtol, atol=0.0,
                          source=SOURCE)  # fmt: skip
 
@@ -327,3 +329,60 @@ def test_simpls_pls2_matches_de_jong_criterion() -> None:
         iterative(sweep[a], expected, f"a = {a}")
     T = state.arrays["scores"]
     lib(T.T @ T, np.eye(6), "unit-length, orthogonal scores")
+
+
+@pytest.mark.parametrize("algorithm", ["nipals", "simpls"])
+@pytest.mark.parametrize("k", [1, 3])
+def test_vip_squares_sum_to_p(k: int, algorithm: str) -> None:
+    X, Y = random_data(25, 10, k, seed=12)
+    state = PLS().fit(make_dataset(X, Y), params(n_components=5, algorithm=algorithm))
+    for n_lv in (1, 3, None):
+        assert_close((vip(state, n_lv) ** 2).sum(), 10.0, rtol=1e-10, atol=1e-12, name="sum")
+    with pytest.raises(ValueError, match="n_lv"):
+        vip(state, 0)
+
+
+def test_vip_matches_hand_calculation() -> None:
+    # NIPALS PLS1 by hand, A = 1 and A = 2: VIP_j = sqrt(p sum_a SS_a w_ja^2 / sum_a SS_a),
+    # SS_a = (t_a't_a) q_a^2 (METHODS.md#vip); A = 1 reduces to sqrt(p) |w_j|.
+    X, y = random_data(15, 6, 1, seed=13)
+    x0, y0 = X - X.mean(axis=0), (y - y.mean(axis=0))[:, 0]
+    ws: list[np.ndarray[Any, Any]] = []
+    ss: list[float] = []
+    for _ in range(2):
+        w = x0.T @ y0 / np.linalg.norm(x0.T @ y0)
+        t = x0 @ w
+        q = y0 @ t / (t @ t)
+        ws.append(w)
+        ss.append(float((t @ t) * q**2))
+        x0, y0 = x0 - np.outer(t, x0.T @ t / (t @ t)), y0 - t * q
+    W, SS = np.column_stack(ws), np.array(ss)
+    state = PLS().fit(make_dataset(X, y), params(n_components=2))
+    lib(vip(state, 1), np.sqrt(6) * np.abs(W[:, 0]), "A = 1")
+    for j, (actual, value) in enumerate(zip(vip(state), np.sqrt(6 * (W**2 @ SS) / SS.sum()),
+                                            strict=True)):  # fmt: skip
+        assert_reference(method="PLS VIP", dataset=f"random PLS1, variable {j}, 2 LV",
+                         actual=float(actual), expected=float(value), rtol=1e-10, atol=1e-12,
+                         source="hand calculation (NIPALS by hand)")  # fmt: skip
+
+
+def test_vip_pls2_sums_over_y_columns() -> None:
+    # Two identical y columns: the same components as PLS1, every SS_a doubled, same VIP.
+    X, y = random_data(20, 8, 1, seed=14)
+    one = vip(PLS().fit(make_dataset(X, y), params(n_components=4)))
+    two = vip(PLS().fit(make_dataset(X, np.column_stack([y, y])), params(n_components=4)))
+    iterative(two, one, "PLS2 [y, y] = PLS1 y")
+
+
+def test_simpls_stops_when_no_covariance_is_left() -> None:
+    # Rank-2 X: after 2 components S = 0; later components stay 0, as in scikit-learn.
+    rng = np.random.default_rng(15)
+    base = rng.normal(size=(10, 2))
+    X = np.column_stack([base, base.sum(axis=1), base[:, 0] - base[:, 1], 2 * base[:, 0]])
+    y = base @ np.array([1.0, -2.0]) + 0.1 * rng.normal(size=10)
+    data = make_dataset(X, y)
+    with pytest.warns(UserWarning, match="y residual is constant at iteration 2"):
+        state = PLS().fit(data, params(n_components=4, algorithm="simpls"))
+    sweep = predict_sweep(state, data)
+    iterative(sweep[4], sweep[2], "components 3, 4 add nothing")
+    assert np.isfinite(vip(state)).all()
