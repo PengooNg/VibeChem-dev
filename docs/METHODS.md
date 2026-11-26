@@ -280,7 +280,7 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 ### Group k-fold (`validate.group_kfold`) · T1.11
 - **Definition.** k-fold over groups: every group is in exactly one validation fold. Several group columns are combined into one label (`A|B`, as pengoo `validate_cv_groups`); a missing group label → node error (group labels are metadata; N1 covers X and y only).
 - **Parameters.** `k`, `shuffle`, `rng`.
-- **Implementation.** Wrap scikit-learn `GroupKFold(shuffle=True, random_state=…)` (needs scikit-learn ≥ 1.6; we pin 1.9.x).
+- **Implementation.** Wrap scikit-learn `GroupKFold(shuffle=True, random_state=…)` (needs scikit-learn ≥ 1.6; we pin 1.9.x): shuffled groups are cut into k sets whose group counts differ by at most one. With `shuffle` false scikit-learn instead gives the largest remaining group to the fold with the fewest rows (balanced rows, not balanced group counts). The dataset has one `group_ids` column, so combining several group columns into `A|B` happens where the group column is built (import), not in this block.
 - **Reference.** `esbensen2010validation`.
 
 ---

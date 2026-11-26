@@ -73,7 +73,7 @@ class RepeatedKFoldParams(FoldParams):
 
 def _check_k(k: int, n_units: int) -> None:
     """``BLOCK_PARAM_INVALID`` unless 2 <= k <= n_units (no silent switch to LOO, Q8)."""
-    if k > n_units:
+    if not 2 <= k <= n_units:  # k < 2 only through direct calls (parse_params checks min)
         raise ParamError(
             BLOCK_PARAM_INVALID,
             {"param_id": "k", "reason": "constraint", "constraint": f"2 <= k <= {n_units}"},
