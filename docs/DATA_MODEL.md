@@ -1,10 +1,10 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewers: K (API, formats), Quan (scientific fields)
+> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewer: Quan (API, formats, scientific fields)
 > v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
-> Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with K's approval), then implement.
+> Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with Quan's approval), then implement.
 > §1–§5 and §7 written (§4, §5 draft); §6 (T2.03) is filled in by that step.
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
@@ -518,7 +518,7 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 
 ---
 
-## 4. Port types *(DRAFT, T0.14 — Quan reviews; K confirms at demo v0)*
+## 4. Port types *(DRAFT, T0.14 — Quan reviews)*
 A port is a named, typed input or output of a block (PRD F-07). Every edge connects one output port to one input port. The engine checks types **statically** when a pipeline is validated (`PIPELINE_PORT_TYPE_MISMATCH`, §2.6 validate); checks that depend on the data (matching rows, axes, presence of Y) run when the block runs and set the node to `error` (§3 `node.state`). Implemented in T2.01 (`vibechem_engine/ports/`); the Python classes behind the types come from T1.01 (`SpectralDataset`) and T1.02a/b (block contract).
 
 ### 4.1 Type registry
@@ -673,7 +673,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
-## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews; K confirms at demo v0)*
+## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews)*
 The `params` list of `GET /blocks/{block_id}` (§2.3). The inspector form is generated from it (ADR-005), pipeline files store the values (`nodes[].params`, §2.6/§6), and the engine validates those values against it. Source of truth in code: `Param(...)` fields of a block's params dataclass (`vibechem_core.block`); `BlockMeta.to_detail_dict()` produces the `/blocks/{id}` object; `vibechem_engine.api.schemas.BlockDetail` (pydantic) is this section as a model and gives its JSON Schema.
 
 ### 5.1 Parameter entry

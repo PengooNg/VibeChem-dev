@@ -10,7 +10,7 @@ Reference:      Savitzky & Golay (1964), Anal. Chem. 36(8), 1627-1639;
 METHODS:        docs/METHODS.md#savgol
 Implementation: wraps scipy.signal.savgol_filter (one call on the whole matrix, axis=1)
 Fitted:         No (row-wise transform; safe inside CV without refitting)
-Reviewers:      algorithm -> Quan | structure -> K
+Reviewer:       Quan
 
 Edges follow ``mode`` (METHODS.md Q2): ``interp`` (default) fits the window's
 polynomial to the first and last ``window`` points and evaluates it at the edge

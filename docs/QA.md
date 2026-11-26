@@ -1,6 +1,7 @@
 # VibeChem — Quality Assurance & Testing
 
-> Status: v0.3 · Last updated: 2026-11-22 · Owners: Quan (scientific correctness), K (test infrastructure, from demo v0)
+> Status: v0.4 · Last updated: 2026-11-26 · Owner: Quan (scientific correctness and test infrastructure; agent lenses per CLAUDE.md §10)
+> v0.4 (tooling v0.5): ponytail's test-amount rule (CLAUDE.md "Precedence"); ponytail-review replaces code-review; K removed; risks in `docs/RISKS.md`.
 > v0.3: phase mode — step PRs merge automatically into `phase-N` when every check passes, so the automated checks and red-flag stops carry more weight; Quan's full review moves to the phase gate. Nightly also runs on the active phase branch. DoD aligned with CLAUDE.md §6.
 > Purpose: (1) tell Quan, without deep coding knowledge, whether the project is healthy; (2) let Claude Code find and fix bugs inside a small area of the code.
 
@@ -16,12 +17,12 @@
 | Level | When | What runs | Who looks |
 |---|---|---|---|
 | **L1a Checkpoint** | After each checkpoint, before its commit | `check.py --fast --only <area>` | Claude Code |
-| **L1b Ready** | Before a step PR is marked ready | Full `check.py --fast`: format, lint, types, boundaries, unit/property/reference/leakage tests, golden pipeline, app unit tests; code-review (+ security/a11y where required) | Claude Code (must be all PASS) |
+| **L1b Ready** | Before a step PR is marked ready | Full `check.py --fast`: format, lint, types, boundaries, unit/property/reference/leakage tests, golden pipeline, app unit tests; ponytail-review + the ECC agents for the areas touched (+ `/security-review` on 🔒, visual check on 👁) | Claude Code (must be all PASS) |
 | **L2 Step PR CI** | Every push to a step PR (base `phase-N`) | `ci.yml` on Windows, macOS, Linux + native wheels + sanitizer; `installers.yml` when packaging paths change. `merge_step.py` merges only when all are green | Automatic |
 | **L2b Phase PR CI** | Every merge into `phase-N` | `ci.yml` on the phase branch (the phase PR shows it) | Quan glances at the phase PR |
 | **L3 Nightly** | Every night on `main` and the active `phase-*` branch | Slow tests, nested-CV benchmark, determinism (1 vs N cores), e2e app tests, installers incl. macOS Intel | Failure opens an `S2` issue automatically |
-| **L4 Phase gate** | End of each phase | Gate report (CLAUDE.md §14.4), manual checklist (§9.1), spot-review of algorithms, risk review, estimate review | Quan (+ K from demo v0) |
-| **L5 Release** | Before each release | Release checklist (§9.2) on clean machines | Quan + K |
+| **L4 Phase gate** | End of each phase | Gate report (CLAUDE.md §14.4), manual checklist (§9.1), spot-review of algorithms, risk review (`docs/RISKS.md`: ponytail-audit, ponytail-debt, mle-reviewer, production-audit from Phase 5, infrastructure checklist §8), council go/no-go note, estimate review | Quan |
+| **L5 Release** | Before each release | Release checklist (§9.2) on clean machines | Quan |
 
 ## 3. Test types
 | Type | Purpose | Location | Example |
@@ -36,7 +37,7 @@
 | API contract | Engine responses match DATA_MODEL.md / OpenAPI | `packages/engine/tests/api/` | `/blocks` schema validation |
 | UI unit | Components behave | `app/renderer/src/**/*.test.tsx` | Inspector renders int param with min/max |
 | End-to-end | Real user flows in the desktop app (`@playwright/test`, from T0.10) | `app/e2e/` | Import CSV → build PLS → run → see metrics |
-| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui (+ gstack `/qa`, `/design-review` as extra reviewers) |
+| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui + accessibility-review |
 | Installer smoke | App starts after install | `installers.yml`, nightly | Install, launch, `/health` = ready, quit |
 | Performance | No speed regressions | `scripts/bench.py`, nightly | Preview < 300 ms; speed-up ≥ 4× on 8 cores |
 
@@ -44,7 +45,9 @@
 
 **Helpers** (`vibechem_core.testing`, T0.07): `assert_close(actual, expected, rtol=, atol=)` for every numeric comparison (tolerances always explicit, from METHODS.md); `assert_reference(method=, dataset=, actual=, expected=, rtol=, atol=, source=)` for reference tests — each call becomes a row of `reports/reference_report.md`; `node_hash` + `check_golden(data_regression, hashes, path)` for golden node snapshots (pytest-regressions; `--force-regen` rewrites them, a red flag in §4); `load_hypothesis_profile()` in each package's `tests/conftest.py` (`ci` profile: derandomized, 200 examples). Package boundaries are import-linter contracts in the root `pyproject.toml`.
 
-**Coverage targets** (enforced by `check.py` from T0.07; line coverage, floored to whole percent): `vibechem_core` ≥ 90 % · `vibechem_engine` ≥ 85 % · renderer ≥ 70 % · every block has ≥ 1 reference or property test (mandatory, regardless of coverage).
+**Coverage targets** (enforced by `check.py` from T0.07; line coverage, floored to whole percent): `vibechem_core` ≥ 90 % · `vibechem_engine` ≥ 85 % · renderer ≥ 70 % · every block has ≥ 1 **reference test against an independent value** (mandatory, regardless of coverage; property tests are optional).
+
+**How many tests** (ponytail, CLAUDE.md "Precedence"): non-trivial logic (a branch, a loop, a parser, numbers, security, data writes, a bug fix) gets one small test that fails when it breaks; trivial changes get none. For an algorithm block that one test is the reference test above. The golden and leakage suites and every existing test stay. The coverage floors above are still enforced by `check.py`.
 
 ## 4. Health signals and red flags
 `scripts/check.py` prints this summary; Claude Code pastes it into every step PR and the gate report:
@@ -87,18 +90,19 @@ The **reference report** (`reports/reference_report.md`, regenerated by every ch
 Short form and order of work: CLAUDE.md §7 (`/bug <issue>`). Additional rules:
 - Bug fixes branch from and merge into the **active phase branch**. A bug that must reach `main` before the gate (e.g. it breaks the last released build) → Quan decides; Claude Code stops with `QUESTION`.
 - If the cause is in a reused library: pin a working version, work around it in our wrapper, and draft an upstream issue for Quan to post — don't patch the library's code inside our repo unless it is vendored.
-- Scientific logic → Quan; engine/infra/C++/packaging → K backlog row until demo v0.
+- ponytail's bug rule: grep every caller of the touched function and fix the root cause once in the shared code.
+- Scientific logic → Quan; engine/infra/C++/packaging → Quan, with silent-failure-hunter / cpp-reviewer; an open concern → `docs/RISKS.md` row.
 
 **User bug reports** use the GitHub issue form: steps to reproduce, expected vs actual, "Copy diagnostics" output (versions, OS, last errors, run/node IDs — no user data), and optionally the pipeline file.
 
 ## 7. Definition of Done (every TASKS.md step) — same list as CLAUDE.md §6
 - [ ] Only the step's files (plus tests, docs, CHANGELOG, TASKS.md tick, PROGRESS.md) changed.
 - [ ] Plan as executed and reuse decision recorded in the PR; TECH_STACK.md §11 updated if a candidate was evaluated.
-- [ ] New/changed behaviour has tests (unit + reference/property for algorithms, incl. wrapped libraries).
+- [ ] Non-trivial new/changed logic has one small test; every algorithm block (incl. wrapped libraries) has a reference test against an independent value; bugs have a regression test.
 - [ ] Full `scripts/check.py --fast` PASS locally; CI green on 3 OS.
 - [ ] Docs updated if behaviour, fields or dependencies changed (DATA_MODEL, TECH_STACK, METHODS); `THIRD_PARTY.md` if code was copied; CHANGELOG entry if user-visible.
-- [ ] PR template complete (incl. estimate vs actual checkpoints), health summary pasted, code-review run.
-- [ ] PROGRESS.md updated (Now, Step log, K backlog row if applicable).
+- [ ] PR template complete (incl. estimate vs actual checkpoints), health summary pasted, ponytail-review + per-area agents run (+ `/security-review` on 🔒, visual check on 👁).
+- [ ] PROGRESS.md updated (Now, Step log); `docs/RISKS.md` row if a risk stays open.
 - [ ] Handoff note deleted; labels set; merged with `merge_step.py` (👤 steps: Quan merges).
 
 ## 8. Review checklists
@@ -111,7 +115,7 @@ Short form and order of work: CLAUDE.md §7 (`/bug <issue>`). Additional rules:
 6. Edge cases: constant spectra, one sample per group, missing values, tiny datasets?
 A problem found after merge → open an issue (`S1` if a number is wrong) and `/bug` it.
 
-**K — infrastructure review (from demo v0; until then each item goes into the PROGRESS.md backlog)**
+**Infrastructure checklist (Quan at phase gates, with cpp-reviewer and silent-failure-hunter; open items → `docs/RISKS.md`)**
 1. Does the change respect package boundaries and the block contract?
 2. Error handling: typed errors with codes; no silent failures?
 3. Resource safety: memory, threads, file handles, GIL release in C++?
@@ -134,7 +138,7 @@ Use the items that exist at that phase:
 | 8. Close and reopen the project; everything is restored | 4 |
 | 9. Switch language EN → JA → VI; no missing strings | 4 |
 | 10. Export a report; numbers and references are correct | 6 |
-Write findings as GitHub issues labelled `qa-gate`. S1/S2 findings block the phase merge.
+Write findings as GitHub issues labelled `qa-gate`. S1/S2 findings block the phase merge. `docs/RISKS.md` updated (new rows from the gate audits; reviewed rows get a new "Last reviewed" date).
 
 ### 9.2 Release (on clean machines/VMs for each OS)
 All §9.1 items, plus: first-launch guide works (unsigned app warnings), update check shows the new version, uninstall leaves no running processes, checksums match, macOS Intel and Apple Silicon both tested.
