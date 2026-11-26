@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.5",
     "openpyxl>=3.1.5,<3.2",
     "scikit-learn>=1.9,<1.10",
+    "scipy>=1.18,<1.19",
 ]
 
 [build-system]

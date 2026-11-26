@@ -1379,6 +1379,7 @@ dependencies = [
     { name = "numpy" },
     { name = "openpyxl" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -1388,6 +1389,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
     { name = "scikit-learn", specifier = ">=1.9,<1.10" },
+    { name = "scipy", specifier = ">=1.18,<1.19" },
 ]
 
 [[package]]
