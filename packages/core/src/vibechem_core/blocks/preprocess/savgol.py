@@ -61,8 +61,8 @@ class SavitzkyGolay(Block):
     def apply(self, spectra: SpectralDataset, params: SavitzkyGolayParams) -> SpectralDataset:
         lam = spectra.axis.values
 
-        # The window must fit in the spectrum (constraint w <= p, checked first so the
-        # spacing check below always has at least 3 points)
+        # Step 2: Validate w, P, d: bounds, odd w, P < w and d <= P by the parameter
+        # schema; w <= p here. Done before Step 1, which needs at least 3 axis points
         if params.window > spectra.n_variables:
             raise ParamError(
                 BLOCK_PARAM_INVALID,
@@ -84,7 +84,6 @@ class SavitzkyGolay(Block):
                 stacklevel=2,
             )
 
-        # Step 2: w, P and d were checked by the parameter schema and the guard above
         # Step 3: Least-squares polynomial of order P in each moving window of w points;
         # value (d = 0) or d-th derivative at the window centre, edges by mode
         X_sg = cast(

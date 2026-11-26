@@ -176,7 +176,7 @@ def test_slightly_uneven_axis_uses_the_mean_step_without_warning() -> None:
 
 
 def test_uneven_axis_falls_back_to_per_point_with_warning() -> None:
-    # Steps 1, 1, 1.5, 1, ...: deviation of the 1.5 step from the mean step 1.025 is 46 %.
+    # Steps 1, ..., 1, 0.5, 1, ...: the 0.5 step deviates from the mean step 0.975 by 49 %.
     lam = np.concatenate([np.arange(10.0), 9.5 + np.arange(11.0)])
     mean_step = (lam[-1] - lam[0]) / (lam.size - 1)
     expected_deviation = float(np.abs(np.diff(lam) - mean_step).max() / mean_step)
