@@ -59,6 +59,35 @@ def test_constant_response_is_an_error_not_a_fallback() -> None:
     assert info.value.code == BLOCK_CONSTANT_RESPONSE
 
 
+def test_constant_y_with_uneven_groups_is_caught_before_averaging() -> None:
+    # Means of 0.1 over groups of 3 and 2 rows differ by rounding noise (~1e-17).
+    data = make_dataset(np.arange(14.0).reshape(7, 2), [[0.1]] * 7)
+    data = SpectralDataset(
+        data.X, data.axis, signal_unit="absorbance", sample_ids=data.sample_ids,
+        row_index=data.row_index, source_id="ds_test", group_ids=list("aaabbcc"),
+        y=data.y, y_columns=["c"], y_units=["%"],
+    )  # fmt: skip
+    with pytest.raises(BlockInputError) as info:
+        SPXY().apply(data, KennardStoneParams())
+    assert info.value.code == BLOCK_CONSTANT_RESPONSE
+
+
+def test_group_aware_spxy_keeps_groups_whole() -> None:
+    rng = np.random.default_rng(4)
+    groups = [f"g{i // 2}" for i in range(12)]
+    data = SpectralDataset(
+        rng.normal(size=(12, 3)), Axis(np.array([1.0, 2.0, 3.0]), "nm"),
+        signal_unit="absorbance", sample_ids=[f"s{i}" for i in range(12)],
+        row_index=np.arange(12), source_id="ds_test", group_ids=groups,
+        y=rng.normal(size=(12, 1)), y_columns=["c"], y_units=["%"],
+    )  # fmt: skip
+    out = SPXY().apply(data, KennardStoneParams())
+    test_groups = {groups[int(s[1:])] for s in out["test"].sample_ids}
+    train_groups = {groups[int(s[1:])] for s in out["train"].sample_ids}
+    assert len(test_groups) == 2  # ceil(0.25 * 6 groups)
+    assert not test_groups & train_groups
+
+
 def test_missing_y_is_an_error() -> None:
     no_y = SpectralDataset(
         np.asarray(X5),
@@ -88,15 +117,6 @@ def test_gasoline_selection_matches_kennard_stone_package(
     assert test == expected["test"]
     # the training set lists rows in input order; the selection order is checked on train_order
     assert sorted(int(s) for s in out["train"].sample_ids) == sorted(expected["train_order"])
-    assert_reference(
-        method=f"{block.__name__} test-set samples (count equal to reference)",
-        dataset="gasoline_nir",
-        actual=len(set(test) & set(expected["test"])),
-        expected=15,
-        rtol=0,
-        atol=0,
-        source=doc["source"][:80],
-    )
 
 
 @pytest.mark.parametrize("key", ["kennard_stone", "spxy"])
@@ -110,4 +130,14 @@ def test_gasoline_selection_order_matches(key: str) -> None:
         d = d / d.max() + dy / dy.max()
     order = ks_order(d, np.zeros(len(X)), "most_distant")
     picked = [int(ref.sample_ids[i]) for i in order[:45]]
-    assert picked == doc["values"][key]["train_order"]
+    expected = doc["values"][key]["train_order"]
+    leading = next((i for i, (a, b) in enumerate(zip(picked, expected, strict=True)) if a != b), 45)
+    assert_reference(
+        method=f"{key} selection order: leading training picks equal to reference (of 45)",
+        dataset="gasoline_nir",
+        actual=leading,
+        expected=45,
+        rtol=0,
+        atol=0,
+        source="kennard-stone 4.1.1 package, testdata/expected/gasoline_nir_splits.json",
+    )

@@ -16,8 +16,9 @@ Reviewer:       Quan
 
 The Generator is ``rng`` when given, else ``numpy.random.default_rng(seed)``. With
 groups, a unit's stratum is its majority class (ties: first class in sorted order) or
-the quantile bin of its mean y; ``FoldSet.seed`` is the ``seed`` parameter (``None``
-when an explicit ``rng`` was passed).
+the quantile bin of its mean y (bins merged by tied y are renumbered from 0).
+``FoldSet.seed`` is the ``seed`` parameter, or with an explicit ``rng`` the integer
+drawn from it and passed to scikit-learn, so the split can always be reproduced.
 """
 
 from __future__ import annotations
@@ -83,7 +84,10 @@ def _strata(
         )
     y = unit_means(spectra.y, units)[:, 0]
     edges = np.quantile(y, np.linspace(0.0, 1.0, params.n_bins + 1))
-    return np.searchsorted(edges[1:-1], y, side="right").astype(str)
+    bins = np.searchsorted(edges[1:-1], y, side="right")
+    return np.unique(bins, return_inverse=True)[1].astype(
+        str
+    )  # tied y merges bins: renumber from 0
 
 
 class RandomSplit(Block):
@@ -121,7 +125,16 @@ class RandomSplit(Block):
                 )
             pool = pool[~np.isin(labels, small)]
             n_strata = int((counts >= 2).sum())
-        n_test = n_test_units(params, n_units, n_pool=pool.size, n_strata=max(n_strata, 1))
+            if n_strata == 0:
+                raise ParamError(
+                    BLOCK_PARAM_INVALID,
+                    {
+                        "param_id": "stratify",
+                        "reason": "constraint",
+                        "constraint": "at least one stratum with 2 or more sampling units",
+                    },
+                )
+        n_test = n_test_units(params, n_units, n_pool=pool.size, n_strata=n_strata)
 
         # Step 2: Within each stratum draw the test share with the Generator (one
         # scikit-learn call; its stratified draw keeps every stratum's share)
@@ -136,6 +149,6 @@ class RandomSplit(Block):
         # Step 3: Union of the per-stratum test draws -> test units
         test_units = np.zeros(n_units, dtype=bool)
         test_units[test_pos] = True
-        step = f"RandomSplit(stratify={params.stratify}, seed={params.seed})"
-        recorded = params.seed if rng is None else None
+        recorded = params.seed if rng is None else seed
+        step = f"RandomSplit(stratify={params.stratify}, seed={recorded})"
         return holdout(spectra, test_units, units, params.group_aware, recorded, step)

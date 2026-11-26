@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections import Counter
 from typing import Any
 
@@ -11,7 +12,7 @@ import numpy as np
 import pytest
 
 from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING, BLOCK_PARAM_INVALID, parse_params
-from vibechem_core.blocks.split import BLOCK_SPLIT_STRATUM_TOO_SMALL
+from vibechem_core.blocks.split import BLOCK_MISSING_VALUES, BLOCK_SPLIT_STRATUM_TOO_SMALL
 from vibechem_core.blocks.split.random_split import RandomSplit, RandomSplitParams
 from vibechem_core.data import Axis, SpectralDataset
 from vibechem_core.errors import BlockInputError, ParamError, VibeChemWarning
@@ -54,7 +55,9 @@ def test_partition_sizes_and_seed() -> None:
     assert split(data, seed=7)[1] == test
     assert split(data, seed=8)[1] != test
     rng_out = RandomSplit().apply(data, RandomSplitParams(), rng=np.random.default_rng(7))
-    assert rng_out["folds"].seed is None  # explicit Generator: no seed parameter to record
+    drawn = int(np.random.default_rng(7).integers(2**32))  # the seed passed to scikit-learn
+    assert rng_out["folds"].seed == drawn
+    assert rng_out["test"].history[-1] == f"RandomSplit(stratify=none, seed={drawn})[test]"
 
 
 def test_stratified_by_class_keeps_shares_exactly() -> None:
@@ -108,10 +111,14 @@ def test_groups_stay_whole_with_majority_class_strata() -> None:
         (make_dataset(10), {"stratify": "classes"}, BLOCK_INPUT_REQUIREMENT_MISSING),
         (make_dataset(10), {"stratify": "y"}, BLOCK_INPUT_REQUIREMENT_MISSING),
         (make_dataset(4, classes=list("AABB")), {"stratify": "classes"}, BLOCK_PARAM_INVALID),
+        (make_dataset(4, classes=list("ABCD")), {"stratify": "classes"}, BLOCK_PARAM_INVALID),
+        (make_dataset(4, y=[[1.0], [np.nan], [2.0], [3.0]]), {}, BLOCK_MISSING_VALUES),
     ],
 )
 def test_errors(data: SpectralDataset, values: dict[str, object], code: str) -> None:
-    # The last case: 1 test row (ceil(0.25 * 4)) cannot hold 2 strata.
-    with pytest.raises((BlockInputError, ParamError)) as info:
-        RandomSplit().apply(data, parse_params(RandomSplitParams, values))
+    # Case 3: 1 test row (ceil(0.25 * 4)) cannot hold 2 strata; case 4: no stratum of 2.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", VibeChemWarning)  # case 4 also warns about every stratum
+        with pytest.raises((BlockInputError, ParamError)) as info:
+            RandomSplit().apply(data, parse_params(RandomSplitParams, values))
     assert info.value.code == code

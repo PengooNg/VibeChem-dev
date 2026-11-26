@@ -19,8 +19,11 @@ from numpy.typing import NDArray
 
 from vibechem_core.block import BLOCK_PARAM_INVALID, Param, port
 from vibechem_core.data import Fold, FoldSet, SpectralDataset
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import BlockInputError, ParamError
 
+# A split input still holds NaN (only possible through direct API calls: the engine
+# removes such rows where the data enters the pipeline, METHODS.md N1).
+BLOCK_MISSING_VALUES = "BLOCK_MISSING_VALUES"
 # SPXY: all responses are equal, so the y term of the distance is undefined (METHODS.md N13).
 BLOCK_CONSTANT_RESPONSE = "BLOCK_CONSTANT_RESPONSE"
 # Warning: stratified random split found strata with fewer than 2 units; they go to
@@ -73,7 +76,13 @@ def n_test_units(
 
 
 def sampling_units(spectra: SpectralDataset, group_aware: bool) -> NDArray[np.intp]:
-    """Unit number of each row: groups numbered by first appearance, or one unit per row."""
+    """Unit number of each row: groups numbered by first appearance, or one unit per row.
+
+    Raises ``BLOCK_MISSING_VALUES`` when X or y holds NaN (distances and strata would be
+    silently wrong).
+    """
+    if np.isnan(spectra.X).any() or (spectra.y is not None and np.isnan(spectra.y).any()):
+        raise BlockInputError(BLOCK_MISSING_VALUES, {"port_id": "spectra"})
     if spectra.group_ids is None or not group_aware:
         return np.arange(spectra.n_samples)
     _, first, inverse = np.unique(spectra.group_ids, return_index=True, return_inverse=True)
