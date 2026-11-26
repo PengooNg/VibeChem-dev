@@ -8,12 +8,12 @@ Read-only. Change nothing.
 
 1. `git fetch --all --prune`.
 2. Read `docs/TASKS.md` and `docs/PROGRESS.md` **as they are on the active phase branch** (`git show origin/phase-<N>:docs/PROGRESS.md`), not only the local copy.
-3. `gh pr list --state open`, `gh issue list --label S1 --label S2 --state open`, latest nightly run (`gh run list --workflow nightly.yml --limit 1`) once it exists.
+3. `gh pr list --state open`, `gh issue list --label S1 --label S2 --state open`, latest nightly run (`gh run list --workflow nightly.yml --limit 1`) once it exists, and the open rows of `docs/RISKS.md` on the phase branch.
 
-Answer in this order, short:
+Answer in caveman voice (load the `caveman` skill), in this order, short:
 - **Phase:** N — name · steps ticked x/y · phase PR link
 - **Just finished:** last 3 merged steps (date, PR)
 - **In progress / paused / stopped:** step, PR, checkpoint, machine, stop code
 - **Needs you:** each item with the exact action
-- **Health:** nightly result, open S1/S2 bugs, red PRs
+- **Health:** nightly result, open S1/S2 bugs, red PRs, open high-impact RISKS rows
 - **Next:** the command Quan should type
