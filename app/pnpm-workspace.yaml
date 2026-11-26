@@ -2,3 +2,8 @@
 # Electron 45 has no install script; the root `postinstall` downloads its binary (electron-vite needs it).
 onlyBuiltDependencies:
   - esbuild
+
+# minimatch >=7 <11.0.1: glob-pattern DoS (Dependabot alert 1), pulled in by
+# typescript-eslint and electron-builder. Drop once both depend on ^11.0.1.
+overrides:
+  "minimatch@>=7.0.0 <11.0.1": "11.0.1"
