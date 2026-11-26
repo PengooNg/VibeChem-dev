@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, cast
 
 import numpy as np
@@ -13,9 +14,10 @@ from hypothesis import strategies as st
 from scipy.signal import savgol_filter  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
 from vibechem_core.block import BLOCK_PARAM_INVALID, parse_params
+from vibechem_core.blocks.preprocess import BLOCK_AXIS_NOT_UNIFORM
 from vibechem_core.blocks.preprocess.savgol import MODES, SavitzkyGolay, SavitzkyGolayParams
 from vibechem_core.data import Axis, SpectralDataset
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import ParamError, VibeChemWarning
 from vibechem_core.testing import assert_close, assert_reference
 
 
@@ -161,3 +163,31 @@ def test_invalid_parameters(values: dict[str, Any], param_id: str, reason: str) 
         parse_params(SavitzkyGolayParams, values)
     assert info.value.params["param_id"] == param_id
     assert info.value.params["reason"] == reason
+
+
+def test_slightly_uneven_axis_uses_the_mean_step_without_warning() -> None:
+    # Deviation 0.9 % of the mean step: within the 1 % limit (METHODS.md N4).
+    lam = np.arange(21.0) * 2.0
+    lam[10] += 0.018
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning fails the test
+        out = run(2.0 + 0.5 * lam, lam, window=5, polyorder=2, deriv=1)
+    assert out.history[-1].endswith("delta=2 cm-1)")
+
+
+def test_uneven_axis_falls_back_to_per_point_with_warning() -> None:
+    # Steps 1, 1, 1.5, 1, ...: deviation of the 1.5 step from the mean step 1.025 is 46 %.
+    lam = np.concatenate([np.arange(10.0), 9.5 + np.arange(11.0)])
+    mean_step = (lam[-1] - lam[0]) / (lam.size - 1)
+    expected_deviation = float(np.abs(np.diff(lam) - mean_step).max() / mean_step)
+    X = np.vstack([np.arange(lam.size, dtype=float) * 3.0])  # slope 3 per point
+    with pytest.warns(VibeChemWarning) as record:
+        out = run(X, lam, window=5, polyorder=1, deriv=1)
+    (warning,) = [w.message for w in record]
+    assert isinstance(warning, VibeChemWarning)
+    assert warning.code == BLOCK_AXIS_NOT_UNIFORM
+    assert warning.message_key == "warnings.block.axis_not_uniform"
+    assert warning.params["max_deviation"] == pytest.approx(expected_deviation)
+    assert_exact(out.X[0], np.full(lam.size, 3.0), "per-point derivative")
+    assert out.history[-1].endswith("delta=1 per point)")
+    assert out.signal_unit == "absorbance"

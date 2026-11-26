@@ -16,12 +16,15 @@ Edges follow ``mode`` (METHODS.md Q2): ``interp`` (default) fits the window's
 polynomial to the first and last ``window`` points and evaluates it at the edge
 points; ``nearest``, ``mirror``, ``constant`` (zeros) and ``wrap`` pad the spectrum
 and filter as in the interior. Derivatives are per axis unit to the power ``deriv``,
-taken in the axis direction (a descending wavenumber axis gives d/dnu, Q3). The axis
-step used is written into the ``history`` entry.
+taken in the axis direction (a descending wavenumber axis gives d/dnu, Q3). An axis
+whose steps deviate by more than 1 % from the mean step falls back to per-point
+derivatives with warning ``BLOCK_AXIS_NOT_UNIFORM`` (N4). The step used ("-3.857 cm-1"
+or "1 per point") is written into the ``history`` entry; ``signal_unit`` is unchanged.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import cast
 
@@ -29,10 +32,12 @@ import numpy as np
 from scipy.signal import savgol_filter  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
 from vibechem_core.block import BLOCK_PARAM_INVALID, Block, Param, port
+from vibechem_core.blocks.preprocess import BLOCK_AXIS_NOT_UNIFORM
 from vibechem_core.data import SpectralDataset
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import ParamError, VibeChemWarning
 
 MODES = ("interp", "nearest", "mirror", "constant", "wrap")
+MAX_SPACING_DEVIATION = 0.01  # relative; METHODS.md N4
 
 
 @dataclass(frozen=True)
@@ -56,18 +61,30 @@ class SavitzkyGolay(Block):
     def apply(self, spectra: SpectralDataset, params: SavitzkyGolayParams) -> SpectralDataset:
         lam = spectra.axis.values
 
-        # Step 1: Axis step = mean signed step (derivatives per axis unit, Q3)
-        delta = float(lam[-1] - lam[0]) / (lam.size - 1)
-        delta_text = f"{delta:.6g} {spectra.axis.unit}"
-
-        # Step 2: The window must fit in the spectrum (constraint w <= p; w, P, d were
-        # checked by the parameter schema)
+        # The window must fit in the spectrum (constraint w <= p, checked first so the
+        # spacing check below always has at least 3 points)
         if params.window > spectra.n_variables:
             raise ParamError(
                 BLOCK_PARAM_INVALID,
                 {"param_id": "window", "reason": "constraint", "value": params.window},
             )
 
+        # Step 1: Spacing check (N4): steps within 1 % of the mean signed step -> use the
+        # mean step (derivatives per axis unit, Q3); otherwise per point, with a warning
+        mean_step = float(lam[-1] - lam[0]) / (lam.size - 1)
+        deviation = float(np.abs(np.diff(lam) - mean_step).max()) / abs(mean_step)
+        if deviation <= MAX_SPACING_DEVIATION:
+            delta = mean_step
+            delta_text = f"{delta:.6g} {spectra.axis.unit}"
+        else:
+            delta = 1.0
+            delta_text = "1 per point"
+            warnings.warn(
+                VibeChemWarning(BLOCK_AXIS_NOT_UNIFORM, {"max_deviation": deviation}),
+                stacklevel=2,
+            )
+
+        # Step 2: w, P and d were checked by the parameter schema and the guard above
         # Step 3: Least-squares polynomial of order P in each moving window of w points;
         # value (d = 0) or d-th derivative at the window centre, edges by mode
         X_sg = cast(

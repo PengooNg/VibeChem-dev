@@ -735,7 +735,7 @@ To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` 
 **Fitted block state (T1.02b, proposal for T2.03 to adopt inside `.vcm` or change).** `vibechem_core.block.save_state` writes one directory per state: `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}` and `arrays/<i>.npy` for the i-th array name (files named by position, so names never become paths). `load_state` reads arrays with `allow_pickle=False`, rejects unknown keys, other `state_version`s, non-finite numbers and non-`.npy` files with `ValueError` (the engine reports `MODEL_PACKAGE_INVALID`, §7).
 
 ## 7. Error codes catalogue
-Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5).
+Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5). This table is the single registry of codes, errors and warnings alike (ARCHITECTURE.md ADR-010). Rows marked *warning* use the translation key `warnings.<area>.<name>` instead of `errors.<area>.<name>`; a block warning (*warning (node)*) is raised as `VibeChemWarning` and does not stop the node.
 | Code | HTTP / where | Defined in | Meaning |
 |---|---|---|---|
 | `AUTH_TOKEN_INVALID` | 401 | `engine/api` | Missing or wrong session token |
@@ -765,6 +765,7 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
 | `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |
+| `BLOCK_AXIS_NOT_UNIFORM` | warning (node) | `core/blocks/preprocess` | Savitzky–Golay: the axis steps deviate by more than 1 % from the mean step, so derivatives are taken per point (`params.max_deviation`: largest relative deviation, e.g. `0.46`) *(proposed T1.08)* |
 | `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3) |
 | `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
 | `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |

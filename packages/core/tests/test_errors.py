@@ -4,11 +4,18 @@
 
 import copy
 import pickle
+import warnings
 from pathlib import Path
 
 import pytest
 
-from vibechem_core.errors import BlockError, BlockInputError, VibeChemError, message_key
+from vibechem_core.errors import (
+    BlockError,
+    BlockInputError,
+    VibeChemError,
+    VibeChemWarning,
+    message_key,
+)
 
 
 @pytest.mark.parametrize(
@@ -86,3 +93,32 @@ def test_errors_survive_pickle_and_copy() -> None:
         assert clone.code == error.code
         assert dict(clone.params) == {"rows": [1]}
         assert str(clone) == str(error)
+
+
+def test_warning_carries_code_warnings_key_and_params() -> None:
+    warning = VibeChemWarning("BLOCK_AXIS_NOT_UNIFORM", {"max_deviation": 0.05})
+    assert isinstance(warning, UserWarning)
+    assert warning.code == "BLOCK_AXIS_NOT_UNIFORM"
+    assert warning.message_key == "warnings.block.axis_not_uniform"
+    assert dict(warning.params) == {"max_deviation": 0.05}
+    assert str(warning) == "BLOCK_AXIS_NOT_UNIFORM {'max_deviation': 0.05}"
+    assert message_key("VALIDATION_GROUPS_IGNORED", "warnings") == (
+        "warnings.validation.groups_ignored"  # DATA_MODEL §2.6 example
+    )
+    with pytest.raises(ValueError, match="invalid error code"):
+        VibeChemWarning("axis not uniform")
+
+
+def test_warning_is_recorded_by_catch_warnings_and_survives_pickle() -> None:
+    # The engine's collection route (ARCHITECTURE.md ADR-010).
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.warn(
+            VibeChemWarning("BLOCK_AXIS_NOT_UNIFORM", {"max_deviation": 0.5}), stacklevel=1
+        )
+    (record,) = caught
+    assert isinstance(record.message, VibeChemWarning)
+    clone = pickle.loads(pickle.dumps(record.message))
+    assert type(clone) is VibeChemWarning
+    assert clone.code == "BLOCK_AXIS_NOT_UNIFORM"
+    assert dict(clone.params) == {"max_deviation": 0.5}
