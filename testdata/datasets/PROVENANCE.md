@@ -7,7 +7,7 @@ Public datasets with published results, used by reference tests (QA.md §3) and 
 
 | Name | File | Spectra × axis points | Axis | Target | Groups | Licence | Expected values |
 |---|---|---|---|---|---|---|---|
-| `gasoline_nir` | `gasoline_nir.csv` | 60 × 401 | 900–1700 nm, step 2 nm | `octane` (octane number, numeric) | none | factual data from a publication, credited (see below) | `expected/gasoline_nir_pls.json` |
+| `gasoline_nir` | `gasoline_nir.csv` | 60 × 401 | 900–1700 nm, step 2 nm | `octane` (octane number, numeric) | none | factual data from a publication, credited (see below) | `expected/gasoline_nir_pls.json`, `expected/gasoline_nir_splits.json` |
 | `olive_oil_ftir` | `olive_oil_ftir.csv` | 120 × 570 | 798.892–1896.8085 cm⁻¹, step ≈ 1.9295 cm⁻¹ | `country` (Greece, Italy, Portugal, Spain) | `oil` (1–60, two spectra per oil) | CC0-1.0 | `expected/olive_oil_ftir_classification.json` |
 
 ## gasoline_nir: NIR spectra and octane numbers of 60 gasoline samples
@@ -19,6 +19,7 @@ Public datasets with published results, used by reference tests (QA.md §3) and 
 - **Conversion (2026-11-23):** read once with `rdata` 0.11.2 (PyPI, MIT) in a throwaway environment (`uv run --no-project --isolated --with rdata==0.11.2`), so it is not a project dependency. The script checked: 60 × 401 matrix, row names 1–60, column names `900 nm` … `1700 nm`, all values finite. Values are written with Python `repr`, so they read back as the same float64 numbers.
 - **SHA-256 of `gasoline_nir.csv`:** `23bd7656dd4272be2d08d7dac049b7632065a04f9d61b00451f4609dddcef682`
 - **Published results:** Mevik B-H, Wehrens R (2007) The pls package: principal component and partial least squares regression in R. *Journal of Statistical Software* 18(2):1–23. doi:10.18637/jss.v018.i02. Training samples 1–50, test samples 51–60, PLS with 0–10 components, leave-one-out CV: CV and adjCV RMSEP, test RMSEP, % variance explained, test predictions with 2 components. All values are in `expected/gasoline_nir_pls.json`. They were read from the paper's PDF on 2026-11-23.
+- **Split selections (2026-11-26, T1.10):** `expected/gasoline_nir_splits.json` holds the Kennard–Stone and SPXY training order and test set (15 test samples, raw X, start = most distant pair) from a second implementation, the `kennard-stone` 4.1.1 package (PyPI, MIT), run once in a throwaway environment (`uv run --no-project --isolated --with kennard-stone==4.1.1`) with `scale=False, init="farthest_pair"`; for SPXY the joint distance was written out in NumPy and passed with `metric="precomputed"`. Not a project dependency. The file's `source` field records the call.
 - **Sanity check (2026-11-23, not a reference test):** scikit-learn 1.7.2 `PLSRegression(scale=False)` on this file, in a throwaway environment, reproduced every published CV RMSEP (0–10 components), the test RMSEP for 1–10 components, the cumulative X variance and the ten 2-component test predictions, at the printed precision. The only difference was the intercept-only test RMSEP: `pls` uses the test-set mean, so the paper prints 1.5114; predicting the training mean gives 1.5369. See `notes` in the expected file.
 
 ## olive_oil_ftir: FTIR spectra of 60 extra virgin olive oils from four countries
