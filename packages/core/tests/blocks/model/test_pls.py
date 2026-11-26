@@ -195,11 +195,15 @@ def test_y_transform_gives_original_units() -> None:
         predicted(PLS().apply(raw, params(), plain)), "apply")  # fmt: skip
     lib(predict_sweep(with_transform, raw), predict_sweep(plain, raw), "sweep")
 
+    # Wrong wirings: an X scaling, raw y with the y scaling (double inversion), and a
+    # y scaling fitted on all rows while PLS sees only some (leakage).
     x_state = Autoscale().fit(raw, ScalingParams())
-    with pytest.raises(BlockInputError) as error:
-        PLS().fit(scaled, params(n_components=3), y_transform=x_state)
-    assert error.value.code == BLOCK_INPUT_REQUIREMENT_MISSING
-    assert error.value.params["port_id"] == "y_transform"
+    wrong = [(scaled, x_state), (raw, y_state), (scaled.subset(np.arange(15)), y_state)]
+    for spectra, transform in wrong:
+        with pytest.raises(BlockInputError) as error:
+            PLS().fit(spectra, params(n_components=3), y_transform=transform)
+        assert error.value.code == BLOCK_INPUT_REQUIREMENT_MISSING
+        assert error.value.params["port_id"] == "y_transform"
 
 
 def test_state_round_trip(tmp_path: Path) -> None:

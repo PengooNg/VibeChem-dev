@@ -104,7 +104,7 @@ class PLS(Block):
             )
         if bool((np.ptp(y, axis=0) == 0).all()):
             raise BlockInputError(BLOCK_CONSTANT_RESPONSE, {"port_id": "spectra"})
-        inverse = _inverse_arrays(y_transform, spectra.y_columns)
+        inverse = _inverse_arrays(y_transform, spectra.y_columns, y)
 
         # Step 1: Centre X and Y with the training means (scale = true also divides by
         # the training SDs, ddof 1; Q4). Step 2: NIPALS loop; scikit-learn makes the
@@ -180,24 +180,26 @@ def _response(spectra: SpectralDataset) -> NDArray[np.float64]:
 
 
 def _inverse_arrays(
-    y_transform: State | None, y_columns: tuple[str, ...]
+    y_transform: State | None, y_columns: tuple[str, ...], y: NDArray[np.float64]
 ) -> dict[str, NDArray[np.float64]]:
-    """Mean and scale of a ``target = y`` scaling state for the same Y columns."""
+    """Mean and scale of a ``target = y`` scaling state fitted on these rows' y."""
     if y_transform is None:
         return {}
+    params: dict[str, ErrorParam] = {
+        "port_id": "y_transform",
+        "requirement": "y",
+        "expected": ", ".join(y_columns),
+    }
     if y_transform.values.get("target") != "y" or y_transform.values.get("y_columns") != list(
         y_columns
     ):
-        params: dict[str, ErrorParam] = {
-            "port_id": "y_transform",
-            "requirement": "y",
-            "expected": ", ".join(y_columns),
-        }
         raise BlockInputError(BLOCK_INPUT_REQUIREMENT_MISSING, params)
-    return {
-        "y_inverse_mean": y_transform.arrays["mean"],
-        "y_inverse_scale": y_transform.arrays["scale"],
-    }
+    mean, scale = y_transform.arrays["mean"], y_transform.arrays["scale"]
+    # Every y scaling centres with its training mean: a y that is not centred here was
+    # not scaled by this transform on these rows (raw y, or a scaler fitted on other rows).
+    if (np.abs(y.mean(axis=0)) * scale > 1e-9 * (np.abs(mean) + scale)).any():
+        raise BlockInputError(BLOCK_INPUT_REQUIREMENT_MISSING, params)
+    return {"y_inverse_mean": mean, "y_inverse_scale": scale}
 
 
 def _to_original_units(state: State, y: NDArray[np.float64]) -> NDArray[np.float64]:
