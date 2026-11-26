@@ -206,34 +206,6 @@ def program(tokens: list[str]) -> str:
     return PurePosixPath(tokens[0].replace("\\", "/")).name.lower().removesuffix(".exe")
 
 
-def drop_comment_tildes(segment: str) -> str:
-    """``segment`` without the bare ``~`` words (``~``, ``~3``) of a trailing comment (#44).
-
-    A comment is an unquoted ``#`` that starts a word. Segments with ``$``, backticks or
-    backslashes anywhere are left alone (``x\\ #`` and ``${a:- # }`` are not comments), so
-    are segments with ``<#`` or ``#>`` (a PowerShell block comment ends and code follows),
-    and so are comments with quotes: if the ``#`` is really inside a string that
-    ``SEGMENT_SPLIT`` cut open, such text is still a plain literal, so nothing hidden runs.
-    Only ``~`` and ``~<digits>`` are dropped; outside a comment bash expands both (``~N`` is
-    a directory-stack entry), and ``~user``, ``~+``, ``~-`` always stay checked. Words with
-    a slash stay checked too (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
-    """
-    if re.search(r"[`$\\]|<#|#>", segment):
-        return segment
-    quote = ""
-    for i, ch in enumerate(segment):
-        if quote:
-            quote = "" if ch == quote else quote
-        elif ch in "'\"":
-            quote = ch
-        elif ch == "#" and (i == 0 or segment[i - 1].isspace()):
-            if re.search(r"['\"]", segment[i:]):
-                return segment
-            words = [w for w in segment[i:].split() if not re.fullmatch(r"~\d*", w)]
-            return segment[:i] + " ".join(words)
-    return segment
-
-
 def writes_protected(command: str) -> bool:
     """True if the command writes to a protected file (redirect, writer tool, in-place edit)."""
     if any(p in t for t in REDIRECT.findall(command) for p in PROTECTED_FILES):
@@ -265,7 +237,7 @@ def check_bash(command: str, ctx: Mapping[str, Any], depth: int = 0) -> Decision
             if not any(bare == h or bare.endswith("." + h) for h in ALLOWED_DOWNLOAD_HOSTS):
                 return ("deny", f"downloads only from known installer hosts, not {bare}")
     for segment in SEGMENT_SPLIT.split(command):
-        tokens = split_tokens(drop_comment_tildes(segment))
+        tokens = split_tokens(segment)
         if not tokens:
             continue
         decision = check_segment(tokens, ctx, depth)

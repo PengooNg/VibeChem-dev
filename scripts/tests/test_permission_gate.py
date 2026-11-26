@@ -268,18 +268,22 @@ class ReviewRegressionTests(unittest.TestCase):
 
 
 class TildeRegressionTests(unittest.TestCase):
-    """Issue #44: a bare ``~`` in a shell comment is not a home path."""
+    """Issue #44, won't fix: every ``~`` word is checked, also in comments and quoted text.
 
-    def test_tilde_in_comment_allowed(self) -> None:
+    Exempting comments was tried in PR #46; three code reviews found ways to fake a
+    comment (the segment split does not know bash escaping, #45). Write "about" instead.
+    """
+
+    def test_tilde_in_comment_or_quoted_text_denied(self) -> None:
         for c in [
             "echo hi  # ~ approx",
             "cat <<'EOF'\n# ~ comment\nEOF",
             "python - <<'EOF'\nx = 1  # ~3 s\nEOF",
         ]:
             with self.subTest(c=c):
-                self.assertEqual(bash(c), "allow")
+                self.assertEqual(bash(c), "deny")
 
-    def test_real_tilde_paths_still_denied(self) -> None:
+    def test_real_tilde_paths_denied(self) -> None:
         for c in [
             "ls ~",
             "cat ~/.ssh/id_rsa",
@@ -290,22 +294,24 @@ class TildeRegressionTests(unittest.TestCase):
             # quoting tricks: the '#' looks like a comment only because ';' splits a quoted string
             'cat ";# " ~/.ssh/id_rsa',
             'cat "a; # $(cat ~/.ssh/id_rsa) ; b"',
-            # only bare ~ words are exempt in comments; other outside paths are still checked
+            # outside paths in comments are checked
             "echo hi # see /c/Users/quan/Documents",
             "echo hi # ~/.ssh/id_rsa",
             # cmd has no '#' comments: ~/.. there is a relative path out of the project
             "cmd /c type x # ~/../../Users/quan/secret.txt",
-            # code-review of #46: an escaped space or ${...} hides that '#' is not a comment
+            # fake comments found in the #46 reviews: bash expands the ~ in all of these
             "ls x\\ # ~",
             "ls ${a:- # } ~-",
-            # in a comment only ~ and ~<digits> are exempt; ~user, ~+, ~- expand in bash
             "ls # ~root",
             "ls # ~+",
             "ls # ~-",
-            # PowerShell ends a <# ... #> block comment and runs what follows
             'pwsh -c "ls <# x #> ~"',
             "ls <# x #> ~",
-            # quoted '~ x' stays checked: a program may expand it itself (ntpath.expanduser)
+            "ls x\\;# ~",
+            "echo a\\\n# ~",
+            "ls ${a:-;# } ~",
+            "ls x\u00a0# ~",  # no-break space: a word break in Python, not in bash
+            # quoted '~ x': a program may expand it itself (ntpath.expanduser)
             'echo "~ about 5 s"',
             'git commit -m "~ approx"',
         ]:
