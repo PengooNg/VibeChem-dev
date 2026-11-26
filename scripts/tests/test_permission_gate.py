@@ -279,6 +279,9 @@ class TildeRegressionTests(unittest.TestCase):
             "echo hi  # ~ approx",
             "cat <<'EOF'\n# ~ comment\nEOF",
             "python - <<'EOF'\nx = 1  # ~3 s\nEOF",
+            # quoted '~ x': a program may expand it itself (ntpath.expanduser)
+            'echo "~ about 5 s"',
+            'git commit -m "~ approx"',
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "deny")
@@ -311,9 +314,6 @@ class TildeRegressionTests(unittest.TestCase):
             "echo a\\\n# ~",
             "ls ${a:-;# } ~",
             "ls x\u00a0# ~",  # no-break space: a word break in Python, not in bash
-            # quoted '~ x': a program may expand it itself (ntpath.expanduser)
-            'echo "~ about 5 s"',
-            'git commit -m "~ approx"',
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "deny")
