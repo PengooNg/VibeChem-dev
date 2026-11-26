@@ -21,7 +21,7 @@ from vibechem_core.block import (
 )
 from vibechem_core.blocks.model.pls import PLS, PLSParams, predict_sweep
 from vibechem_core.blocks.preprocess.scaling import Autoscale, ScalingParams
-from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE
+from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE, BLOCK_MISSING_VALUES
 from vibechem_core.data import Axis, SpectralDataset
 from vibechem_core.errors import BlockInputError, ParamError
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
@@ -236,4 +236,13 @@ def test_errors() -> None:
     with pytest.raises(BlockInputError) as axis:
         PLS().apply(make_dataset(X, y, unit="cm-1"), params(), state)
     assert axis.value.code == BLOCK_INPUT_AXIS_MISMATCH
+
+    X_nan = X.copy()
+    X_nan[0, 0] = np.nan
+    for call in (lambda: PLS().apply(make_dataset(X_nan, y), params(), state),
+                 lambda: PLS().fit(make_dataset(X, np.where(y > y.min(), y, np.nan)),
+                                   params(n_components=2))):  # fmt: skip
+        with pytest.raises(BlockInputError) as nan:
+            call()
+        assert nan.value.code == BLOCK_MISSING_VALUES
     PLS.metadata()  # the block definition is valid

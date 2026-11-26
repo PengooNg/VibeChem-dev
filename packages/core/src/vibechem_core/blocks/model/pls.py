@@ -40,7 +40,7 @@ from vibechem_core.block import (
     port,
 )
 from vibechem_core.blocks.preprocess import check_axis
-from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE
+from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE, BLOCK_MISSING_VALUES
 from vibechem_core.data import Axis, AxisUnit, SpectralDataset
 from vibechem_core.errors import BlockInputError, ErrorParam, ParamError
 
@@ -90,7 +90,7 @@ class PLS(Block):
         self, spectra: SpectralDataset, params: PLSParams, y_transform: State | None = None
     ) -> State:
         y = _response(spectra)
-        X = spectra.X
+        X = _no_nan(spectra.X, y)
         A = params.n_components
         bound = min(spectra.n_samples - 1, spectra.n_variables)
         if bound < A:
@@ -209,7 +209,14 @@ def _to_original_units(state: State, y: NDArray[np.float64]) -> NDArray[np.float
 def _checked_X(spectra: SpectralDataset, state: State) -> NDArray[np.float64]:
     fitted_axis = Axis(state.arrays["axis"], cast(AxisUnit, state.values["axis_unit"]))
     check_axis("spectra", spectra.axis, fitted_axis)
-    return spectra.X
+    return _no_nan(spectra.X)
+
+
+def _no_nan(X: NDArray[np.float64], y: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
+    """``BLOCK_MISSING_VALUES`` for NaN (only direct API calls; the engine drops such rows, N1)."""
+    if np.isnan(X).any() or (y is not None and np.isnan(y).any()):
+        raise BlockInputError(BLOCK_MISSING_VALUES, {"port_id": "spectra"})
+    return X
 
 
 def _table(
