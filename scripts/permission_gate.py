@@ -178,7 +178,7 @@ def looks_like_path(token: str) -> bool:
     t = token  # split_tokens already turned C:\x into C:/x; '\n' must not read as /n
     if "://" in t or t.startswith("-"):
         return False
-    if re.match(r"^([a-zA-Z]:/|~|\$HOME|\$\{HOME\})", t):
+    if re.match(r"^([a-zA-Z]:/|~(?!\s)|\$HOME|\$\{HOME\})", t):  # '~ x' is quoted text
         return True
     if re.match(r"^/[a-zA-Z](/|$)", t) or t.startswith("/tmp"):
         return True
@@ -204,6 +204,28 @@ def split_tokens(segment: str) -> list[str]:
 
 def program(tokens: list[str]) -> str:
     return PurePosixPath(tokens[0].replace("\\", "/")).name.lower().removesuffix(".exe")
+
+
+def drop_comment_tildes(segment: str) -> str:
+    """``segment`` without the bare ``~`` words (``~``, ``~3``) of a trailing comment (#44).
+
+    A comment is an unquoted ``#`` that starts a word. Only comments without quotes,
+    ``$``, backticks or backslashes count: if the ``#`` is really inside a string that
+    ``SEGMENT_SPLIT`` cut open, such text is still a plain literal, so nothing hidden runs.
+    Words with a slash stay checked (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
+    """
+    quote = ""
+    for i, ch in enumerate(segment):
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or segment[i - 1].isspace()):
+            if re.search(r"['\"`$\\]", segment[i:]):
+                return segment
+            words = [w for w in segment[i:].split() if not re.fullmatch(r"~[^/]*", w)]
+            return segment[:i] + " ".join(words)
+    return segment
 
 
 def writes_protected(command: str) -> bool:
@@ -237,7 +259,7 @@ def check_bash(command: str, ctx: Mapping[str, Any], depth: int = 0) -> Decision
             if not any(bare == h or bare.endswith("." + h) for h in ALLOWED_DOWNLOAD_HOSTS):
                 return ("deny", f"downloads only from known installer hosts, not {bare}")
     for segment in SEGMENT_SPLIT.split(command):
-        tokens = split_tokens(segment)
+        tokens = split_tokens(drop_comment_tildes(segment))
         if not tokens:
             continue
         decision = check_segment(tokens, ctx, depth)

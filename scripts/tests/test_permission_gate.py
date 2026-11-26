@@ -270,9 +270,6 @@ class ReviewRegressionTests(unittest.TestCase):
 class TildeRegressionTests(unittest.TestCase):
     """Issue #44: a ``~`` in a shell comment or in quoted text is not a home path."""
 
-    # Expected to fail until Quan applies the gate patch from the bug PR for #44
-    # (only Quan edits permission_gate.py, CLAUDE.md §13.2). The patch removes this decorator.
-    @unittest.expectedFailure
     def test_tilde_in_comment_or_quoted_text_allowed(self) -> None:
         for c in [
             "echo hi  # ~ approx",
