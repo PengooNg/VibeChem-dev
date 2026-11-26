@@ -45,7 +45,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [ ] T2.09 Crash recovery |
 | [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
-| [x] T0.12 Spike: transport | [ ] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
+| [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [ ] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
 | [x] T0.14 Port-type design 👤 | [ ] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
 | [x] T0.15 Phase gate 👤 | [ ] T1.12a PLS: NIPALS wrap + LV sweep | |

@@ -116,6 +116,9 @@ def inverse_y(state: State, y_scaled: NDArray[np.float64]) -> NDArray[np.float64
     """Map scaled responses (e.g. predictions, shape (n, k)) back to original Y units."""
     if state.values["target"] != "y":
         raise ValueError("inverse_y needs the state of a scaling block fitted with target = y")
+    k = state.arrays["scale"].size
+    if y_scaled.ndim != 2 or y_scaled.shape[1] != k:  # (n, 1) would broadcast to (n, k)
+        raise ValueError(f"inverse_y expects shape (n, {k}), got {y_scaled.shape}")
     return y_scaled * state.arrays["scale"] + state.arrays["mean"]
 
 

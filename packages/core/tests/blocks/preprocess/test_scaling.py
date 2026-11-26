@@ -120,6 +120,8 @@ def test_y_target_needs_the_fitted_y_columns() -> None:
         assert info.value.params == {"port_id": "spectra", "requirement": "y", "expected": "c0, c1"}
     with pytest.raises(BlockInputError):
         Autoscale().fit(make_dataset(TRAIN), Y_PARAMS)
+    with pytest.raises(ValueError, match=r"shape \(n, 2\)"):
+        inverse_y(state, np.ones((4, 1)))
 
 
 def test_x_target_rejects_another_axis() -> None:
