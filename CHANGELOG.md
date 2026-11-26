@@ -38,3 +38,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `scripts/check.py` no longer crashes with `UnicodeEncodeError` when its output goes to a console that cannot show every character (for example a Japanese cp932 Windows console); such characters are printed as `?` (#42).
+- SPXY split with groups now stops with `BLOCK_CONSTANT_RESPONSE` when every group has the same mean response. Before, it quietly returned the first rows in input order as the test set. All split blocks now reject an empty group label with `BLOCK_INPUT_REQUIREMENT_MISSING`, as the grouped cross-validation schemes already did; before, unlabelled rows were treated as one group (#58).
