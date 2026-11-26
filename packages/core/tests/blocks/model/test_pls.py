@@ -37,6 +37,7 @@ from vibechem_core.reference_datasets import load_expected, load_reference_datas
 from vibechem_core.testing import assert_close, assert_reference
 
 SOURCE = "Mevik & Wehrens 2007, testdata/expected/gasoline_nir_pls.json"
+R_SOURCE = "R 4.6.2 ({tool}), testdata/expected/r_pls_reference.json"
 
 
 def lib(actual: Any, expected: Any, name: str) -> None:
@@ -155,7 +156,7 @@ def test_matches_scikit_learn(scale: bool, k: int) -> None:
     X, Y = random_data(30, 8, k, seed=2)
     state = PLS().fit(make_dataset(X, Y), params(n_components=4, scale=scale))
     table = PLS().apply(make_dataset(X[:7], Y[:7]), params(), state)
-    sk: Any = PLSRegression(n_components=4, scale=scale)
+    sk: Any = PLSRegression(n_components=4, scale=scale, max_iter=10_000, tol=1e-20)  # as pls.py
     reference = np.asarray(sk.fit(X, Y).predict(X[:7])).reshape(7, k)
     lib(predicted(table), reference, "predictions")
     assert list(table) == ["row_index", "sample_id", *(f"y_pred_c{j}" for j in range(k))]
@@ -413,3 +414,58 @@ def test_simpls_warns_when_scores_lose_orthogonality(
     )
     T = state.arrays["scores"][:, : first - 1]
     assert np.abs(T.T @ T - np.eye(first - 1)).max() <= 1e-6  # the warning threshold
+
+
+def assert_against_r(actual: Any, expected: Any, *, method: str, dataset: str, tool: str) -> None:
+    """One report row per array: the element furthest outside T-iter (METHODS §1)."""
+    a, e = np.asarray(actual, dtype=np.float64), np.asarray(expected, dtype=np.float64)
+    assert a.shape == e.shape, f"{method} on {dataset}: shape {a.shape} != {e.shape}"
+    assert np.isfinite(e).all(), f"{method} on {dataset}: non-finite R value"  # NaN == NaN passes
+    i = np.unravel_index(np.argmax(np.abs(a - e) / (1e-9 + 1e-6 * np.abs(e))), a.shape)
+    assert_reference(method=method, dataset=f"{dataset}, worst element {tuple(map(int, i))}",
+                     actual=float(a[i]), expected=float(e[i]), rtol=1e-6, atol=1e-9,
+                     source=R_SOURCE.format(tool=tool))  # fmt: skip
+
+
+@pytest.fixture(scope="module")
+def r_reference() -> dict[str, Any]:
+    return load_expected("r_pls_reference")
+
+
+def r_oliveoil(r_reference: dict[str, Any], y: str) -> SpectralDataset:
+    oil = r_reference["datasets"]["oliveoil"]
+    return make_dataset(oil["X"], oil[y])
+
+
+def fit_quietly(data: SpectralDataset, **values: Any) -> Any:
+    with warnings.catch_warnings():  # 5 LV on 5 variables warns BLOCK_PLS_EQUIVALENT_MLR
+        warnings.simplefilter("ignore", VibeChemWarning)
+        return PLS().fit(data, params(**values))
+
+
+def test_simpls_pls2_matches_r_pls(r_reference: dict[str, Any]) -> None:
+    data = r_oliveoil(r_reference, "Y_raw")
+    sweep = predict_sweep(fit_quietly(data, n_components=5, algorithm="simpls"), data)
+    for a in range(1, 6):
+        assert_against_r(sweep[a], r_reference["simpls_pls2"]["predictions"][str(a)],
+                         method="PLS (SIMPLS) PLS2 prediction", dataset=f"R oliveoil, {a} LV",
+                         tool="pls 2.9.0 simpls")  # fmt: skip
+
+
+def test_vip_pls1_matches_r_plsvarsel(
+    r_reference: dict[str, Any], gasoline: tuple[SpectralDataset, SpectralDataset]
+) -> None:
+    state = PLS().fit(gasoline[0], params(n_components=5))
+    for a in range(1, 6):
+        assert_against_r(vip(state, a), r_reference["vip_pls1"]["vip"][str(a)],
+                         method="PLS VIP (PLS1)", dataset=f"gasoline_nir rows 1-50, {a} LV",
+                         tool="plsVarSel 0.10.0 on pls oscorespls")  # fmt: skip
+
+
+def test_vip_pls2_matches_r_mixomics(r_reference: dict[str, Any]) -> None:
+    # Regression test for #60: NIPALS PLS2 stopped early with scikit-learn's tol=1e-06.
+    state = fit_quietly(r_oliveoil(r_reference, "Y_auto"), n_components=5)
+    for a in range(1, 6):
+        assert_against_r(vip(state, a), r_reference["vip_pls2"]["vip"][str(a)],
+                         method="PLS VIP (PLS2)", dataset=f"R oliveoil, autoscaled Y, {a} LV",
+                         tool="mixOmics 6.38.0 pls + vip")  # fmt: skip
