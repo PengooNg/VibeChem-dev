@@ -297,6 +297,13 @@ class TildeRegressionTests(unittest.TestCase):
             "echo hi # ~/.ssh/id_rsa",
             # cmd has no '#' comments: ~/.. there is a relative path out of the project
             "cmd /c type x # ~/../../Users/quan/secret.txt",
+            # code-review of #46: an escaped space or ${...} hides that '#' is not a comment
+            "ls x\\ # ~",
+            "ls ${a:- # } ~-",
+            # in a comment only ~ and ~<digits> are exempt; ~user, ~+, ~- expand in bash
+            "ls # ~root",
+            "ls # ~+",
+            "ls # ~-",
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "deny")

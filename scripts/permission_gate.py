@@ -209,11 +209,15 @@ def program(tokens: list[str]) -> str:
 def drop_comment_tildes(segment: str) -> str:
     """``segment`` without the bare ``~`` words (``~``, ``~3``) of a trailing comment (#44).
 
-    A comment is an unquoted ``#`` that starts a word. Only comments without quotes,
-    ``$``, backticks or backslashes count: if the ``#`` is really inside a string that
+    A comment is an unquoted ``#`` that starts a word. Segments with ``$``, backticks or
+    backslashes anywhere are left alone (``x\\ #`` and ``${a:- # }`` are not comments),
+    and so are comments with quotes: if the ``#`` is really inside a string that
     ``SEGMENT_SPLIT`` cut open, such text is still a plain literal, so nothing hidden runs.
-    Words with a slash stay checked (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
+    Only ``~`` and ``~<digits>`` are dropped (``~user``, ``~+``, ``~-`` expand in bash);
+    words with a slash stay checked (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
     """
+    if re.search(r"[`$\\]", segment):
+        return segment
     quote = ""
     for i, ch in enumerate(segment):
         if quote:
@@ -221,9 +225,9 @@ def drop_comment_tildes(segment: str) -> str:
         elif ch in "'\"":
             quote = ch
         elif ch == "#" and (i == 0 or segment[i - 1].isspace()):
-            if re.search(r"['\"`$\\]", segment[i:]):
+            if re.search(r"['\"]", segment[i:]):
                 return segment
-            words = [w for w in segment[i:].split() if not re.fullmatch(r"~[^/]*", w)]
+            words = [w for w in segment[i:].split() if not re.fullmatch(r"~\d*", w)]
             return segment[:i] + " ".join(words)
     return segment
 
