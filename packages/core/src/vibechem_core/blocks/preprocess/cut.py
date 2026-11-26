@@ -9,7 +9,7 @@ Reference:      — (selection of axis points; behaviour as orange-spectroscopy 
 METHODS:        docs/METHODS.md#cut
 Implementation: own NumPy code (inclusive bounds, several ranges, axis order kept)
 Fitted:         No (column selection by axis value; safe inside CV without refitting)
-Reviewers:      algorithm -> Quan | structure -> K
+Reviewer:       Quan
 """
 
 from __future__ import annotations

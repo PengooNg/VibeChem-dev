@@ -49,7 +49,7 @@
 | ECC `council-multi-model`, `deep-research` | External services |
 | ECC `strategic-compact`, `context-budget` | CLAUDE.md §8.2 covers this |
 | ECC `rules/`, hooks, GitHub App; `product-capability`'s `docs/examples/` template | Duplicate CLAUDE.md; hooks stack on the gate; PRD.md is the product-context file |
-| Skills the vendored files only mention: `autonomous-loops`, `continuous-agent-loop`, `search-first`, `e2e-runner` | "See also" links in council / loop-design-check / mle-reviewer; not vendored, ignore them |
+| Skills and agents the vendored files only mention: `autonomous-loops`, `continuous-agent-loop`, `search-first`, `e2e-runner`, `code-reviewer`, `santa-method` | "See also" links and routing hints in council / loop-design-check / mle-reviewer; not vendored, ignore them (code review = ponytail-review) |
 | Playwright MCP, GitHub MCP | Token cost; `playwright-cli` and `gh` cover them |
 | Impeccable plugin, knowledge-work plugins | Hooks / remote MCP servers; their skills are vendored instead |
 | frontend-design, Taste Skill | Impeccable is built on frontend-design; Taste Skill is a later candidate for the docs site (T7.02) |

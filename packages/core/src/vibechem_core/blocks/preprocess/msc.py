@@ -11,7 +11,7 @@ Reference:      Geladi, MacDougall & Martens (1985), Appl. Spectrosc. 39(3), 491
 METHODS:        docs/METHODS.md#msc
 Implementation: port of pengoo ``msc`` with the D1 fix (one least-squares solve)
 Fitted:         Yes (reference spectrum m learned in ``fit`` from training rows only)
-Reviewers:      algorithm -> Quan | structure -> K
+Reviewer:       Quan
 
 The reference m has two options (METHODS.md#msc): with the ``reference`` input
 unconnected, m is the column mean of the training rows; with it connected, m is the

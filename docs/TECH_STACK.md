@@ -1,6 +1,7 @@
 # VibeChem — Tech Stack, Repository Layout & Conventions
 
-> Status: v0.3 · Last updated: 2026-11-22 · Owner: K (until demo v0: Quan approves, K reviews the backlog later)
+> Status: v0.6 · Last updated: 2026-11-26 · Owner: Quan
+> v0.6 (tooling v0.5): K removed from the workflow — Quan approves dependencies (§9); the Phase 3 native-kernel rules moved here from CLAUDE.md §15 (§5).
 > v0.5 (2026-11-25): §11.2 pengoo port inventory (T1.00b); PyWavelets candidate.
 > v0.4 (2026-11-23): `@playwright/cli` dev tool; GitHub/Playwright MCP removed; `GITHUB_PAT` no longer needed.
 > v0.3: branches and rulesets for phase mode (§8.1); CI triggers on `phase-*`; `.claude/`, `.mcp.json`, `PROGRESS.md`, `merge_step.py` in the layout; legal and citation files (§13, moved from the project plan); Claude Code in developer setup.
@@ -61,7 +62,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | nanobind | 2.x latest (T0.05: 2.9.2, pinned in `packages/native/pyproject.toml`) | C++ ↔ Python bindings |
 | scikit-build-core | 1.1.x (T0.05: 1.1.2, pinned in `packages/native/pyproject.toml`) | Build backend (CMake → wheel) |
 | cibuildwheel | latest | Wheels for Windows/macOS/Linux in CI |
-| Eigen | 3.4.x | Linear algebra in kernels (K may evaluate Eigen 5.x) |
+| Eigen | 3.4.x | Linear algebra in kernels (Eigen 5.x may be evaluated) |
 | Catch2 | 3.x (T0.05: v3.16.1 via CMake FetchContent in `packages/native/tests/cpp/`) | C++ unit tests (Python equivalence tests stay in pytest) |
 | clang-format, clang-tidy | latest | Formatting, static analysis |
 
@@ -200,6 +201,7 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 - Every exported function: doc comment with the matching Python reference function and METHODS.md section. (The T0.05 stub `row_mean` has no core counterpart; its reference is `vibechem_native/_reference.py`.)
 - Accept `n_threads` (default 1); release the GIL in bindings.
 - clang-format (repo config), clang-tidy clean, warnings as errors.
+- **Every native kernel (Phase 3)** has a Python reference, equivalence tests against it, sanitizer-clean CI and an automatic fallback to the Python reference; each kernel step gets a **cpp-reviewer** pass, and open findings become `docs/RISKS.md` rows. A kernel is written only if no existing fast implementation can be reused and NumPy/SciPy vectorisation is not enough.
 
 ## 6. TypeScript conventions
 - SPDX header as above. `strict: true`; no `any`.
@@ -232,13 +234,13 @@ Claude Code commands: `/phase N`, `/step T<x> [wait]`, `/resume [answer]`, `/sta
 ### 8.1 Branches and rulesets
 | Branch | Who writes | Ruleset |
 |---|---|---|
-| `main` | Quan merges the phase PR at each gate (merge commit); Dependabot PRs | PR required · required checks (`ci.yml` jobs, added after T0.06) · **0 approvals until K joins, then 1 (CODEOWNERS)** · block force push · block deletion |
+| `main` | Quan merges the phase PR at each gate (merge commit); Dependabot PRs | PR required · required checks (`ci.yml` jobs, added after T0.06) · **0 approvals** (Quan is the only reviewer; CODEOWNERS routes everything to him) · block force push · block deletion |
 | `phase-*` | Claude Code via `scripts/merge_step.py` (squash) | PR required · same required checks · 0 approvals · block force push · block deletion |
 | `t<step>-*`, `bug-*` | Claude Code | none |
 Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` changes during a phase (Dependabot) are brought into the phase branch by a `[SYNC]` PR (CLAUDE.md §14.1).
 
 ## 9. Dependency policy
-- New dependency → add a row in §1 (version line, purpose, licence) and update §11 status in the same PR; K approves (until demo v0: Quan, or automatic for listed candidates per CLAUDE.md §12.5, plus a K backlog row).
+- New dependency → add a row in §1 (version line, purpose, licence) and update §11 status in the same PR; Quan approves (or automatic for listed candidates per CLAUDE.md §12.5; an open concern becomes a `docs/RISKS.md` row).
 - Licences must be GPL-3.0-compatible (MIT, BSD, Apache-2.0, LGPL, GPL).
 - Prefer packages with wheels for Windows, macOS (arm64 + x64) and Linux on Python 3.14; no packages that need a compiler at install time on users' machines.
 - Small single-maintainer libraries: pin exact version, wrap inside block files only, keep our reference tests; if abandoned, vendor (copy with licence) or replace.

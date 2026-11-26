@@ -234,4 +234,4 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 ---
 
 ## P0 size check
-P0 ≈ 90 functions. Realistic only because the numerical core reuses mature libraries (NumPy, SciPy, scikit-learn, chemotools, pybaselines) and code ported from pengoo and Orange-Spectroscopy, and every block follows one template (CLAUDE.md §5). Any P0 item without an existing reference implementation to test against is flagged to Quan (algorithm review) and K (test infrastructure) before work starts. Libraries marked "if approved" are not yet in TECH_STACK.md §1 and need K's approval before use.
+P0 ≈ 90 functions. Realistic only because the numerical core reuses mature libraries (NumPy, SciPy, scikit-learn, chemotools, pybaselines) and code ported from pengoo and Orange-Spectroscopy, and every block follows one template (CLAUDE.md §5). Any P0 item without an existing reference implementation to test against is flagged to Quan (algorithm review and test infrastructure) before work starts. Libraries marked "if approved" are not yet in TECH_STACK.md §1 and need Quan's approval before use.

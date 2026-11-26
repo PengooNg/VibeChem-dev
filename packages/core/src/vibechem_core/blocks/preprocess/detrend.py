@@ -9,7 +9,7 @@ Reference:      Barnes, Dhanoa & Lister (1989), Appl. Spectrosc. 43(5), 772-777
 METHODS:        docs/METHODS.md#detrend
 Implementation: own NumPy code (np.linalg.lstsq); a 4-line solve, no dependency needed
 Fitted:         No (row-wise transform; safe inside CV without refitting)
-Reviewers:      algorithm -> Quan | structure -> K
+Reviewer:       Quan
 """
 
 from __future__ import annotations
