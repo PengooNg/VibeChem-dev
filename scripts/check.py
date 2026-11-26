@@ -402,6 +402,10 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
     parser.add_argument("--only", choices=AREAS, help="check one area only")
     parser.add_argument("--verbose", action="store_true", help="print every command's output")
     args = parser.parse_args(argv)
+    # Keep the console's encoding, but never crash on characters it cannot show (#42).
+    reconfigure = getattr(sys.stdout, "reconfigure", None)  # only on io.TextIOWrapper
+    if reconfigure is not None:
+        reconfigure(errors="replace")
 
     areas = [args.only] if args.only else [*AREAS, "scripts"]
     results = run_checks(areas, fast=args.fast, runner=runner)
