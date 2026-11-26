@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from vibechem_core.block import (
 from vibechem_core.blocks.model.pls import (
     BLOCK_PLS_COMPONENTS_CAPPED,
     BLOCK_PLS_EQUIVALENT_MLR,
+    BLOCK_PLS_PRECISION_LOST,
     PLS,
     PLSParams,
     predict_sweep,
@@ -386,3 +388,19 @@ def test_simpls_stops_when_no_covariance_is_left() -> None:
     sweep = predict_sweep(state, data)
     iterative(sweep[4], sweep[2], "components 3, 4 add nothing")
     assert np.isfinite(vip(state)).all()
+
+
+def test_simpls_warns_when_scores_lose_orthogonality(
+    gasoline: tuple[SpectralDataset, SpectralDataset],
+) -> None:
+    # Gasoline (50 x 401) at n_min = 49: S = X0'y keeps about 1e-14 of its norm, too few
+    # digits for orthogonal scores; NIPALS (deflating X) stays orthogonal. 10 LV warn
+    # nothing (the published-results test runs with warnings as errors).
+    with warnings.catch_warnings(record=True) as caught:  # also MLR and rank-stop warnings
+        warnings.simplefilter("always")
+        PLS().fit(gasoline[0], params(n_components=49, algorithm="simpls"))
+    lost = [
+        w.message for w in caught if getattr(w.message, "code", None) == BLOCK_PLS_PRECISION_LOST
+    ]
+    assert len(lost) == 1
+    assert 10 < lost[0].params["n_components"] <= 49  # type: ignore[union-attr]

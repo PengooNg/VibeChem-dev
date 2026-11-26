@@ -57,6 +57,8 @@ from vibechem_core.errors import BlockInputError, ErrorParam, ParamError, VibeCh
 BLOCK_PLS_COMPONENTS_CAPPED = "BLOCK_PLS_COMPONENTS_CAPPED"
 # Warning: fitted with n_min components, which equals multiple linear regression.
 BLOCK_PLS_EQUIVALENT_MLR = "BLOCK_PLS_EQUIVALENT_MLR"
+# Warning: SIMPLS scores lost orthogonality from LV ``n_components`` on (``max_deviation``).
+BLOCK_PLS_PRECISION_LOST = "BLOCK_PLS_PRECISION_LOST"
 
 # State array name -> PLSRegression attribute (the means and SDs are private in 1.9.1).
 _FITTED_ATTRIBUTES = {
@@ -273,6 +275,18 @@ def _simpls(
     sign[sign == 0] = 1.0
     for matrix in (R, T, P, Q):
         np.multiply(matrix, sign, out=matrix)
+    # B = R Q' needs orthonormal scores; S = X0'Y0 loses digits once little covariance is left.
+    used = int((np.linalg.norm(T, axis=0) > 0).sum())
+    deviation = np.triu(np.abs(T[:, :used].T @ T[:, :used] - np.eye(used))).max(axis=0)
+    lost = np.flatnonzero(deviation > 1e-6)  # T-iter rtol (METHODS.md §1)
+    if lost.size:
+        warnings.warn(
+            VibeChemWarning(
+                BLOCK_PLS_PRECISION_LOST,
+                {"n_components": int(lost[0]) + 1, "max_deviation": float(deviation.max())},
+            ),
+            stacklevel=3,
+        )
     norms = np.linalg.norm(R, axis=0)
     # Step 7: B = R Q' (back in original X and Y units, as scikit-learn's coef_)
     return {
