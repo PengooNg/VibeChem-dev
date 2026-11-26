@@ -295,8 +295,11 @@ class TildeRegressionTests(unittest.TestCase):
             # quoting tricks: the '#' looks like a comment only because ';' splits a quoted string
             'cat ";# " ~/.ssh/id_rsa',
             'cat "a; # $(cat ~/.ssh/id_rsa) ; b"',
-            # only ~ words are exempt in comments; other outside paths are still checked
+            # only bare ~ words are exempt in comments; other outside paths are still checked
             "echo hi # see /c/Users/quan/Documents",
+            "echo hi # ~/.ssh/id_rsa",
+            # cmd has no '#' comments: ~/.. there is a relative path out of the project
+            "cmd /c type x # ~/../../Users/quan/secret.txt",
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "deny")
