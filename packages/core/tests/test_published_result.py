@@ -46,6 +46,7 @@ def test_gasoline_published_result_end_to_end() -> None:
     assert test.y is not None
     pls_params = parse_params(PLSParams, {"n_components": 10})
 
+    # Folds hold row_index values; subset takes positions. Equal here (train row_index = 0..49).
     folds = LeaveOneOut().apply(train, NoParams())
     oof = np.empty((11, 50))
     fold_of = np.empty(50, dtype=np.int64)

@@ -52,7 +52,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | | [x] T1.12b PLS: SIMPLS + VIP | |
 | | [x] T1.13 PLS-DA | |
 | | [x] T1.14 Metrics | |
-| | [ ] T1.15 Reproduce published result + gate 👤 | |
+| | [x] T1.15 Reproduce published result + gate 👤 | |
 
 Phases 3–7: outlines at the end of this file; their status rows are added when they are detailed.
 

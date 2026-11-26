@@ -51,8 +51,9 @@ def smoke(testdata_dir: Path = TESTDATA) -> tuple[str, float, float]:
     assert test.y is not None
     rmsep = float(np.sqrt(np.mean((table["y_pred_octane"] - test.y[:, 0]) ** 2)))
     published = float(expected["values"]["rmsep_test"][2])
-    if not np.isclose(rmsep, published, rtol=expected["tolerance"]["rtol"], atol=0.0):
-        raise AssertionError(f"RMSEP {rmsep:.6f} != published {published} (rtol 1e-3)")
+    rtol = float(expected["tolerance"]["rtol"])
+    if not np.isclose(rmsep, published, rtol=rtol, atol=0.0):
+        raise AssertionError(f"RMSEP {rmsep:.6f} != published {published} (rtol {rtol})")
     return str(Path(vibechem_core.__file__).parent), rmsep, published
 
 
