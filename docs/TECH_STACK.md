@@ -35,7 +35,7 @@
 | brukeropus | 1.4.x | Bruker OPUS reader (`vibechem-core` runtime dependency since T1.06b, imported lazily in `vibechem_core/io/opus.py`; pure Python, numpy only; its `control` submodule (Windows DDE to a running OPUS) is loaded by the package `__init__` but never used) |
 | loky | latest | Process-pool executor (ADR-004) |
 | threadpoolctl | ≥ 3.5 | BLAS thread limits per worker |
-| fastapi | 0.14x (pin minor) | Engine API (ADR-003) |
+| fastapi | 0.162.5 (pin patch; 2026-11 sync: newest release at least two weeks old) | Engine API (ADR-003) |
 | uvicorn | latest | ASGI server |
 | pydantic | 2.13.x | API models, parameter schemas |
 | jinja2 | 3.x | HTML reports |
@@ -52,7 +52,7 @@ PDF reports: the engine produces HTML; the desktop app converts to PDF with Chro
 | pytest-regressions (brings PyYAML, read by `check_golden`) | Golden files for `vibechem_core.testing.check_golden` (T0.07) |
 | hypothesis | Property-based tests |
 | import-linter | Enforce package boundaries (§3.1) |
-| pyinstaller 6.21.x | Engine bundle for the desktop app |
+| pyinstaller 6.22.x | Engine bundle for the desktop app |
 | pre-commit | Run lint/format before commits |
 
 ### 1.4 Native (C++)
