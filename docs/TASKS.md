@@ -49,7 +49,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
 | [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
 | [x] T0.15 Phase gate 👤 | [x] T1.12a PLS: NIPALS wrap + LV sweep | |
-| | [ ] T1.12b PLS: SIMPLS + VIP | |
+| | [x] T1.12b PLS: SIMPLS + VIP | |
 | | [ ] T1.13 PLS-DA | |
 | | [ ] T1.14 Metrics | |
 | | [ ] T1.15 Reproduce published result + gate 👤 | |
