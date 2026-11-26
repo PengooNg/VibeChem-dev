@@ -59,6 +59,27 @@ def test_constant_response_is_an_error_not_a_fallback() -> None:
     assert info.value.code == BLOCK_CONSTANT_RESPONSE
 
 
+def test_equal_group_mean_response_is_an_error() -> None:
+    # issue #58 (R37): rows differ (y = 1, 2 per group) but every group mean is 1.5, so the
+    # unit-mean max d_y is 0; this used to give NaN distances and an input-order split
+    X = np.random.default_rng(0).normal(size=(8, 3))
+    data = SpectralDataset(
+        X,
+        Axis(np.arange(1.0, 4.0), "nm"),
+        signal_unit="absorbance",
+        sample_ids=[f"s{i}" for i in range(8)],
+        row_index=np.arange(8),
+        source_id="ds_test",
+        group_ids=[f"g{i // 2}" for i in range(8)],
+        y=[[1.0], [2.0]] * 4,
+        y_columns=["c"],
+        y_units=["%"],
+    )
+    with pytest.raises(BlockInputError) as info:
+        SPXY().apply(data, KennardStoneParams())
+    assert info.value.code == BLOCK_CONSTANT_RESPONSE
+
+
 def test_constant_y_with_uneven_groups_is_caught_before_averaging() -> None:
     # Means of 0.1 over groups of 3 and 2 rows differ by rounding noise (~1e-17).
     data = make_dataset(np.arange(14.0).reshape(7, 2), [[0.1]] * 7)

@@ -7,15 +7,22 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from vibechem_core.block import BLOCK_PARAM_INVALID, parse_params
+from vibechem_core.block import (
+    BLOCK_INPUT_REQUIREMENT_MISSING,
+    BLOCK_PARAM_INVALID,
+    Block,
+    parse_params,
+)
 from vibechem_core.blocks.split.kennard_stone import (
     KennardStone,
     KennardStoneParams,
     distance_space,
     ks_order,
 )
+from vibechem_core.blocks.split.random_split import RandomSplit
+from vibechem_core.blocks.split.spxy import SPXY
 from vibechem_core.data import Axis, SpectralDataset
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import BlockInputError, ParamError
 from vibechem_core.testing import assert_reference
 
 # Hand-worked example (squared distances written out in the test below).
@@ -103,6 +110,18 @@ def test_groups_stay_whole_and_one_row_per_group_equals_plain() -> None:
     )
     for a, b in zip(plain["folds"].folds, one_per_group["folds"].folds, strict=True):
         np.testing.assert_array_equal(a.validation, b.validation)
+
+
+@pytest.mark.parametrize("block", [KennardStone(), SPXY(), RandomSplit()])
+def test_empty_group_label_is_an_error_in_every_split(block: Block) -> None:
+    # issue #58 (R38): "" was a real group, so unlabelled rows became one unit
+    X = np.random.default_rng(3).normal(size=(6, 3))
+    data = make_dataset(X, ["a", "a", "", "", "b", "b"], y=np.arange(6.0)[:, None])
+    with pytest.raises(BlockInputError) as err:
+        block.apply(data, parse_params(block.params_type, {}))
+    assert err.value.code == BLOCK_INPUT_REQUIREMENT_MISSING
+    params = parse_params(block.params_type, {"group_aware": False})
+    assert block.apply(data, params)["folds"].groups_respected is False
 
 
 def test_groups_ignored_is_recorded() -> None:
