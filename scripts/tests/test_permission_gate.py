@@ -268,15 +268,13 @@ class ReviewRegressionTests(unittest.TestCase):
 
 
 class TildeRegressionTests(unittest.TestCase):
-    """Issue #44: a ``~`` in a shell comment or in quoted text is not a home path."""
+    """Issue #44: a bare ``~`` in a shell comment is not a home path."""
 
-    def test_tilde_in_comment_or_quoted_text_allowed(self) -> None:
+    def test_tilde_in_comment_allowed(self) -> None:
         for c in [
             "echo hi  # ~ approx",
             "cat <<'EOF'\n# ~ comment\nEOF",
             "python - <<'EOF'\nx = 1  # ~3 s\nEOF",
-            'echo "~ about 5 s"',
-            'git commit -m "~ approx"',
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "allow")
@@ -304,6 +302,12 @@ class TildeRegressionTests(unittest.TestCase):
             "ls # ~root",
             "ls # ~+",
             "ls # ~-",
+            # PowerShell ends a <# ... #> block comment and runs what follows
+            'pwsh -c "ls <# x #> ~"',
+            "ls <# x #> ~",
+            # quoted '~ x' stays checked: a program may expand it itself (ntpath.expanduser)
+            'echo "~ about 5 s"',
+            'git commit -m "~ approx"',
         ]:
             with self.subTest(c=c):
                 self.assertEqual(bash(c), "deny")

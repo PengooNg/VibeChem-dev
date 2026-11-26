@@ -178,7 +178,7 @@ def looks_like_path(token: str) -> bool:
     t = token  # split_tokens already turned C:\x into C:/x; '\n' must not read as /n
     if "://" in t or t.startswith("-"):
         return False
-    if re.match(r"^([a-zA-Z]:/|~(?!\s)|\$HOME|\$\{HOME\})", t):  # '~ x' is quoted text
+    if re.match(r"^([a-zA-Z]:/|~|\$HOME|\$\{HOME\})", t):
         return True
     if re.match(r"^/[a-zA-Z](/|$)", t) or t.startswith("/tmp"):
         return True
@@ -210,13 +210,15 @@ def drop_comment_tildes(segment: str) -> str:
     """``segment`` without the bare ``~`` words (``~``, ``~3``) of a trailing comment (#44).
 
     A comment is an unquoted ``#`` that starts a word. Segments with ``$``, backticks or
-    backslashes anywhere are left alone (``x\\ #`` and ``${a:- # }`` are not comments),
+    backslashes anywhere are left alone (``x\\ #`` and ``${a:- # }`` are not comments), so
+    are segments with ``<#`` or ``#>`` (a PowerShell block comment ends and code follows),
     and so are comments with quotes: if the ``#`` is really inside a string that
     ``SEGMENT_SPLIT`` cut open, such text is still a plain literal, so nothing hidden runs.
-    Only ``~`` and ``~<digits>`` are dropped (``~user``, ``~+``, ``~-`` expand in bash);
-    words with a slash stay checked (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
+    Only ``~`` and ``~<digits>`` are dropped; outside a comment bash expands both (``~N`` is
+    a directory-stack entry), and ``~user``, ``~+``, ``~-`` always stay checked. Words with
+    a slash stay checked too (``cmd`` has no ``#`` comments; ``~/../x`` is a path).
     """
-    if re.search(r"[`$\\]", segment):
+    if re.search(r"[`$\\]|<#|#>", segment):
         return segment
     quote = ""
     for i, ch in enumerate(segment):
