@@ -343,7 +343,7 @@ Fold blocks output `folds: Folds` (DATA_MODEL.md §4): for each fold, the valida
 - **Outputs.** Predicted class, the G predicted values (used for ROC), PLS outputs.
 - **Edge cases.** Only one class in the training rows → node error `BLOCK_CONSTANT_RESPONSE` (a constant response, N13). A class missing from a training fold: its column is constant in that fold → that class cannot be predicted; logged as a warning per fold. Unknown class at apply time is impossible (labels come from the training set).
 - **Reference values.** Hand-worked binary example (4 samples, 2 variables, A = 1); property: row sums of Ŷ = 1 (`T-exact`); multi-class property tests; loose published check on `olive_oil_ftir` (CV accuracy ≥ 0.90, `testdata/expected/olive_oil_ftir_classification.json`, protocol unverified).
-- **Implementation.** Our PLS block + scikit-learn label handling (`LabelBinarizer` gives one column for two classes — we always build G columns).
+- **Implementation.** Our PLS block (NIPALS, `scale = false`) on a G-column indicator matrix built with NumPy (`np.unique` + `np.eye`; scikit-learn `LabelBinarizer` gives one column for two classes, so it is not used). Parameters `n_components`, `n_components_mode` as [PLS](#pls). Predictions table: `row_index`, `sample_id`, `class_pred`, `score_<class>` (DATA_MODEL.md §4.2 `Results`). The block only sees the training rows, so its class list never has an empty class; the per-fold "class missing from a training fold" warning needs the full class list and belongs to the CV loop (engine, Phase 2).
 - **Reference.** `barker2003plsda`, `ballabio2013plsda`.
 
 ---

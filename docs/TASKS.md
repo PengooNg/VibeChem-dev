@@ -50,7 +50,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
 | [x] T0.15 Phase gate 👤 | [x] T1.12a PLS: NIPALS wrap + LV sweep | |
 | | [x] T1.12b PLS: SIMPLS + VIP | |
-| | [ ] T1.13 PLS-DA | |
+| | [x] T1.13 PLS-DA | |
 | | [ ] T1.14 Metrics | |
 | | [ ] T1.15 Reproduce published result + gate 👤 | |
 
