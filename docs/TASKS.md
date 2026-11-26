@@ -47,7 +47,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
-| [x] T0.14 Port-type design 👤 | [ ] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
+| [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
 | [x] T0.15 Phase gate 👤 | [ ] T1.12a PLS: NIPALS wrap + LV sweep | |
 | | [ ] T1.12b PLS: SIMPLS + VIP | |
 | | [ ] T1.13 PLS-DA | |
