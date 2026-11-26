@@ -267,6 +267,41 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(gate.decide(event, posix_ctx)[0], "deny")
 
 
+class TildeRegressionTests(unittest.TestCase):
+    """Issue #44: a ``~`` in a shell comment or in quoted text is not a home path."""
+
+    # Expected to fail until Quan applies the gate patch from the bug PR for #44
+    # (only Quan edits permission_gate.py, CLAUDE.md §13.2). The patch removes this decorator.
+    @unittest.expectedFailure
+    def test_tilde_in_comment_or_quoted_text_allowed(self) -> None:
+        for c in [
+            "echo hi  # ~ approx",
+            "cat <<'EOF'\n# ~ comment\nEOF",
+            "python - <<'EOF'\nx = 1  # ~3 s\nEOF",
+            'echo "~ about 5 s"',
+            'git commit -m "~ approx"',
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "allow")
+
+    def test_real_tilde_paths_still_denied(self) -> None:
+        for c in [
+            "ls ~",
+            "cat ~/.ssh/id_rsa",
+            "cp build.zip ~/Documents",
+            "ls ~quan",
+            'cat "~/.ssh/id_rsa"',
+            "echo ok # fine; cat ~/.ssh/id_rsa",
+            # quoting tricks: the '#' looks like a comment only because ';' splits a quoted string
+            'cat ";# " ~/.ssh/id_rsa',
+            'cat "a; # $(cat ~/.ssh/id_rsa) ; b"',
+            # only ~ words are exempt in comments; other outside paths are still checked
+            "echo hi # see /c/Users/quan/Documents",
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+
 class ToolTests(unittest.TestCase):
     def test_mcp(self) -> None:
         self.assertEqual(tool("mcp__context7__query-docs"), "allow")
