@@ -140,7 +140,10 @@ class PLS(Block):
         if params.algorithm == "simpls":
             fit = _simpls(X, y, n_lv, params.scale)
         else:
-            pls: Any = PLSRegression(n_components=n_lv, scale=params.scale, max_iter=500, tol=1e-06)
+            # tol bounds the squared change of w: 1e-20 is |dw| < 1e-10 (1e-06 stopped PLS2 early, #60)
+            pls: Any = PLSRegression(
+                n_components=n_lv, scale=params.scale, max_iter=10_000, tol=1e-20
+            )
             pls.fit(X, y)
             fit = {
                 name: np.asarray(getattr(pls, attribute), dtype=np.float64)

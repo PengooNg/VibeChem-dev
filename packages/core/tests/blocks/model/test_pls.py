@@ -156,7 +156,7 @@ def test_matches_scikit_learn(scale: bool, k: int) -> None:
     X, Y = random_data(30, 8, k, seed=2)
     state = PLS().fit(make_dataset(X, Y), params(n_components=4, scale=scale))
     table = PLS().apply(make_dataset(X[:7], Y[:7]), params(), state)
-    sk: Any = PLSRegression(n_components=4, scale=scale)
+    sk: Any = PLSRegression(n_components=4, scale=scale, max_iter=10_000, tol=1e-20)  # as pls.py
     reference = np.asarray(sk.fit(X, Y).predict(X[:7])).reshape(7, k)
     lib(predicted(table), reference, "predictions")
     assert list(table) == ["row_index", "sample_id", *(f"y_pred_c{j}" for j in range(k))]
