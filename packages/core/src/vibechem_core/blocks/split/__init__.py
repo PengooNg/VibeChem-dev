@@ -18,6 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from vibechem_core.block import BLOCK_PARAM_INVALID, Param, port
+from vibechem_core.blocks import group_codes
 from vibechem_core.data import Fold, FoldSet, SpectralDataset
 from vibechem_core.errors import BlockInputError, ParamError
 
@@ -79,14 +80,15 @@ def sampling_units(spectra: SpectralDataset, group_aware: bool) -> NDArray[np.in
     """Unit number of each row: groups numbered by first appearance, or one unit per row.
 
     Raises ``BLOCK_MISSING_VALUES`` when X or y holds NaN (distances and strata would be
-    silently wrong).
+    silently wrong), ``BLOCK_INPUT_REQUIREMENT_MISSING`` for an empty group label.
     """
     if np.isnan(spectra.X).any() or (spectra.y is not None and np.isnan(spectra.y).any()):
         raise BlockInputError(BLOCK_MISSING_VALUES, {"port_id": "spectra"})
     if spectra.group_ids is None or not group_aware:
         return np.arange(spectra.n_samples)
-    _, first, inverse = np.unique(spectra.group_ids, return_index=True, return_inverse=True)
-    return np.argsort(np.argsort(first))[inverse]
+    codes = group_codes(spectra)
+    first = np.unique(codes, return_index=True)[1]
+    return np.argsort(np.argsort(first))[codes]
 
 
 def unit_means(values: NDArray[np.float64], units: NDArray[np.intp]) -> NDArray[np.float64]:
