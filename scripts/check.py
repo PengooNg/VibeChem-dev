@@ -7,7 +7,7 @@ Usage::
     uv run python scripts/check.py [--fast] [--only AREA] [--verbose]
 
 ``--fast`` skips tests marked ``slow``. ``--only`` limits the run to one area
-(``core``, ``engine``, ``native``, ``app``); without it every area runs, plus the
+(``core``, ``engine``, ``native``, ``app``, ``docs``); without it every area runs, plus the
 tests of ``scripts/``. By default only the health summary (QA.md §4) and the
 output of failed checks are printed; ``--verbose`` prints every command's output.
 The full log is always written to ``reports/check.log``.
@@ -15,6 +15,9 @@ The full log is always written to ``reports/check.log``.
 The ``app`` area runs the pnpm scripts ``lint`` (ESLint + Prettier), ``typecheck``
 and ``test`` (Vitest) in ``app/``; their results join the same summary lines as
 the Python checks. Missing ``pnpm`` or ``app/node_modules`` is a FAIL with a hint.
+
+The ``docs`` area runs ``scripts/check_doc_refs.py`` (rule references resolve, no old
+CLAUDE.md section numbers, CLAUDE.md length) as the ``doc refs`` line.
 
 The ``native`` area checks the Python wrapper and tests of ``packages/native``; its
 C++ extension is built by ``uv sync`` (the Catch2 tests run via CMake, see its README).
@@ -55,7 +58,7 @@ PYTHON_AREAS: dict[str, tuple[str, ...]] = {
     "engine": ("packages/engine/src", "packages/engine/tests"),
     "native": ("packages/native/python", "packages/native/tests"),
 }
-AREAS = (*PYTHON_AREAS, "app")
+AREAS = (*PYTHON_AREAS, "app", "docs")
 # Summary line -> pnpm script in app/package.json.
 APP_SCRIPTS: tuple[tuple[str, str], ...] = (
     ("format/lint", "lint"),
@@ -86,6 +89,7 @@ SUMMARY_ORDER = (
     "leakage suite",
     "golden pipeline",
     "coverage",
+    "doc refs",
 )
 
 # Reference results: written by `vibechem_core.testing.assert_reference` to the file
@@ -227,6 +231,10 @@ def run_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> list[Sect
         groups.append(python)
     if "app" in areas:
         groups.append(run_app_checks(runner))
+    if "docs" in areas:
+        groups.append(
+            [run_section("doc refs", [[sys.executable, "scripts/check_doc_refs.py"]], runner)]
+        )
     groups.append(later_sections())
     return [
         merge_sections(name, [r for group in groups for r in group if r.name == name])
@@ -419,7 +427,7 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
         if r.output and (args.verbose or r.status == "FAIL"):
             shown = r.output if args.verbose else tail(r.output)
             print(f"---- {r.name}: {r.status} ----\n{shown}\n")
-    print(summary)
+    print(f"=== HEALTH SUMMARY ===\n{summary}\n=== END HEALTH SUMMARY ===")
     print(f"Full log: {LOG_PATH.relative_to(ROOT).as_posix()}")
     return 1 if any(r.status == "FAIL" for r in results) else 0
 

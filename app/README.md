@@ -40,7 +40,7 @@ pnpm is pinned in `package.json` (`packageManager`). Run `corepack install -g pn
 - `renderer/src/i18n/{en,ja,vi}/common.json`: UI strings. Every key must exist in all three files (a Vitest test checks this).
 - Fonts (Inter, JetBrains Mono, Noto Sans JP) come from `@fontsource-variable/*` and are bundled by Vite; nothing loads from the web.
 
-## Visual check with Playwright CLI (CLAUDE.md §13.1)
+## Visual check with Playwright CLI (docs/TOOLS.md#51-visual-check-by-step-type)
 
 1. `pnpm --dir app dev:cdp`
 2. `pnpm --dir app exec playwright-cli attach --cdp=http://localhost:9339`, then

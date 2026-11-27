@@ -72,6 +72,7 @@ include = [
     "scripts",
 ]
 pythonVersion = "3.12"
+extraPaths = [".claude/hooks"]  # scripts/tests/test_quiet_hooks.py imports the hook modules
 typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]

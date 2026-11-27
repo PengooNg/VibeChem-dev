@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # packages/core/src/vibechem_core/block.py
-"""The block contract (ARCHITECTURE.md §3.1, CLAUDE.md §5).
+"""The block contract (ARCHITECTURE.md §3.1).
 
 A block is one class with class-level metadata, typed ports, a frozen dataclass of
 parameters and the methods that do the work, following scikit-learn's split between

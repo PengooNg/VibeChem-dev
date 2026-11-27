@@ -1,5 +1,5 @@
 Status: <state> · next: <action> · machine: <$VIBECHEM_MACHINE> · updated <YYYY-MM-DD HH:MM>
-<!-- Keep the Status line first and current (CLAUDE.md §8.1). States: cpN/M done · PAUSED at cpN/M · STOPPED: <CODE> · complete — merging -->
+<!-- Keep the Status line first and current (docs/rules/WORKFLOW.md#status-line). States: cpN/M done · PAUSED at cpN/M · STOPPED: <CODE> · complete — merging -->
 <!-- Voice (D2): narrative sections in caveman voice. Headings, the Status line, the health summary, code, paths and commands stay exact. Questions to Quan in full sentences. -->
 
 ## TASKS step
@@ -9,7 +9,7 @@ Status: <state> · next: <action> · machine: <$VIBECHEM_MACHINE> · updated <YY
 <!-- Checkpoints as done, each with the command that proved it. Note any change from the original plan and why. -->
 
 ## Reuse decision
-<!-- ponytail ladder (CLAUDE.md §12.1): the rung taken in one line; M/L steps: the options table. -->
+<!-- ponytail ladder (docs/rules/CODING.md#reuse-first-and-estimate-before-committing (12.1)): the rung taken in one line; M/L steps: the options table. -->
 
 ## Estimate vs actual
 <!-- Estimated checkpoints → actual checkpoints (size S/M/L). -->
@@ -29,13 +29,13 @@ Status: <state> · next: <action> · machine: <$VIBECHEM_MACHINE> · updated <YY
 ```
 
 ## Tools used
-<!-- Skills, agents, MCP tools (CLAUDE.md §13, TOOLS.md §3 row), incl. library + version checked with Context7. -->
+<!-- Skills, agents, MCP tools (docs/TOOLS.md#5-rules-for-the-tools, TOOLS.md §3 row), incl. library + version checked with Context7. -->
 
 ## Review
 <!-- ponytail-review findings and how each was handled; ECC agents for the areas touched (silent-failure-hunter, cpp-reviewer, mle-reviewer); /security-review for 🔒 steps; visual check for 👁 steps (screenshots attached, critique/audit/break-ui/accessibility findings). -->
 
 ## Bug fix (bug PRs only)
-<!-- Root cause · Fix · Test added · Possibly affected areas (CLAUDE.md §7). Delete for step PRs. -->
+<!-- Root cause · Fix · Test added · Possibly affected areas (docs/QA.md#6-bug-protocol). Delete for step PRs. -->
 
 ## Assumptions and open questions
 <!-- Assumptions made, anything you were unsure about, ponytail's "skipped / risk" lines. -->

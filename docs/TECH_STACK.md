@@ -1,7 +1,7 @@
 # VibeChem — Tech Stack, Repository Layout & Conventions
 
 > Status: v0.6 · Last updated: 2026-11-26 · Owner: Quan
-> v0.6 (tooling v0.5): K removed from the workflow — Quan approves dependencies (§9); the Phase 3 native-kernel rules moved here from CLAUDE.md §15 (§5).
+> v0.6 (tooling v0.5): K removed from the workflow — Quan approves dependencies (§9); the Phase 3 native-kernel rules moved here from the former CLAUDE.md section 15 (§5).
 > v0.5 (2026-11-25): §11.2 pengoo port inventory (T1.00b); PyWavelets candidate.
 > v0.4 (2026-11-23): `@playwright/cli` dev tool; GitHub/Playwright MCP removed; `GITHUB_PAT` no longer needed.
 > v0.3: branches and rulesets for phase mode (§8.1); CI triggers on `phase-*`; `.claude/`, `.mcp.json`, `PROGRESS.md`, `merge_step.py` in the layout; legal and citation files (§13, moved from the project plan); Claude Code in developer setup.
@@ -188,7 +188,7 @@ Each package folder has a `README.md`: purpose, public API, allowed dependencies
 ## 4. Python conventions
 - First line of every source file: `# SPDX-License-Identifier: GPL-3.0-or-later` (ported files keep the original notice too).
 - Fully typed; `pyright --strict` clean. No `Any` except at I/O boundaries.
-- Docstrings: NumPy style. Every block file starts with the header docstring from CLAUDE.md §5 (incl. `Implementation:` line).
+- Docstrings: NumPy style. Every block file starts with the header docstring from docs/rules/CODING.md#block-template-and-comment-style (incl. `Implementation:` line).
 - Numbered `# Step N:` comments for algorithm steps, matching METHODS.md.
 - Errors: raise subclasses from `vibechem_core.errors` with a `code` from DATA_MODEL.md §7. Never raise bare `Exception`.
 - Logging: `logging.getLogger(__name__)`; no `print`.
@@ -237,10 +237,10 @@ Claude Code commands: `/phase N`, `/step T<x> [wait]`, `/resume [answer]`, `/sta
 | `main` | Quan merges the phase PR at each gate (merge commit); Dependabot PRs | PR required · required checks (`ci.yml` jobs, added after T0.06) · **0 approvals** (Quan is the only reviewer; CODEOWNERS routes everything to him) · block force push · block deletion |
 | `phase-*` | Claude Code via `scripts/merge_step.py` (squash) | PR required · same required checks · 0 approvals · block force push · block deletion |
 | `t<step>-*`, `bug-*` | Claude Code | none |
-Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` changes during a phase (Dependabot) are brought into the phase branch by a `[SYNC]` PR (CLAUDE.md §14.1).
+Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` changes during a phase (Dependabot) are brought into the phase branch by a `[SYNC]` PR (docs/rules/WORKFLOW.md#session-preflight).
 
 ## 9. Dependency policy
-- New dependency → add a row in §1 (version line, purpose, licence) and update §11 status in the same PR; Quan approves (or automatic for listed candidates per CLAUDE.md §12.5; an open concern becomes a `docs/RISKS.md` row).
+- New dependency → add a row in §1 (version line, purpose, licence) and update §11 status in the same PR; Quan approves (or automatic for listed candidates per docs/rules/CODING.md#reuse-first-and-estimate-before-committing (12.5); an open concern becomes a `docs/RISKS.md` row).
 - Licences must be GPL-3.0-compatible (MIT, BSD, Apache-2.0, LGPL, GPL).
 - Prefer packages with wheels for Windows, macOS (arm64 + x64) and Linux on Python 3.14; no packages that need a compiler at install time on users' machines.
 - Small single-maintainer libraries: pin exact version, wrap inside block files only, keep our reference tests; if abandoned, vendor (copy with licence) or replace.
@@ -250,7 +250,7 @@ Merge methods: squash for step PRs, merge commit for `phase-N → main`. `main` 
 `contextIsolation: true` · `sandbox: true` · `nodeIntegration: false` · no `remote` module · Content-Security-Policy restricting to `self` · no loading of remote URLs · preload exposes only a typed minimal API (engine port + token, file dialogs, print-to-PDF) · engine bound to 127.0.0.1 with token (DATA_MODEL.md §1).
 
 ## 11. Reuse register — check before building anything
-Status: **candidate** (evaluate in the listed step, per CLAUDE.md §12) · **approved** (in §1) · **rejected** (reason recorded).
+Status: **candidate** (evaluate in the listed step, per docs/rules/CODING.md#reuse-first-and-estimate-before-committing) · **approved** (in §1) · **rejected** (reason recorded).
 | Area / step | Candidate | Licence | What it could save | Status |
 |---|---|---|---|---|
 | Python package scaffold (T0.03) | `scientific-python/cookie` template; `uv init --lib` | BSD-3 / — | pyproject, ruff, pytest, pre-commit, CI patterns | approved (T0.03: cookie's ruff/pytest settings adopted in root `pyproject.toml`; `uv_build` src layout as from `uv init --lib`; the full copier template was not used — no nox/docs/CI) |
@@ -366,13 +366,13 @@ Catalog references are `C§<section> <function> · <tier>` (FUNCTION_CATALOG.md;
 **Port recipe** (every **port** row above)
 1. **Find the NumPy core.** In osp preprocessors it is `_XxxCommon.transformed(self, data, X)`; drop `Preprocess`, `SelectColumn`, `CommonDomain*`, `Domain` and `compute_value` plumbing. In readers keep only the byte parsing that yields `x` (axis), `Y` (spectra) and metadata.
 2. **`Orange.data.Table` → `SpectralDataset`.** `getx(data)` → `ds.axis`; `data.X` → `ds.X`; metas/class columns → `ds.metadata` / `ds.Y` / `ds.classes`; a reference Table → a second input port (DATA_MODEL.md §4); a new output Table → `ds.with_X(...)` or a `Table` port. Unsorted axes: keep Quasar's sort-then-restore order behaviour and test it.
-3. **Block template** (CLAUDE.md §5, `block-template` skill): header docstring, typed `Param`s with Quasar's defaults unless METHODS.md says otherwise, numbered `# Step N:` comments matching METHODS.md. Global random state (`np.random.seed`) → a `numpy.random.Generator` parameter. Thread pools, `bottleneck`, matplotlib and Qt imports are removed.
+3. **Block template** (docs/rules/CODING.md#block-template-and-comment-style, `block-template` skill): header docstring, typed `Param`s with Quasar's defaults unless METHODS.md says otherwise, numbered `# Step N:` comments matching METHODS.md. Global random state (`np.random.seed`) → a `numpy.random.Generator` parameter. Thread pools, `bottleneck`, matplotlib and Qt imports are removed.
 4. **Source header** at the top of the file, below our SPDX line:
    `# Ported from <repo> <path> at commit <sha> (<licence>).` · `# Original copyright: <holder(s) from the upstream file/LICENSE>.` · `# Changes: <one line, e.g. "Orange Table plumbing replaced by SpectralDataset">.` Code that Quasar itself vendored (spc, specio, pymca5, scikit-image, irfpy ALS) also names the original project and keeps its licence notice (MIT/BSD text verbatim).
 5. **`THIRD_PARTY.md`** "Ported or vendored code" row in the same PR: component, source path, commit, licence, our file.
 6. **Tests** (rule 3 below): reference test with an independent expected value, property tests, and — optional — Quasar's own test values as extra regression checks marked as such.
 
-**Rule 3 — reference-test independence.** Quasar's (and Orange's) own test values are **not** an independent reference for code ported from them (CLAUDE.md §4): a bug copied with the code would pass them. Every ported block needs an expected value from a paper, other software (e.g. R `corr2D` for 2D-COS, the authors' MATLAB code for EMSC/ME-EMSC, pybaselines for baselines) or a hand calculation. Quasar test values are kept only as extra regression checks, named `test_*_quasar_regression`. Exception to check case by case: `datasets/emsc/MieStd1–7` were produced by the original authors' MATLAB ME-EMSC code (Solheim et al.), not by Quasar, so they could serve as the independent reference for ME-EMSC — but their origin is **unconfirmed** (Quan, 2026-11-25: unknown). Until it is confirmed from the files' source or the Solheim et al. paper/supplement, treat them as Quasar regression data only; the ME-EMSC step (P2) must find another independent reference (published values or the authors' MATLAB code run by us) or stop `MISSING_INPUT`.
+**Rule 3 — reference-test independence.** Quasar's (and Orange's) own test values are **not** an independent reference for code ported from them (CLAUDE.md#hard-rules): a bug copied with the code would pass them. Every ported block needs an expected value from a paper, other software (e.g. R `corr2D` for 2D-COS, the authors' MATLAB code for EMSC/ME-EMSC, pybaselines for baselines) or a hand calculation. Quasar test values are kept only as extra regression checks, named `test_*_quasar_regression`. Exception to check case by case: `datasets/emsc/MieStd1–7` were produced by the original authors' MATLAB ME-EMSC code (Solheim et al.), not by Quasar, so they could serve as the independent reference for ME-EMSC — but their origin is **unconfirmed** (Quan, 2026-11-25: unknown). Until it is confirmed from the files' source or the Solheim et al. paper/supplement, treat them as Quasar regression data only; the ME-EMSC step (P2) must find another independent reference (published values or the authors' MATLAB code run by us) or stop `MISSING_INPUT`.
 
 **Rule 4 — sample data licences.** osp has one repository-wide licence (GPL-3.0-or-later) and **no per-file licence or provenance notes** for `datasets/` (git history only shows the files being added or renamed). Treat them as GPL-3.0-or-later test data: allowed in our GPL-3.0-or-later repo **for tests only**, each copied file with a `testdata/` PROVENANCE entry and a `THIRD_PARTY.md` row, never shipped in installers. **Approved by Quan 2026-11-25** for this use. Vendor-produced files may carry the instrument maker's copyright underneath; that stays an open point (like the gasoline dataset).
 | File (osp `datasets/`) | Format / vendor | Use | Status |
@@ -395,7 +395,7 @@ Decisions as in §11.1 (**port** / **wrap** / **skip**). **Fix** = a defect or c
 
 **Defects confirmed by running pengoo** (2026-11-25, scratch script, not committed):
 - **D1 · MSC slope off by n/(n−1).** `msc()` divides `np.cov(x, ref)` (ddof = 1) by `ref.var()` (ddof = 0). On an exact case x = a + b·ref (50 points) the corrected spectrum should equal `ref`; pengoo is off by up to 0.013. `utils.residual()` has the same ddof mix.
-- **D2 · Per-fold preprocessing refits on the validation fold.** `calculate_cv_rmse(apply_preprocessing_in_cv=True)` runs the stateless pipeline separately on `X[val_idx]`: MSC takes the validation mean as its reference, MeanCenter/Autoscaling use validation statistics. With LOO, every validation spectrum becomes all zeros after MeanCenter/Autoscaling (checked), so the reported RMSECV is wrong without warning. The same applies to any test set passed through `apply_preprocessing_pipeline`. In VibeChem, fitted blocks `fit` on training rows and `apply` to the rest (CLAUDE.md §4; leakage rules T2.05), so this cannot happen by design, but results Quan produced earlier with pengoo + LOO + centring/scaling inside CV should be re-checked.
+- **D2 · Per-fold preprocessing refits on the validation fold.** `calculate_cv_rmse(apply_preprocessing_in_cv=True)` runs the stateless pipeline separately on `X[val_idx]`: MSC takes the validation mean as its reference, MeanCenter/Autoscaling use validation statistics. With LOO, every validation spectrum becomes all zeros after MeanCenter/Autoscaling (checked), so the reported RMSECV is wrong without warning. The same applies to any test set passed through `apply_preprocessing_pipeline`. In VibeChem, fitted blocks `fit` on training rows and `apply` to the rest (CLAUDE.md#hard-rules; leakage rules T2.05), so this cannot happen by design, but results Quan produced earlier with pengoo + LOO + centring/scaling inside CV should be re-checked.
 
 **Preprocessing (`preprocessing.py`; needs SciPy, PyWavelets, pybaselines)**
 | pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
@@ -437,7 +437,7 @@ Decisions as in §11.1 (**port** / **wrap** / **skip**). **Fix** = a defect or c
 | `pls_cv_score_single_pipeline`, `_evaluate_pipeline_chunk` (shared folds, LV sweep per fold, chunked) | C§7 · P0 | port the scoring; parallelism = our executor (T2.07, loky); joblib rejected (§11) | D2 | T2.10b |
 | `load_pipelines_from_excel` (`ast.literal_eval` of a params cell) | C§7 user-defined pipelines | port as an option reading a pipelines table through the T1.05 reader | JSON params instead of Python literals | T2.10b |
 | random subsample of pipelines (`max_combinations`) | C§7 Random search · P1 | port | global `np.random.seed(42)` → `Generator` | v1.1+ (P1) |
-| `save_results_to_file`, `save_checkpoint`, `load_checkpoint` | — | skip: pickle (CLAUDE.md §4) and a hard-coded user Desktop path; replaced by the cache (T2.06) and crash recovery (T2.09) | — | — |
+| `save_results_to_file`, `save_checkpoint`, `load_checkpoint` | — | skip: pickle (CLAUDE.md#hard-rules) and a hard-coded user Desktop path; replaced by the cache (T2.06) and crash recovery (T2.09) | — | — |
 
 **Variable selection (`variable_selection.py`)** — all receive pengoo-preprocessed X; the module documents that preprocessing is fitted once on the whole training set before selection (optimistic RMSECV, deliberate). Whether VibeChem offers that mode next to selection inside CV is **(P6 step, Quan)**.
 | pengoo function | Our catalog function | Decision (reason) | Fix / improvement | Target |
