@@ -18,10 +18,11 @@
   fold: two ``select`` tasks take the fold's ``train`` and ``validation`` rows by
   ``row_index`` (:func:`fold_rows`), each subgraph node is fitted on the ``train``
   stream only and applied (or run) on both streams. Inputs from outside the subgraph
-  stay wired to the full-row tasks; rejecting the leaky ones is the leakage rules' job
-  (T2.05). A ``refit_per_fold`` source that is not downstream of the fold source is
-  ``PIPELINE_FOLDS_SOURCE_MISMATCH``; a fitted block upstream of the fold source (fitted
-  once on rows that are validation rows of some fold) is ``PIPELINE_LEAKAGE``.
+  stay wired to the full-row tasks. A ``refit_per_fold`` source that is not downstream
+  of the fold source is ``PIPELINE_FOLDS_SOURCE_MISMATCH``.
+- Leakage (``PIPELINE_LEAKAGE``): the rules in :mod:`vibechem_engine.compiler.leakage`
+  (a fitted block upstream of a fold source; a fit input with rows outside its
+  training subset, inside or outside the folds).
 - Outside a fold every task sees all rows of its inputs, so the validation node's own
   ``run`` task gets the model refitted on all training rows (§4.6).
 """
@@ -36,6 +37,13 @@ from typing import Any, Literal
 from vibechem_core.block import BlockMeta
 from vibechem_core.data import Fold, SpectralDataset
 from vibechem_core.registry import Registry
+from vibechem_engine.compiler.leakage import (
+    PIPELINE_LEAKAGE,
+    FoldScope,
+    ancestors,
+    fitted_before_source,
+    row_leaks,
+)
 from vibechem_engine.graph import GraphIssue, validate_graph
 from vibechem_engine.ports import RuleName, edge_rule
 
@@ -53,7 +61,6 @@ __all__ = [
 ]
 
 PIPELINE_FOLDS_SOURCE_MISMATCH = "PIPELINE_FOLDS_SOURCE_MISMATCH"
-PIPELINE_LEAKAGE = "PIPELINE_LEAKAGE"
 STATE = "state"
 ROWS = "rows"  # the one output of a select task
 
@@ -158,6 +165,10 @@ class FoldPlan:
     _graph: _Graph = field(repr=False)
     _source_key: tuple[str, str] = field(repr=False)
 
+    def scope(self) -> FoldScope:
+        """What the leakage rules check per fold."""
+        return FoldScope(self.node_id, self._source_key, frozenset(self.nodes))
+
     def expand(self, fold: int, repeat: int) -> FoldTasks:
         """The tasks of fold ``fold`` of repeat ``repeat`` (task ids carry both)."""
         g, inside, at = self._graph, set(self.nodes), (fold, repeat)
@@ -253,21 +264,10 @@ def compile_pipeline(pipeline: Mapping[str, Any], registry: Registry) -> Compile
                 plans[node_id] = plan
             else:
                 issues += plan
+    issues += row_leaks(metas, edges, g.order, [p.scope() for p in plans.values()])
     if any(i.severity == "error" for i in issues):
         return CompiledPipeline((), {}, tuple(issues))
     return CompiledPipeline(tuple(tasks), plans, tuple(issues))
-
-
-def _ancestors(g: _Graph, node_id: str) -> set[str]:
-    """``node_id`` and every node upstream of it."""
-    seen: set[str] = set()
-    frontier = [node_id]
-    while frontier:
-        n = frontier.pop()
-        if n not in seen:
-            seen.add(n)
-            frontier += [e["from_node"] for e in g.into(n)]
-    return seen
 
 
 def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | list[GraphIssue]:
@@ -293,12 +293,11 @@ def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | list[GraphIss
     if refit["from_node"] not in downstream:
         return [GraphIssue(PIPELINE_FOLDS_SOURCE_MISMATCH, node_id, refit["to_port"])]
 
-    # A block fitted before the fold source saw every fold's validation rows (§3.2)
-    leaky = [n for n in g.order if n in _ancestors(g, source_key[0]) and g.metas[n].fitted]
+    leaky = fitted_before_source(g.metas, g.edges, g.order, source_key[0])
     if leaky:
-        return [GraphIssue(PIPELINE_LEAKAGE, n) for n in leaky]
+        return leaky
 
-    upstream = _ancestors(g, refit["from_node"])
+    upstream = ancestors(g.edges, refit["from_node"])
     return FoldPlan(
         node_id=node_id,
         port_id=refit["to_port"],
