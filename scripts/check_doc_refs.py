@@ -73,6 +73,13 @@ def tracked_files(root: Path) -> list[Path]:
     return [root / p for p in out.split("\0") if p]
 
 
+def git_ignored(root: Path, target: str) -> bool:
+    """True if git ignores ``target`` (exit 0); outside a repo git exits 128 → False."""
+    return (
+        subprocess.run(["git", "check-ignore", "-q", target], cwd=root, check=False).returncode == 0
+    )
+
+
 def check(root: Path, tracked: list[Path]) -> list[str]:
     problems: list[str] = []
     cache: dict[Path, set[str]] = {}
@@ -85,7 +92,8 @@ def check(root: Path, tracked: list[Path]) -> list[str]:
                 target, anchor = m.group(1).rstrip("."), m.group(2)
                 path = root / target
                 if not path.exists():
-                    problems.append(f"{rel}:{lineno}: missing file {target}")
+                    if not git_ignored(root, target):  # local-only files exist on dev machines only
+                        problems.append(f"{rel}:{lineno}: missing file {target}")
                 elif anchor:
                     if path not in cache:
                         cache[path] = anchors(path)
