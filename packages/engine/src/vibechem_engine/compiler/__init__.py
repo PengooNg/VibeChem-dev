@@ -20,7 +20,8 @@
   stream only and applied (or run) on both streams. Inputs from outside the subgraph
   stay wired to the full-row tasks; rejecting the leaky ones is the leakage rules' job
   (T2.05). A ``refit_per_fold`` source that is not downstream of the fold source is
-  ``PIPELINE_FOLDS_SOURCE_MISMATCH``.
+  ``PIPELINE_FOLDS_SOURCE_MISMATCH``; a fitted block upstream of the fold source (fitted
+  once on rows that are validation rows of some fold) is ``PIPELINE_LEAKAGE``.
 - Outside a fold every task sees all rows of its inputs, so the validation node's own
   ``run`` task gets the model refitted on all training rows (§4.6).
 """
@@ -40,6 +41,7 @@ from vibechem_engine.ports import RuleName, edge_rule
 
 __all__ = [
     "PIPELINE_FOLDS_SOURCE_MISMATCH",
+    "PIPELINE_LEAKAGE",
     "STATE",
     "CompiledPipeline",
     "FoldPlan",
@@ -51,6 +53,7 @@ __all__ = [
 ]
 
 PIPELINE_FOLDS_SOURCE_MISMATCH = "PIPELINE_FOLDS_SOURCE_MISMATCH"
+PIPELINE_LEAKAGE = "PIPELINE_LEAKAGE"
 STATE = "state"
 ROWS = "rows"  # the one output of a select task
 
@@ -240,22 +243,35 @@ def compile_pipeline(pipeline: Mapping[str, Any], registry: Registry) -> Compile
 
     plans: dict[str, FoldPlan] = {}
     for node_id, meta in metas.items():
-        for port in meta.inputs:
-            refit = next((e for e in g.into(node_id) if e["to_port"] == port.port_id), None)
-            if not port.refit_per_fold or refit is None:
-                continue
-            plan = _fold_plan(g, node_id, refit)
-            if plan is None:
-                issues.append(GraphIssue(PIPELINE_FOLDS_SOURCE_MISMATCH, node_id, port.port_id))
-            else:
+        refit_ports = {p.port_id for p in meta.inputs if p.refit_per_fold}
+        refits = [e for e in g.into(node_id) if e["to_port"] in refit_ports]
+        if len(refits) > 1:
+            raise ValueError(f"node {node_id!r} has more than one refit_per_fold input")
+        if refits:
+            plan = _fold_plan(g, node_id, refits[0])
+            if isinstance(plan, FoldPlan):
                 plans[node_id] = plan
+            else:
+                issues += plan
     if any(i.severity == "error" for i in issues):
         return CompiledPipeline((), {}, tuple(issues))
     return CompiledPipeline(tuple(tasks), plans, tuple(issues))
 
 
-def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | None:
-    """The plan of validation node ``node_id``; ``None`` on a fold-source mismatch."""
+def _ancestors(g: _Graph, node_id: str) -> set[str]:
+    """``node_id`` and every node upstream of it."""
+    seen: set[str] = set()
+    frontier = [node_id]
+    while frontier:
+        n = frontier.pop()
+        if n not in seen:
+            seen.add(n)
+            frontier += [e["from_node"] for e in g.into(n)]
+    return seen
+
+
+def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | list[GraphIssue]:
+    """The plan of validation node ``node_id``, or the issues that prevent it."""
     folds_edge = next((e for e in g.into(node_id) if e["to_port"] == "folds"), None)
     if folds_edge is None:
         raise ValueError(f"validation node {node_id!r} has refit_per_fold but no folds edge")
@@ -274,16 +290,15 @@ def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | None:
         if n not in downstream:
             downstream.add(n)
             frontier += [e["to_node"] for e in g.edges if e["from_node"] == n]
-
-    upstream: set[str] = set()
-    frontier = [refit["from_node"]]
-    while frontier:
-        n = frontier.pop()
-        if n not in upstream:
-            upstream.add(n)
-            frontier += [e["from_node"] for e in g.into(n)]
     if refit["from_node"] not in downstream:
-        return None
+        return [GraphIssue(PIPELINE_FOLDS_SOURCE_MISMATCH, node_id, refit["to_port"])]
+
+    # A block fitted before the fold source saw every fold's validation rows (§3.2)
+    leaky = [n for n in g.order if n in _ancestors(g, source_key[0]) and g.metas[n].fitted]
+    if leaky:
+        return [GraphIssue(PIPELINE_LEAKAGE, n) for n in leaky]
+
+    upstream = _ancestors(g, refit["from_node"])
     return FoldPlan(
         node_id=node_id,
         port_id=refit["to_port"],

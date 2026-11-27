@@ -275,3 +275,20 @@ def test_fold_rows_use_row_index_on_an_offset_dataset() -> None:
     fold = Fold(0, 0, train=[100, 101], validation=[103])
     assert fold_rows(data, fold, "train").sample_ids == ("b", "d")
     assert fold_rows(data, fold, "validation").sample_ids == ("a",)
+
+
+def test_fitted_node_before_the_fold_source_is_leakage() -> None:
+    # MSC fitted once on all rows, then folds made on its output: validation rows leak
+    compiled = _compile(
+        [
+            "src.spectra -> msc.spectra",
+            "msc.spectra -> kfold.spectra",
+            "msc.spectra -> pls.spectra",
+            "pls.model -> cv.model",
+            "kfold.folds -> cv.folds",
+        ]
+    )
+    assert compiled.tasks == ()
+    assert [(i.code, i.node_id, i.port_id) for i in compiled.issues] == [
+        ("PIPELINE_LEAKAGE", "msc", None)
+    ]
