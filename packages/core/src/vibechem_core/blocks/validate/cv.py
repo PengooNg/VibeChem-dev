@@ -206,6 +206,8 @@ class CrossValidation(Block):
         # PLS1 the regression names; PLS2 the curve's rmsecv/press, per column in
         # details; PLS-DA the classification names (N22, N27)
         validation = [r.validation for r in fold_runs]
+        # Fitted units = Y units (no scale, or a y_transform that only centres), N28
+        unscaled = k == 1 or classes is not None or bool((_fit_scale(model) == 1).all())
         fold_ids = [np.full(r.validation.n_samples, r.fold.fold) for r in fold_runs]
         details: dict[str, Any] = {}
         if classes is not None:
@@ -232,7 +234,7 @@ class CrossValidation(Block):
             else:
                 metrics = {"rmsecv": float(rmsecv[n_lv]), "press": float(press[n_lv])}
                 details["per_column"] = per_column
-                if not model.values["scale"] and not model.values["y_transform"]:
+                if unscaled:
                     _check_y_scales(y_true, members, params.y_variance_ratio)
         at_n_lv = [float(r[n_lv]) for r in rmsecv_r]
         predictions: dict[str, NDArray[Any]] = {
@@ -252,7 +254,9 @@ class CrossValidation(Block):
             for j, col in enumerate(columns):
                 predictions[f"y_true_{col}"] = truth[:, j]
                 predictions[f"y_pred_{col}"] = scores[:, j]
-        units = set(validation[0].y_units or ())
+        units: set[str] = set(validation[0].y_units or ())
+        if not unscaled:
+            units = set[str]()  # the PLS2 curve is in fitted (scaled) units, not in Y units (N28)
         results = Results(
             kind="cv",
             metrics={**metrics, "n_lv": float(n_lv)},

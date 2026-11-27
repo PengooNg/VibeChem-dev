@@ -261,6 +261,7 @@ def classification_metrics(
     auc = _auc_per_class(truth, scores, labels, 4)
     n_g = C.sum(axis=1)
     w = n_g / n_g.sum()
+    present = n_g > 0  # an absent class has weight 0, so its NaN must not reach the sum
     ratio = float(n_g.max() / n_g.min()) if n_g.min() > 0 else math.inf
     s = set_
     m = {
@@ -268,9 +269,9 @@ def classification_metrics(
         f"sensitivity_{s}": float(sens.mean()),
         f"specificity_{s}": float(spec.mean()),
         f"auc_{s}": float(auc.mean()),
-        f"sensitivity_w_{s}": float(w @ sens),
-        f"specificity_w_{s}": float(w @ spec),
-        f"auc_w_{s}": float(w @ auc),
+        f"sensitivity_w_{s}": float(w[present] @ sens[present]),
+        f"specificity_w_{s}": float(w[present] @ spec[present]),
+        f"auc_w_{s}": float(w[present] @ auc[present]),
         f"class_ratio_{s}": ratio,
     }
     if micro:

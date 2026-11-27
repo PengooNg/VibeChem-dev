@@ -288,6 +288,7 @@ def test_pls2_curve_sums_press_over_columns_in_the_fitted_space(scale: bool) -> 
     assert set(result.metrics) == {"rmsecv", "press", "n_lv"}
     assert result.metrics["press"] == pytest.approx(result.details["press"][n_lv])
     assert set(result.details["per_column"]) == {"y0", "y1"}
+    assert result.y_unit == (None if scale else "%")
     preds = cast(Any, result.predictions)
     e1 = cast(NDArray[np.float64], preds["y_pred_y1"] - preds["y_true_y1"])
     rmse_y1 = float(np.sqrt(np.mean(e1**2)))  # original Y units

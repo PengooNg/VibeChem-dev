@@ -246,6 +246,14 @@ def test_classification_set_metrics_match_hand_calculation() -> None:
             true[1:], true[1:], np.eye(2)[(true[1:] == "p").astype(int)], ["n", "p"], "p"
         )
     assert m["auc_p"] == m["auc_w_p"] == 1.0
+
+    # A class absent from the set has weight 0: weighted means stay defined (macro is NaN)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        m, _ = classification_metrics(TRUE[:5], PRED[:5], scores[:5], classes, "p")
+    assert m["sensitivity_w_p"] == pytest.approx(m["accuracy_p"])
+    assert math.isnan(m["sensitivity_p"])
+    assert m["class_ratio_p"] == math.inf
     assert codes(record) == [
         (METRIC_CLASSES_SEVERELY_UNBALANCED, {"ratio": 21.0, "threshold": 20.0, "set": "p"})
     ]
