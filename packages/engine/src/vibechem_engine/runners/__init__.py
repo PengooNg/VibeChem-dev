@@ -23,17 +23,17 @@ its own root seed from ``root_seed``. A stage with a failure ends the run.
 from __future__ import annotations
 
 import inspect
+import logging
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, cast
 
 import numpy as np
 
 from vibechem_core.block import Block, State, parse_params
 from vibechem_core.blocks.validate.cv import FoldRun
 from vibechem_core.data import Fold, FoldSet, SpectralDataset
-from vibechem_core.errors import VibeChemError
 from vibechem_core.registry import Registry
 from vibechem_engine.compiler import (
     STATE,
@@ -49,6 +49,7 @@ from vibechem_engine.scheduler import Job, RunStatus, run_jobs
 __all__ = ["PipelineRun", "TaskOutput", "execute_task", "run_pipeline"]
 
 _STATE_TYPES = frozenset({"Model", "Transform"})
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,12 +83,16 @@ class PipelineRun:
     errors: Mapping[str, BaseException]
 
     def output(self, node_id: str, port_id: str) -> object:
-        """Top-level output ``port_id`` of node ``node_id``."""
+        """Top-level data output ``port_id`` of node ``node_id``; ``KeyError`` if absent."""
         for task_id in (f"{node_id}:run", f"{node_id}:apply"):
             values = self.outputs.get(task_id)
             if values is not None and port_id in values.values:
                 return values.values[port_id]
-        return self.outputs[f"{node_id}:fit"].values[STATE]
+        raise KeyError(f"{node_id}.{port_id}")
+
+    def state(self, node_id: str) -> State:
+        """State (``Model``/``Transform`` output) of fitted node ``node_id``."""
+        return cast(State, self.outputs[f"{node_id}:fit"].values[STATE])
 
 
 def execute_task(seed: int, spec: _Spec, *deps: TaskOutput) -> TaskOutput:
@@ -176,18 +181,18 @@ def run_pipeline(
             tuple(deps),
         )
 
-    def run(tasks: list[Task], seed: int) -> bool:
+    def run(tasks: list[Task], seed: int) -> RunStatus:
         if not tasks:
-            return True
+            return "succeeded"
         stage = {t.task_id: t for t in tasks}
         jobs: list[Job] = []
         for t in tasks:
             s, deps = spec(t, stage)
             jobs.append(Job(t.task_id, t.node_id, execute_task, (s,), deps))
         result = run_jobs(jobs, executor, root_seed=seed)
-        done.update({k: v for k, v in result.results.items() if isinstance(v, TaskOutput)})
+        done.update({k: cast(TaskOutput, v) for k, v in result.results.items()})
         errors.update(result.errors)
-        return result.status == "succeeded"
+        return result.status
 
     # Stage 1: top-level tasks that do not need a validation node
     held = {f"{node_id}:run" for node_id in compiled.fold_plans}
@@ -195,8 +200,8 @@ def run_pipeline(
         if any(i.task_id in held for i in task.inputs):
             held.add(task.task_id)
     first = [t for t in compiled.tasks if t.task_id not in held and t.task_id not in done]
-    if not run(first, seeds[0]):
-        return PipelineRun("failed", done, errors)
+    if (status := run(first, seeds[0])) != "succeeded":
+        return PipelineRun(status, done, errors)
 
     # Stage 2: fold tasks of every validation node
     expanded: dict[str, list[tuple[Fold, FoldTasks]]] = {}
@@ -208,38 +213,26 @@ def run_pipeline(
             ft = plan.expand(fold.fold, fold.repeat)
             expanded[node_id].append((fold, ft))
             fold_tasks += ft.tasks
-    if not run(fold_tasks, seeds[1]):
-        return PipelineRun("failed", done, errors)
+    if (status := run(fold_tasks, seeds[1])) != "succeeded":
+        return PipelineRun(status, done, errors)
 
     # Stage 3: validation nodes, here, with their fold runs
     for node_id in compiled.fold_plans:
         task = next(t for t in compiled.tasks if t.task_id == f"{node_id}:run")
-        s, _ = spec(task, {})
-        fold_runs = [_fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]]
         try:
-            out = execute_task(seeds[2], _with(s, fold_runs=fold_runs))
-        except VibeChemError as exc:
+            s, _ = spec(task, {})
+            runs = [_fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]]
+            done[task.task_id] = execute_task(
+                seeds[2], replace(s, values={**s.values, "fold_runs": runs})
+            )
+        except Exception as exc:  # noqa: BLE001  (a node error, as the scheduler records worker failures)
+            _log.exception("validation node %s failed", node_id)
             errors[task.task_id] = exc
             return PipelineRun("failed", done, errors)
-        done[task.task_id] = out
 
     # Stage 4: what depends on validation nodes
     rest = [t for t in compiled.tasks if t.task_id in held and t.task_id not in done]
-    if not run(rest, seeds[3]):
-        return PipelineRun("failed", done, errors)
-    return PipelineRun("succeeded", done, errors)
-
-
-def _with(spec: _Spec, **values: object) -> _Spec:
-    return _Spec(
-        spec.block,
-        spec.kind,
-        spec.params,
-        spec.inputs,
-        {**spec.values, **values},
-        spec.fold,
-        spec.part,
-    )
+    return PipelineRun(run(rest, seeds[3]), done, errors)
 
 
 def _fold_run(

@@ -132,6 +132,32 @@ def test_repeated_cv_averages_the_repeats() -> None:
     assert 1 <= n_lv <= N_LV
 
 
+def test_press_fold_spread_and_fold_mean_from_the_predictions() -> None:
+    """Steps 3-4 recomputed with plain NumPy from the out-of-fold predictions at n_lv."""
+    data = dataset()
+    folds = RepeatedKFold().apply(
+        data, parse_params(RepeatedKFoldParams, {"k": 3, "repeats": 2, "seed": 1})
+    )
+    result = cv(data, folds, aggregation="fold_mean")
+    n_lv = int(result.metrics["n_lv"])
+    p = cast(dict[str, NDArray[Any]], result.predictions)
+    e = p["y_pred_y0"] - p["y_true_y0"]
+    keys = sorted({(int(r), int(f)) for r, f in zip(p["repeat"], p["fold"], strict=True)})
+    fold_rmse = np.array(
+        [np.sqrt(np.mean(e[(p["repeat"] == r) & (p["fold"] == f)] ** 2)) for r, f in keys]
+    )
+    press = np.mean([np.sum(e[p["repeat"] == r] ** 2) for r in (0, 1)])
+    fold_mean = np.mean(
+        [fold_rmse[[i for i, k in enumerate(keys) if k[0] == r]].mean() for r in (0, 1)]
+    )
+    assert result.details["press"][n_lv] == pytest.approx(press, rel=1e-12)
+    assert result.details["rmsecv"][n_lv] == pytest.approx(fold_mean, rel=1e-12)
+    assert result.details["rmsecv_fold_sd"][n_lv] == pytest.approx(
+        np.std(fold_rmse, ddof=1), rel=1e-12
+    )
+    assert result.details["rmsecv_fold_se"][n_lv] == pytest.approx(np.std(fold_rmse, ddof=1) / np.sqrt(6), rel=1e-12)  # fmt: skip
+
+
 def test_rows_predicted_twice_or_never_are_rejected() -> None:
     data = dataset()
     good = kfold(data).folds

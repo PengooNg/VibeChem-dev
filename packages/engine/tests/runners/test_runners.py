@@ -21,6 +21,7 @@ from sklearn.cross_decomposition import PLSRegression  # pyright: ignore[reportM
 
 from vibechem_core.block import Block, port
 from vibechem_core.blocks.model.pls import PLS
+from vibechem_core.blocks.preprocess.scaling import Autoscale
 from vibechem_core.blocks.preprocess.snv import SNV
 from vibechem_core.blocks.validate.cv import CrossValidation
 from vibechem_core.blocks.validate.folds import ContiguousBlocks, LeaveOneOut
@@ -50,7 +51,7 @@ class Source(Block):
 
 
 REGISTRY = Registry()
-for _block in (Source, SNV, PLS, ContiguousBlocks, LeaveOneOut, CrossValidation):
+for _block in (Source, SNV, Autoscale, PLS, ContiguousBlocks, LeaveOneOut, CrossValidation):
     REGISTRY.register(_block)
 
 
@@ -89,7 +90,7 @@ def gasoline() -> SpectralDataset:
     )
 
 
-def pipeline(folds_block: str, folds_params: dict[str, Any], snv: bool) -> dict[str, Any]:
+def pipeline(folds_block: str, folds_params: dict[str, Any], pre: str | None) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = [
         {"node_id": "src", "block_id": "test.source", "params": {}},
         {"node_id": "folds", "block_id": folds_block, "params": folds_params},
@@ -98,9 +99,9 @@ def pipeline(folds_block: str, folds_params: dict[str, Any], snv: bool) -> dict[
     ]
     edges: list[tuple[str, str, str, str]] = [("src", "spectra", "folds", "spectra"), ("pls", "model", "cv", "model"),
              ("folds", "folds", "cv", "folds")]  # fmt: skip
-    if snv:
-        nodes.append({"node_id": "snv", "block_id": "preprocess.snv", "params": {}})
-        edges += [("src", "spectra", "snv", "spectra"), ("snv", "spectra", "pls", "spectra")]
+    if pre:
+        nodes.append({"node_id": "pre", "block_id": pre, "params": {}})
+        edges += [("src", "spectra", "pre", "spectra"), ("pre", "spectra", "pls", "spectra")]
     else:
         edges.append(("src", "spectra", "pls", "spectra"))
     return {
@@ -123,7 +124,7 @@ def results(out: PipelineRun) -> Results:
 
 
 def test_loo_rmsecv_matches_the_published_gasoline_values(gasoline: SpectralDataset) -> None:
-    out = results(run(pipeline("validate.loo", {}, snv=False), gasoline, ThreadExecutor()))
+    out = results(run(pipeline("validate.loo", {}, pre=None), gasoline, ThreadExecutor()))
     expected = load_expected("gasoline_nir_pls")
     for a in range(1, 11):
         assert_reference(method="CV runner RMSECV (LOO, pooled)", dataset=f"gasoline_nir rows 1-50, {a} LV",
@@ -131,26 +132,42 @@ def test_loo_rmsecv_matches_the_published_gasoline_values(gasoline: SpectralData
                          rtol=expected["tolerance"]["rtol"], atol=0.0, source=SOURCE)  # fmt: skip
 
 
-def sklearn_curve(data: SpectralDataset, folds: FoldSet) -> NDArray[np.float64]:
-    """Hand-written scikit-learn CV on SNV spectra, rows mapped to positions independently."""
-    X = (data.X - data.X.mean(axis=1, keepdims=True)) / data.X.std(axis=1, ddof=1, keepdims=True)
+type Scaler = Callable[[NDArray[np.float64]], tuple[NDArray[np.float64], NDArray[np.float64]]]
+
+
+def snv(X: NDArray[np.float64]) -> NDArray[np.float64]:
+    return (X - X.mean(axis=1, keepdims=True)) / X.std(axis=1, ddof=1, keepdims=True)
+
+
+def sklearn_curve(
+    data: SpectralDataset, folds: FoldSet, scaling_rows: str | None = None
+) -> NDArray[np.float64]:
+    """Hand-written scikit-learn CV, rows mapped to positions independently. ``scaling_rows``
+    None: SNV; ``train``: autoscaling fitted on the fold's training rows; ``all``: on all rows."""
     y = cast(NDArray[np.float64], data.y)[:, 0]
     position = {r: i for i, r in enumerate(data.row_index.tolist())}
     sse = np.zeros(10)
     for f in folds.folds:
         tr = [position[r] for r in f.train.tolist()]
         va = [position[r] for r in f.validation.tolist()]
+        if scaling_rows is None:
+            x = snv(data.X)
+        else:
+            ref = data.X[tr] if scaling_rows == "train" else data.X
+            x = (data.X - ref.mean(axis=0)) / ref.std(axis=0, ddof=1)
         for a in range(1, 11):
             pls: Any = PLSRegression(n_components=a, scale=False)
-            pls.fit(X[tr], y[tr])
-            pred: NDArray[np.float64] = pls.predict(X[va]).ravel()
+            pls.fit(x[tr], y[tr])
+            pred: NDArray[np.float64] = pls.predict(x[va]).ravel()
             sse[a - 1] += float(((pred - y[va]) ** 2).sum())
     return np.sqrt(sse / y.size)
 
 
 def test_five_fold_curve_matches_hand_written_scikit_learn_cv(gasoline: SpectralDataset) -> None:
     out = run(
-        pipeline("validate.contiguous_blocks", {"k": 5}, snv=True), gasoline, ThreadExecutor()
+        pipeline("validate.contiguous_blocks", {"k": 5}, pre="preprocess.snv"),
+        gasoline,
+        ThreadExecutor(),
     )
     folds = cast(FoldSet, out.output("folds", "folds"))
     got = results(out)
@@ -159,8 +176,18 @@ def test_five_fold_curve_matches_hand_written_scikit_learn_cv(gasoline: Spectral
     assert sorted(rows.tolist()) == sorted(gasoline.row_index.tolist())  # one OOF row each
 
 
+def test_fitted_preprocessing_is_refitted_on_each_fold(gasoline: SpectralDataset) -> None:
+    doc = pipeline("validate.contiguous_blocks", {"k": 5}, pre="preprocess.autoscale")
+    out = run(doc, gasoline, ThreadExecutor())
+    folds = cast(FoldSet, out.output("folds", "folds"))
+    curve = np.array(results(out).details["rmsecv"][1:])
+    np.testing.assert_allclose(curve, sklearn_curve(gasoline, folds, "train"), rtol=1e-10, atol=1e-12)  # fmt: skip
+    leaky = sklearn_curve(gasoline, folds, "all")  # scaling fitted on the validation rows too
+    assert np.abs(curve - leaky).max() > 1e-6
+
+
 def test_process_pool_gives_the_same_curve(gasoline: SpectralDataset, tmp_path: Path) -> None:
-    doc = pipeline("validate.contiguous_blocks", {"k": 5}, snv=True)
+    doc = pipeline("validate.contiguous_blocks", {"k": 5}, pre="preprocess.snv")
     with ProcessExecutor(2, tmp_path) as executor:
         pooled = results(run(doc, gasoline, executor))
     threaded = results(run(doc, gasoline, ThreadExecutor()))
@@ -168,7 +195,7 @@ def test_process_pool_gives_the_same_curve(gasoline: SpectralDataset, tmp_path: 
 
 
 def test_compile_errors_are_refused(gasoline: SpectralDataset) -> None:
-    doc = pipeline("validate.loo", {}, snv=False)
+    doc = pipeline("validate.loo", {}, pre=None)
     doc["edges"] = [e for e in doc["edges"] if e["to_port"] != "folds"]
     compiled = compile_pipeline(doc, REGISTRY)
     with pytest.raises(ValueError, match="pipeline has errors"):

@@ -73,7 +73,10 @@ class CrossValidation(Block):
     def apply(
         self, model: State, folds: FoldSet, params: CVParams, fold_runs: Sequence[FoldRun]
     ) -> Results:
-        if "classes" in model.values or len(cast(list[str], model.values["y_columns"])) != 1:
+        if (
+            "classes" in model.values
+            or len(cast(list[str], model.values.get("y_columns", []))) != 1
+        ):
             raise BlockInputError(
                 BLOCK_INPUT_REQUIREMENT_MISSING,
                 {"port_id": "model", "requirement": "y", "expected": "one regression column"},

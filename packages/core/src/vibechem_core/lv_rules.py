@@ -61,10 +61,12 @@ def select_lv(
         a = 1
         while a < n_lv:
             d = folds[a] - folds[a + 1]
-            # equal differences (or K < 2) give no p value: not significant
-            if d.size < 2 or np.ptp(d) == 0.0:
+            if d.size < 2:
                 break
-            p = float(ttest_rel(folds[a], folds[a + 1]).pvalue)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType, reportAttributeAccessIssue]
+            if np.ptp(d) == 0.0:  # SD 0: t is infinite (p = 0) unless every difference is 0
+                p = 0.0 if d[0] != 0.0 else 1.0
+            else:
+                p = float(ttest_rel(folds[a], folds[a + 1]).pvalue)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType, reportAttributeAccessIssue]
             if not (p < alpha and curve[a + 1] < curve[a]):
                 break
             a += 1

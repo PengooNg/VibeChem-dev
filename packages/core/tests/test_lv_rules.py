@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from scipy.stats import ttest_rel  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
 from vibechem_core.lv_rules import fold_sd_se, select_lv
 
@@ -47,8 +48,13 @@ def test_ttest_steps_forward_while_the_next_lv_is_significantly_better() -> None
     assert select_lv("ttest", rmsecv, np.zeros(4), _ttest_folds(), alpha=1e-5) == 1
     # significant but RMSECV does not fall: no step
     assert select_lv("ttest", [5.0, 2.0, 2.05, 2.04], np.zeros(4), _ttest_folds()) == 1
-    # equal fold errors: p undefined, not significant
+    # equal fold errors: p undefined, not significant; a constant non-zero gain: p = 0
     assert select_lv("ttest", rmsecv, np.zeros(4), np.ones((4, 4))) == 1
+    assert select_lv("ttest", [5.0, 3.0, 2.0], np.zeros(3), [[5.0] * 4, [3.0] * 4, [2.0] * 4]) == 2
+    # the hand t statistic of the comment (T-exact) is what SciPy tests
+    folds = _ttest_folds()
+    t = float(ttest_rel(folds[1], folds[2]).statistic)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType, reportAttributeAccessIssue]
+    assert t == pytest.approx(1.0 / (np.sqrt(0.02 / 3) / 2), rel=1e-12)
 
 
 def test_wold_stops_before_the_first_ratio_at_or_above_the_threshold() -> None:
