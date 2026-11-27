@@ -12,6 +12,13 @@ from __future__ import annotations
 from typing import Any
 
 from vibechem_engine.formats._files import FormatError
+from vibechem_engine.formats.model import (
+    MODEL_PACKAGE_INVALID,
+    ModelManifest,
+    ModelPackage,
+    read_model,
+    write_model,
+)
 from vibechem_engine.formats.pipeline import (
     PIPELINE_FILE_INVALID,
     PipelineFile,
@@ -26,16 +33,21 @@ from vibechem_engine.formats.project import (
 )
 
 __all__ = [
+    "MODEL_PACKAGE_INVALID",
     "PIPELINE_FILE_INVALID",
     "PROJECT_FILE_INVALID",
     "FormatError",
+    "ModelManifest",
+    "ModelPackage",
     "PipelineFile",
     "ProjectFile",
     "json_schemas",
     "load_pipeline",
     "load_project",
+    "read_model",
     "save_pipeline",
     "save_project",
+    "write_model",
 ]
 
 
@@ -44,4 +56,5 @@ def json_schemas() -> dict[str, dict[str, Any]]:
     return {
         "pipeline.schema.json": PipelineFile.model_json_schema(),
         "project.schema.json": ProjectFile.model_json_schema(),
+        "model_manifest.schema.json": ModelManifest.model_json_schema(),
     }
