@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import graphlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -41,8 +42,9 @@ from vibechem_engine.compiler.leakage import (
     PIPELINE_LEAKAGE,
     FoldScope,
     ancestors,
-    fitted_before_source,
+    fitted_before,
     row_leaks,
+    split_nodes,
 )
 from vibechem_engine.graph import GraphIssue, validate_graph
 from vibechem_engine.ports import RuleName, edge_rule
@@ -264,7 +266,13 @@ def compile_pipeline(pipeline: Mapping[str, Any], registry: Registry) -> Compile
                 plans[node_id] = plan
             else:
                 issues += plan
-    issues += row_leaks(metas, edges, g.order, [p.scope() for p in plans.values()])
+    sources = {
+        n["node_id"]: json.dumps([n["block_id"], n.get("params", {})], sort_keys=True)
+        for n in pipeline["nodes"]
+    }
+    issues += fitted_before(metas, edges, g.order, split_nodes(edges))
+    issues += row_leaks(metas, edges, g.order, [p.scope() for p in plans.values()], sources)
+    issues = list({(i.code, i.node_id, i.port_id): i for i in issues}.values())
     if any(i.severity == "error" for i in issues):
         return CompiledPipeline((), {}, tuple(issues))
     return CompiledPipeline(tuple(tasks), plans, tuple(issues))
@@ -293,7 +301,7 @@ def _fold_plan(g: _Graph, node_id: str, refit: Edge) -> FoldPlan | list[GraphIss
     if refit["from_node"] not in downstream:
         return [GraphIssue(PIPELINE_FOLDS_SOURCE_MISMATCH, node_id, refit["to_port"])]
 
-    leaky = fitted_before_source(g.metas, g.edges, g.order, source_key[0])
+    leaky = fitted_before(g.metas, g.edges, g.order, [source_key[0]])
     if leaky:
         return leaky
 

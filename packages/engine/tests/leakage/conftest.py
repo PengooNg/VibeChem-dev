@@ -72,6 +72,7 @@ BLOCKS = {
     "centre": "preprocess.mean_centre",
     "pls": "model.pls",
     "split": "split.random",
+    "split2": "split.random",
     "kfold": "validate.kfold",
     "sel": "test.select_top_k",  # registered by test_noise.py
 }
@@ -109,7 +110,9 @@ def registry() -> Registry:
 
 @pytest.fixture
 def compile_edges() -> CompileEdges:
-    def run(edges: list[str], registry: Registry = REGISTRY) -> CompiledPipeline:
-        return compile_pipeline(pipeline_of(edges), registry)
+    def run(
+        edges: list[str], params: Mapping[str, Mapping[str, Any]] | None = None
+    ) -> CompiledPipeline:
+        return compile_pipeline(pipeline_of(edges, params), REGISTRY)
 
     return run

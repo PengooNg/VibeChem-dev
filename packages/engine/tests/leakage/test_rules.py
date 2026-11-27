@@ -12,7 +12,7 @@ import pytest
 
 from vibechem_engine.compiler import CompiledPipeline
 
-type CompileEdges = Callable[[list[str]], CompiledPipeline]
+type CompileEdges = Callable[..., CompiledPipeline]
 
 _CV_ON_TRAIN = [
     "src.spectra -> split.spectra",
@@ -71,6 +71,24 @@ LEAKY = {
         "pls",
         "spectra",
     ),
+    # a second data node loading the same dataset is the same source (same block, params)
+    "msc_reference_from_a_twin_source_node": (
+        [*_CV_ON_TRAIN, "src2.spectra -> msc.reference"],
+        "msc",
+        "reference",
+    ),
+    # centring fitted once on all rows before the hold-out split saw the test rows
+    "fitted_before_holdout_split": (
+        [
+            "src.spectra -> centre.spectra",
+            "centre.spectra -> split.spectra",
+            "split.train -> pls.spectra",
+            "pls.model -> pred.model",
+            "split.test -> pred.spectra",
+        ],
+        "centre",
+        None,
+    ),
     # external test set: the model was fitted on all rows, test rows included
     "model_fitted_on_all_rows_applied_to_test": (
         [
@@ -112,6 +130,12 @@ def test_leaky_pipeline_is_rejected(compile_edges: CompileEdges, case: str) -> N
 
 SAFE = {
     "msc_reference_from_another_dataset": [*_CV_ON_TRAIN, "src2.spectra -> msc.reference"],
+    # a subset of the training rows as reference
+    "msc_reference_from_a_training_subset": [
+        *_HOLDOUT,
+        "split.train -> split2.spectra",
+        "split2.train -> msc.reference",
+    ],
     # the fold source stream itself is cut to the fold's train rows for every fit
     "msc_reference_from_fold_source": [
         "src.spectra -> kfold.spectra",
@@ -135,6 +159,6 @@ SAFE = {
 
 @pytest.mark.parametrize("case", SAFE)
 def test_safe_pipeline_compiles(compile_edges: CompileEdges, case: str) -> None:
-    compiled = compile_edges(SAFE[case])
+    compiled = compile_edges(SAFE[case], {"src2": {"dataset": "another file"}})
     assert compiled.issues == ()
     assert compiled.tasks != ()

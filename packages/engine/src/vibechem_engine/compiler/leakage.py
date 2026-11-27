@@ -3,19 +3,23 @@
 """Leakage rules: no ``fit`` task may see validation or test rows (ARCHITECTURE.md §3.2,
 DATA_MODEL.md §4.6). Static, on the user graph; every finding is ``PIPELINE_LEAKAGE``.
 
-1. :func:`fitted_before_source`: a fitted block upstream of a fold source was fitted
-   once on rows that are some fold's validation rows (issue on the node).
+1. :func:`fitted_before`: a fitted block upstream of a fold source or of a block with a
+   used ``train``/``test`` output was fitted once on rows that are some fold's
+   validation rows or the test rows (issue on the node).
 2. :func:`row_leaks`, by row provenance. Every node without input edges is a data
-   source. A stream carries *tags* ``(source node, subsets)``: the sources its rows or
-   information come from, and the row subsets on the way (a ``train`` or ``test``
-   output port, e.g. of a hold-out split, and inside a fold the fold's ``train`` rows).
-   A node's outputs carry the union of its inputs' tags. A fit input is leaky (issue
-   on the node and that input port) when one of its tags
+   source, identified by its ``block_id`` and ``params`` (two nodes loading the same
+   dataset are one source). A stream carries *tags* ``(source, subsets)``: the sources
+   its rows or information come from, and the row subsets on the way (a ``train`` or
+   ``test`` output port, e.g. of a hold-out split, and inside a fold the fold's
+   ``train`` rows). A node's outputs carry the union of its inputs' tags. The first
+   declared input of a fitted block holds its training rows (``spectra``). A fit input
+   is leaky (issue on the node and that input port) when one of its tags
 
    - passed a ``test`` output (fit on test rows), or
-   - comes from a source whose other fit inputs were narrowed to a subset this tag did
-     not pass (e.g. MSC ``reference`` wired from the unsplit dataset while ``spectra``
-     are the training rows, R39).
+   - is not a subset of the training rows of the same source: its subsets do not start
+     with those of the first input (e.g. MSC ``reference`` wired from the unsplit
+     dataset while ``spectra`` are the training rows, R39), or the first input itself
+     mixes rows of one source with different subsets.
 
    A ``Model``/``Transform`` input is leaky when another input of the same node holds
    test rows of a split (``<split>.test``) and the state's tags from that source did
@@ -32,14 +36,21 @@ only partly (or not at all) is still rejected; refine per port if a real block n
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from vibechem_core.block import BlockMeta
 from vibechem_engine.graph import GraphIssue
 
-__all__ = ["PIPELINE_LEAKAGE", "FoldScope", "ancestors", "fitted_before_source", "row_leaks"]
+__all__ = [
+    "PIPELINE_LEAKAGE",
+    "FoldScope",
+    "ancestors",
+    "fitted_before",
+    "row_leaks",
+    "split_nodes",
+]
 
 PIPELINE_LEAKAGE = "PIPELINE_LEAKAGE"
 
@@ -73,12 +84,20 @@ def ancestors(edges: Sequence[Edge], node_id: str) -> set[str]:
     return seen
 
 
-def fitted_before_source(
-    metas: Mapping[str, BlockMeta], edges: Sequence[Edge], order: Sequence[str], source: str
+def fitted_before(
+    metas: Mapping[str, BlockMeta],
+    edges: Sequence[Edge],
+    order: Sequence[str],
+    nodes: Iterable[str],
 ) -> list[GraphIssue]:
-    """Rule 1 for the fold source node ``source``."""
-    upstream = ancestors(edges, source)
+    """Rule 1 for fold source or split ``nodes``."""
+    upstream = set[str]().union(*(ancestors(edges, n) for n in nodes))
     return [GraphIssue(PIPELINE_LEAKAGE, n) for n in order if n in upstream and metas[n].fitted]
+
+
+def split_nodes(edges: Sequence[Edge]) -> set[str]:
+    """Nodes whose ``train`` or ``test`` output is used."""
+    return {e["from_node"] for e in edges if e["from_port"] in _SUBSET_PORTS}
 
 
 def row_leaks(
@@ -86,21 +105,25 @@ def row_leaks(
     edges: Sequence[Edge],
     order: Sequence[str],
     scopes: Sequence[FoldScope],
+    sources: Mapping[str, str],
 ) -> list[GraphIssue]:
-    """Rule 2 outside the folds and in every fold scope, in topological order."""
+    """Rule 2 outside the folds and in every fold scope, in topological order.
+
+    ``sources`` maps every node to its dataset identity (used for nodes without inputs).
+    """
     into: dict[str, list[Edge]] = {n: [] for n in metas}
     for e in edges:
         into[e["to_node"]].append(e)
 
-    outer, outer_inputs = _tagger(metas, into, None, None)
+    outer, outer_inputs = _tagger(metas, into, order, sources, None, None)
     found: set[tuple[str, str]] = set()
     for inputs, nodes in [
         (outer_inputs, frozenset(metas)),
-        *((_tagger(metas, into, s, outer)[1], s.nodes) for s in scopes),
+        *((_tagger(metas, into, order, sources, s, outer)[1], s.nodes) for s in scopes),
     ]:
         for n in nodes:
             tagged = inputs(n)
-            fit_leaks = _leaky_ports(tagged) if metas[n].fitted else []
+            fit_leaks = _leaky_ports(metas[n], tagged) if metas[n].fitted else []
             found |= {(n, p) for p in [*fit_leaks, *_stale_states(metas[n], tagged)]}
     rank = {n: i for i, n in enumerate(order)}
     return [
@@ -112,6 +135,8 @@ def row_leaks(
 def _tagger(
     metas: Mapping[str, BlockMeta],
     into: Mapping[str, list[Edge]],
+    order: Sequence[str],
+    sources: Mapping[str, str],
     scope: FoldScope | None,
     outer: Tagger | None,
 ) -> tuple[Tagger, Callable[[str], list[tuple[str, frozenset[Tag]]]]]:
@@ -124,12 +149,9 @@ def _tagger(
     def node_tags(node: str) -> frozenset[Tag]:
         if node not in memo:
             if not into[node]:
-                memo[node] = frozenset({(node, ())})
+                memo[node] = frozenset({(sources[node], ())})
             else:
-                tagged = inputs(node)
-                # a leak is reported once, at the fit that sees it, not again downstream
-                leaky = set(_leaky_ports(tagged)) if metas[node].fitted else set[str]()
-                memo[node] = frozenset(t for p, tags in tagged if p not in leaky for t in tags)
+                memo[node] = _output_tags(metas[node], inputs(node))
         return memo[node]
 
     def stream(node: str, port: str) -> frozenset[Tag]:
@@ -141,6 +163,8 @@ def _tagger(
         tags = node_tags(node)
         return _narrow(tags, (node, port)) if port in _SUBSET_PORTS else tags
 
+    for node in order:  # fill the memo in topological order: no deep recursion
+        node_tags(node)
     return stream, inputs
 
 
@@ -148,19 +172,37 @@ def _narrow(tags: frozenset[Tag], subset: Stream) -> frozenset[Tag]:
     return frozenset((src, (*path, subset)) for src, path in tags)
 
 
-def _leaky_ports(inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
+def _output_tags(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> frozenset[Tag]:
+    """Union of the input tags. For a fitted block, leaky inputs are left out (a leak is
+    reported once, at the fit that sees it) and so are same-source inputs of the first
+    input's sources: they passed the check, so they hold a subset of its rows."""
+    if not meta.fitted:
+        return frozenset(t for _, tags in inputs for t in tags)
+    leaky, primary = set(_leaky_ports(meta, inputs)), meta.inputs[0].port_id
+    first = frozenset(t for p, tags in inputs if p == primary and p not in leaky for t in tags)
+    trained = {src for src, _ in first}
+    others = (t for p, tags in inputs if p not in leaky | {primary} for t in tags)
+    return first | {t for t in others if t[0] not in trained}
+
+
+def _leaky_ports(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
     """Ports of one fit task whose tags break rule 2."""
-    # training subsets only: a test subset is leaky by itself (first condition)
-    subsets = {(src, s) for _, tags in inputs for src, path in tags for s in path if s[1] != "test"}
-    return [
-        port_id
-        for port_id, tags in inputs
-        if any(
-            any(p == "test" for _, p in path)
-            or any(s not in path for other, s in subsets if other == src)
-            for src, path in tags
-        )
-    ]
+    primary = meta.inputs[0].port_id
+    train: dict[str, set[tuple[Stream, ...]]] = {}
+    for port_id, tags in inputs:
+        if port_id == primary:
+            for src, path in tags:
+                train.setdefault(src, set()).add(path)
+
+    def leaky(port_id: str, src: str, path: tuple[Stream, ...]) -> bool:
+        if any(part == "test" for _, part in path):
+            return True
+        rows = train.get(src, set())
+        if port_id == primary:
+            return len(rows) > 1
+        return any(path[: len(p)] != p for p in rows)
+
+    return [p for p, tags in inputs if any(leaky(p, src, path) for src, path in tags)]
 
 
 def _stale_states(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
