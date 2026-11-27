@@ -44,7 +44,8 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.07 QA tooling | [x] T1.05 CSV/Excel readers | [x] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [x] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [x] T2.09 Crash recovery |
-| [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |
+| [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [x] T2.10a CV runner + LV rules 👤 |
+| | | [ ] T2.10b Nested CV + grid search |
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
@@ -363,12 +364,19 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Reuse:** loky's worker-crash handling
 - **Done when:** tests for worker crash (native fallback), OOM throttling, cancel timeout, corrupt cache.
 
-### T2.10 · CV, nested CV and grid search runners · Size L → split into T2.10a (CV + LV rules) and T2.10b (nested CV + preprocessing grid search)
-- **Read:** PRD.md F-43; METHODS.md (CV, LV rules); `compiler/`, `scheduler/`
-- **Reuse:** scikit-learn `ParameterGrid`; pengoo (TECH_STACK.md §11.2): LV rules from `select_n_components`/`find_knee` (T2.10a); grid search from `grid_search.py` — fixed-order product, dedup, shared folds, LV sweep per fold, Excel pipeline list (T2.10b). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
+### T2.10a · CV runner and LV rules 👤 · Size M *(split from T2.10, Size L, in T2.10a's PR)*
+- **Read:** PRD.md F-43; METHODS.md §5, §8 (#rmsecv); `compiler/`, `scheduler/`; RISKS.md R25, R36, R40, R41, R53
+- **Reuse:** pengoo (TECH_STACK.md §11.2): LV rules from `select_n_components`/`_wold_r_criterion` (t-test α as a parameter), `calculate_cv_rmse` aggregation (already in core `cv_metrics`); the fold loop is our compiler + scheduler; `MISSING_INPUT` if `pengoo/` is absent on the machine
+- **Files:** `vibechem_engine/runners/`; core `lv_rules.py` (the t-test needs SciPy, which the engine may not import), `data/results.py`, `blocks/validate/cv.py`
+- **Do:** METHODS.md entries for CV and LV rules (new: Quan approves them, hence 👤); classification metric names proposed (R36); a runner that executes a compiled pipeline on the scheduler and expands fold plans; `validate.cv` (PLS1) with LV curve, per-fold SD/SE, repeated-CV aggregation, `VALIDATION_GROUPS_IGNORED` from `Folds.groups_respected`.
+- **Done when:** gasoline LOO RMSECV matches Mevik & Wehrens 2007 and a 5-fold curve matches a hand-written scikit-learn CV; the CV runner selects fold rows by `row_index` through the T2.04 helper (not positions), tested on an offset `row_index` dataset, and asserts one out-of-fold prediction per row per repeat (R40, R41). 👤 Quan: approve METHODS.md §9 and N17–N24, merge.
+
+### T2.10b · Nested CV and preprocessing grid search · Size M *(split from T2.10)*
+- **Read:** PRD.md F-43; METHODS.md §9; `runners/`
+- **Reuse:** scikit-learn `ParameterGrid`; pengoo grid search from `grid_search.py` — fixed-order product, dedup, shared folds, LV sweep per fold, Excel pipeline list (TECH_STACK.md §11.2). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
 - **Files:** `vibechem_engine/runners/`
-- **Do:** CV runner, nested CV (inner tuning of LVs, preprocessing chains, selection params), grid search, LV selection rules. METHODS.md entries for CV and LV rules must exist (add them in T2.10a and stop `HUMAN_STEP` for Quan's approval if they are new).
-- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset. T2.10a also: the CV runner selects fold rows by `row_index` through the T2.04 helper (not positions), tested on an offset `row_index` dataset, and asserts one out-of-fold prediction per row per repeat (R40, R41).
+- **Do:** nested CV (inner tuning of LVs, preprocessing chains, selection params), grid search; `validate.cv` `model` output at the chosen LV count; CV of PLS-DA (classification names of METHODS §8) so R34's fixed 16 LV can go; METHODS.md entries for nested CV and search (stop `HUMAN_STEP` if new).
+- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset.
 
 ### T2.11 · Python API and CLI · Size S
 - **Read:** TECH_STACK.md §7; `graph/`, `runners/`
