@@ -45,7 +45,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [x] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [x] T2.09 Crash recovery |
 | [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [x] T2.10a CV runner + LV rules 👤 |
-| | | [ ] T2.10b CV of PLS2 + PLS-DA, `model` output |
+| | | [x] T2.10b CV of PLS2 + PLS-DA, `model` output 👤 |
 | | | [ ] T2.10c Preprocessing grid search 👤 |
 | | | [ ] T2.10d Nested CV 👤 |
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
@@ -373,12 +373,12 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Do:** METHODS.md entries for CV and LV rules (new: Quan approves them, hence 👤); classification metric names proposed (R36); a runner that executes a compiled pipeline on the scheduler and expands fold plans; `validate.cv` (PLS1) with LV curve, per-fold SD/SE, repeated-CV aggregation, `VALIDATION_GROUPS_IGNORED` from `Folds.groups_respected`.
 - **Done when:** gasoline LOO RMSECV matches Mevik & Wehrens 2007 and a 5-fold curve matches a hand-written scikit-learn CV; the CV runner selects fold rows by `row_index` through the T2.04 helper (not positions), tested on an offset `row_index` dataset, and asserts one out-of-fold prediction per row per repeat (R40, R41). 👤 Quan: approve METHODS.md §9 and N17–N24, merge.
 
-### T2.10b · CV of PLS2 and PLS-DA, `model` output · Size M *(split from T2.10; T2.10b split into T2.10b/c/d in T2.10b's PR, Quan 2026-11-28)*
+### T2.10b · CV of PLS2 and PLS-DA, `model` output 👤 · Size M *(split from T2.10; T2.10b split into T2.10b/c/d in T2.10b's PR, Quan 2026-11-28)*
 - **Read:** PRD.md F-43; METHODS.md §8 (#classification-metrics, N22, N27), §9; `runners/`; RISKS.md R34
 - **Reuse:** core `metrics` (confusion matrix, sensitivity, specificity, ROC-AUC), `predict_sweep`, `lv_rules`
 - **Files:** core `blocks/validate/cv.py`; `vibechem_engine/runners/`
 - **Do:** `validate.cv` for PLS2 and PLS-DA models: classification metrics of N22/N27 (macro `sensitivity_*`, `specificity_*`, `auc_*`, weighted `*_w_*`, `accuracy_*`, `class_ratio_*` always; `*_micro_*` only with `micro_metrics` = true, default false; warning `METRIC_CLASSES_SEVERELY_UNBALANCED` only when `class_ratio` > `severe_imbalance_ratio`, default 20), `predictions` with `class_true`/`class_pred`/`score_<class>`; `model` output refit at the chosen LV count; R34's fixed 16 LV replaced by a CV-chosen LV.
-- **Done when:** PLS-DA CV metrics match a hand-written scikit-learn loop on a small set; the `model` output predicts like a separate fit at n_lv; the olive-oil PLS-DA check uses a CV-chosen LV count.
+- **Done when:** PLS-DA CV metrics match a hand-written scikit-learn loop on a small set; the `model` output predicts like a separate fit at n_lv; the olive-oil PLS-DA check uses a CV-chosen LV count. 👤 Quan: approve METHODS.md N28, N29 and the proposed codes `VALIDATION_CLASS_MISSING_IN_FOLD`, `VALIDATION_Y_SCALES_DIFFER`, merge (new choices, Quan 2026-11-28).
 
 ### T2.10c · Preprocessing grid search 👤 · Size M *(split from T2.10b)*
 - **Read:** PRD.md F-43; METHODS.md §9; DATA_MODEL.md §4.5–§4.6; `runners/`

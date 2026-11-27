@@ -4,15 +4,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
-from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING, parse_params
+from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING, NoParams, parse_params
 from vibechem_core.blocks.model.plsda import PLSDA, PLSDAParams
 from vibechem_core.blocks.split import BLOCK_CONSTANT_RESPONSE
-from vibechem_core.data import Axis, SpectralDataset
+from vibechem_core.blocks.validate.cv import CrossValidation, CVParams, FoldRun
+from vibechem_core.blocks.validate.folds import LeaveOneOut
+from vibechem_core.data import Axis, Results, SpectralDataset
 from vibechem_core.errors import BlockInputError
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
 from vibechem_core.testing import assert_close, assert_reference
@@ -121,15 +123,17 @@ def test_olive_oil_cv_accuracy_meets_the_loose_published_floor() -> None:
         classes=[str(c) for c in data.target],
         class_column="country",
     )
-    oils = np.asarray(full.group_ids)
-    correct = 0
-    # Leave one oil out: both duplicate spectra of an oil leave training together.
-    # shortcut: 16 LV fixed (leave-one-oil-out accuracy 0.87-0.93 for 4-20 LV), until T2 nested CV
-    for oil in np.unique(oils):
-        train = full.subset(np.flatnonzero(oils != oil))
-        test = full.subset(np.flatnonzero(oils == oil))
-        state = PLSDA().fit(train, params(n_components=16, n_components_mode="fixed"))
-        table = PLSDA().apply(test, params(), state)
-        correct += int((table["class_pred"] == np.asarray(test.classes)).sum())
-    accuracy = correct / full.n_samples
-    assert accuracy >= expected["cv_accuracy_min"], accuracy  # loose floor, protocol unverified
+    # Leave one oil out (both duplicate spectra of an oil leave training together); the LV
+    # count is chosen by validate.cv on the indicator PRESS (N29), not fixed. Choosing it on
+    # the same CV is optimistic; the unbiased estimate is nested CV (T2.10d, RISKS R34).
+    folds = LeaveOneOut().apply(full, NoParams())
+    fit = params(n_components=20)
+    runs = [FoldRun(f, PLSDA().fit(full.rows(f.train), fit), full.rows(f.validation)) for f in folds.folds]  # fmt: skip
+    out = CrossValidation().apply(PLSDA().fit(full, fit), folds, parse_params(CVParams, {}), runs)
+    result = cast(Results, out["results"])
+    accuracy = result.metrics["accuracy_cv"]
+    assert 1 <= result.metrics["n_lv"] <= 20
+    assert accuracy >= expected["cv_accuracy_min"], (
+        accuracy,
+        result.metrics["n_lv"],
+    )  # loose floor
