@@ -13,7 +13,17 @@
 Seeds: job *i* of the list gets seed *i* of :func:`~vibechem_engine.executor.task_seeds`,
 so the dispatch order never changes a job's seed or its result. A job runs in a worker as
 ``fn(seed, *args, *dependency results)``. A failed job's dependants are not run;
-independent branches go on. Setting ``cancel`` stops dispatching; running jobs finish.
+independent branches go on. Setting ``cancel`` stops dispatching; running jobs finish, and
+workers still busy ``cancel_timeout_s`` later are killed and replaced (``executor.restart``).
+
+Recovery (§3.6), one retry per job, run alone:
+
+- a worker dies (native crash; on Linux also an OOM kill): loky fails every running job,
+  so the pool is restarted and each of them is retried, with its :class:`Fallback`
+  (Python reference, ``native.fallback`` event) if it has one. Which job crashed is
+  unknown, so a bystander with a fallback uses it too (same numbers by the reference tests);
+- a job raises ``MemoryError``: the concurrency cap is halved (``memory.throttled``) and the
+  job retried; a second ``MemoryError`` is the node error ``RUN_OUT_OF_MEMORY``.
 
 Events (DATA_MODEL.md §3, ``emit(type, data)``; the WebSocket layer adds ``seq``):
 ``node.state`` (``queued`` at start, ``running``, ``done``, ``error``), ``node.progress``
@@ -31,7 +41,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import FIRST_COMPLETED, Future, wait
+from concurrent.futures import FIRST_COMPLETED, BrokenExecutor, Future, wait
 from dataclasses import dataclass
 from typing import Literal
 
@@ -41,15 +51,35 @@ from numpy.typing import NDArray
 from vibechem_core.errors import VibeChemError
 from vibechem_engine.executor import Executor, task_seeds
 
-__all__ = ["PROGRESS_INTERVAL_S", "Emit", "Job", "RunResult", "estimate_memory", "run_jobs"]
+__all__ = [
+    "PROGRESS_INTERVAL_S",
+    "RUN_OUT_OF_MEMORY",
+    "Emit",
+    "Fallback",
+    "Job",
+    "RunResult",
+    "estimate_memory",
+    "run_jobs",
+]
 
 _log = logging.getLogger(__name__)
 
 PROGRESS_INTERVAL_S = 0.25
 """At most 4 progress events per second per node (DATA_MODEL.md §3)."""
+RUN_OUT_OF_MEMORY = "RUN_OUT_OF_MEMORY"
+_CANCEL_POLL_S = 0.1
 
 type Emit = Callable[[str, dict[str, object]], None]
 type RunStatus = Literal["succeeded", "failed", "cancelled"]
+
+
+@dataclass(frozen=True, slots=True)
+class Fallback:
+    """Python reference of a job's native kernel, run if the kernel takes its worker down."""
+
+    fn: Callable[..., object]
+    block_id: str
+    kernel: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +93,7 @@ class Job:
     deps: tuple[str, ...] = ()  # task ids; their results follow ``args``
     memory_bytes: int = 0
     threads: int = 1  # cores the job uses itself (a C++ kernel's width)
+    fallback: Fallback | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +127,7 @@ def run_jobs(
     memory_budget_bytes: int | None = None,
     emit: Emit = _ignore,
     cancel: threading.Event | None = None,
+    cancel_timeout_s: float = 5.0,
     clock: Callable[[], float] = time.monotonic,
 ) -> RunResult:
     """Run ``jobs`` on ``executor``; see the module docstring.
@@ -134,7 +166,27 @@ def run_jobs(
     settled = 0
     last_sent: dict[str | None, float] = {}  # node_id (None = run) -> time of last progress
     throttled_to: int | None = None
-    width = min(executor.max_workers, cores)
+    limit = min(executor.max_workers, cores)  # concurrency cap, halved on a MemoryError
+    retried: set[str] = set()  # jobs that used their one retry (a retry runs alone)
+    crashed: set[str] = set()  # retried after a worker crash: run the fallback
+    cancelled_at: float | None = None
+
+    def requeue(job: Job, exc: BaseException) -> None:
+        nonlocal limit
+        _log.warning("task %s of node %s: retry alone", job.task_id, job.node_id, exc_info=exc)
+        retried.add(job.task_id)
+        if isinstance(exc, MemoryError):
+            if limit > 1:
+                emit("memory.throttled", {"old_workers": limit, "new_workers": limit // 2})
+                limit //= 2
+        else:
+            crashed.add(job.task_id)
+            if (fb := job.fallback) is not None:
+                emit(
+                    "native.fallback",
+                    {"block_id": fb.block_id, "kernel": fb.kernel, "reason": "worker_crashed"},
+                )
+        ready.insert(0, job.task_id)
 
     def progress(key: str | None, event: str, data: dict[str, object], last: bool) -> None:
         now = clock()
@@ -164,6 +216,8 @@ def run_jobs(
     try:
         while sorter.is_active():
             cancelled = cancel is not None and cancel.is_set()
+            if cancelled and cancelled_at is None:
+                cancelled_at = clock()
             if not cancelled:
                 # Step 1: move newly ready jobs in; dependants of a failed job settle unrun.
                 for tid in sorted(sorter.get_ready(), key=position.__getitem__):
@@ -177,19 +231,27 @@ def run_jobs(
                 # Step 2: start ready jobs in list order while the budgets allow (no overtaking).
                 while ready:
                     job = by_id[ready[0]]
-                    if len(running) >= executor.max_workers or threads_used + job.threads > cores:
+                    if running and (
+                        job.task_id in retried
+                        or any(j.task_id in retried for j in running.values())
+                    ):
+                        break  # a retry runs alone
+                    if len(running) >= limit or threads_used + job.threads > cores:
                         break
                     if running and budget is not None and memory_used + job.memory_bytes > budget:
-                        if len(running) < width and throttled_to != len(running):
+                        if len(running) < limit and throttled_to != len(running):
                             throttled_to = len(running)
                             emit(
                                 "memory.throttled",
-                                {"old_workers": width, "new_workers": throttled_to},
+                                {"old_workers": limit, "new_workers": throttled_to},
                             )
                         break
                     ready.pop(0)
                     dep_results = [results[d] for d in job.deps]
-                    future = executor.submit(job.fn, seeds[job.task_id], *job.args, *dep_results)
+                    fn = job.fn
+                    if job.fallback is not None and job.task_id in crashed:
+                        fn = job.fallback.fn
+                    future = executor.submit(fn, seeds[job.task_id], *job.args, *dep_results)
                     running[future] = job
                     threads_used += job.threads
                     memory_used += job.memory_bytes
@@ -200,13 +262,32 @@ def run_jobs(
                 if cancelled:
                     break
                 raise RuntimeError("scheduler stalled: no job ready or running")
-            # Step 3: wait for a job to finish and record it.
-            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+            # Step 3: wait for a job to finish (polling for a cancel) and record it.
+            poll = None if cancel is None else _CANCEL_POLL_S
+            finished, _ = wait(running, timeout=poll, return_when=FIRST_COMPLETED)
+            if (
+                cancelled_at is not None
+                and not finished
+                and clock() - cancelled_at >= cancel_timeout_s
+            ):
+                _log.warning("cancel: killing %d stuck workers", len(running))
+                executor.restart()
+                running.clear()
+                break
+            broken = False
             for future in finished:
                 job = running.pop(future)
                 threads_used -= job.threads
                 memory_used -= job.memory_bytes
                 exc = future.exception()
+                broken = broken or isinstance(exc, BrokenExecutor)
+                if isinstance(exc, BrokenExecutor | MemoryError) and job.task_id not in retried:
+                    requeue(job, exc)
+                    continue
+                if isinstance(exc, MemoryError):
+                    error = VibeChemError(RUN_OUT_OF_MEMORY)
+                    error.__cause__ = exc
+                    exc = error
                 if exc is None:
                     results[job.task_id] = future.result()
                     node_ok[job.node_id] += 1
@@ -220,6 +301,13 @@ def run_jobs(
                         failed[job.node_id] = None
                         emit("node.state", _error_state(job.node_id, exc))
                 settle(job)
+            if broken:
+                # The pool is dead: running jobs that have not reported yet died with it.
+                executor.restart()
+                for job in running.values():
+                    requeue(job, BrokenExecutor("worker crashed"))
+                running.clear()
+                threads_used = memory_used = 0
     except BaseException:
         wait(running)  # let running jobs end before the error leaves the run
         raise

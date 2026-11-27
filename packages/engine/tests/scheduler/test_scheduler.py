@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # packages/engine/tests/scheduler/test_scheduler.py
-"""Scheduler (T2.08): dependencies, seeds, core and memory budgets, failures, cancel, events."""
+"""Scheduler (T2.08): dependencies, seeds, budgets, failures, cancel, events; recovery (T2.09)."""
 # cloudpickle ships no type information.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -19,7 +21,7 @@ import pytest
 
 from vibechem_core.errors import BlockInputError
 from vibechem_engine.executor import ProcessExecutor, task_seeds
-from vibechem_engine.scheduler import Job, estimate_memory, run_jobs
+from vibechem_engine.scheduler import Fallback, Job, estimate_memory, run_jobs
 
 # Workers cannot import this test module (pytest --import-mode=importlib).
 cloudpickle.register_pickle_by_value(sys.modules[__name__])
@@ -41,6 +43,10 @@ class ThreadExecutor:
 
     def submit[R](self, fn: Callable[..., R], /, *args: object) -> Future[R]:
         return self._pool.submit(fn, *args)
+
+    def restart(self) -> None:
+        self._pool.shutdown(wait=False)  # threads cannot be killed; a test double only
+        self._pool = ThreadPoolExecutor(self._max_workers)
 
     def shutdown(self) -> None:
         self._pool.shutdown()
@@ -225,3 +231,75 @@ def test_executor_error_propagates_after_running_jobs_end(pool: ThreadExecutor) 
     with pytest.raises(RuntimeError, match="pool broken"):
         run_jobs([Job("a", "nd_a", slow), Job("b", "nd_b", echo)], pool, root_seed=0)
     assert finished.is_set()  # job a ran to its end before the error left run_jobs
+
+
+def crash(_seed: int, *_: object) -> None:
+    os._exit(3)  # a native kernel that takes its worker down
+
+
+def reference(_seed: int, *_: object) -> str:
+    return "python"
+
+
+def nap(_seed: int, seconds: float) -> str:
+    time.sleep(seconds)
+    return "slept"
+
+
+def test_worker_crash_retries_once_alone_with_the_python_reference(tmp_path: Path) -> None:
+    events = Recorder()
+    jobs = [
+        Job("k", "nd_k", crash, fallback=Fallback(reference, "model.pls", "pls_nipals")),
+        Job("o", "nd_o", nap, (0.5,)),  # running when the worker dies: retried as it is
+        Job("x", "nd_x", crash),  # no reference: crashes again on its retry
+        Job("d", "nd_d", echo, (), ("x",)),
+    ]
+    with ProcessExecutor(3, tmp_path) as executor:
+        run = run_jobs(jobs, executor, root_seed=0, emit=events)
+        assert executor.submit(echo, 1).result() == (1, ())  # a fresh pool after the crash
+    assert (run.results["k"], run.results["o"]) == ("python", "slept")
+    fallback = {"block_id": "model.pls", "kernel": "pls_nipals", "reason": "worker_crashed"}
+    assert events.of("native.fallback") == [fallback]
+    assert (run.status, run.failed_nodes, run.unfinished_nodes) == ("failed", ("nd_x",), ("nd_d",))
+
+
+def test_memory_error_halves_concurrency_retries_alone_then_fails_with_a_code(
+    pool: ThreadExecutor,
+) -> None:
+    events, tries = Recorder(), Counter[str]()
+
+    def hungry(_seed: int, name: str) -> str:
+        pool.track({"jobs": 1}, 1)
+        try:
+            tries[name] += 1
+            time.sleep(0.05)
+            if name == "always" or (name == "once" and tries[name] == 1):
+                raise MemoryError
+            return name
+        finally:
+            pool.track({"jobs": 1}, -1)
+
+    jobs = [Job("a", "nd_a", hungry, ("once",)), Job("b", "nd_b", hungry, ("always",))]
+    jobs += [Job(f"f{i}", "nd_f", hungry, (f"f{i}",)) for i in range(4)]
+    run = run_jobs(jobs, pool, root_seed=0, emit=events)
+    assert run.results["a"] == "once"
+    assert tries == Counter(once=2, always=2, f0=1, f1=1, f2=1, f3=1)
+    throttled = [(d["old_workers"], d["new_workers"]) for d in events.of("memory.throttled")]
+    assert throttled == [(4, 2), (2, 1)]  # one halving per first MemoryError
+    error = {"node_id": "nd_b", "state": "error", "code": "RUN_OUT_OF_MEMORY"}
+    assert any(error.items() <= e.items() for e in events.of("node.state"))
+    assert (run.status, run.failed_nodes) == ("failed", ("nd_b",))
+
+
+def test_cancel_kills_stuck_workers_after_the_timeout(tmp_path: Path) -> None:
+    cancel = threading.Event()
+    jobs = [Job("s", "nd_s", nap, (60.0,)), Job("t", "nd_t", echo, (), ("s",))]
+    timer = threading.Timer(1.0, cancel.set)
+    started = time.monotonic()
+    with ProcessExecutor(1, tmp_path) as executor:
+        timer.start()
+        run = run_jobs(jobs, executor, root_seed=0, cancel=cancel, cancel_timeout_s=0.5)
+        assert executor.submit(echo, 2).result() == (2, ())  # stuck worker replaced
+    assert time.monotonic() - started < 30
+    assert (run.status, run.results, run.errors) == ("cancelled", {}, {})
+    assert run.unfinished_nodes == ("nd_s", "nd_t")

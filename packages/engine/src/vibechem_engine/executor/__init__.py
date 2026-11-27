@@ -61,6 +61,10 @@ class Executor(Protocol):
 
     def submit[R](self, fn: Callable[..., R], /, *args: object) -> Future[R]: ...
 
+    def restart(self) -> None:
+        """Kill the workers (their tasks fail) and start fresh ones: crash and cancel recovery."""
+        ...
+
     def shutdown(self) -> None: ...
 
 
@@ -112,9 +116,13 @@ class ProcessExecutor:
         self._max_workers = max_workers
         self._spill_dir = spill_dir
         self._spilled: list[Path] = []
-        self._pool = loky.ProcessPoolExecutor(
-            max_workers=max_workers,
-            timeout=idle_timeout,
+        self._idle_timeout = idle_timeout
+        self._pool = self._new_pool()
+
+    def _new_pool(self) -> loky.ProcessPoolExecutor:
+        return loky.ProcessPoolExecutor(
+            max_workers=self._max_workers,
+            timeout=self._idle_timeout,
             initializer=_init_worker,
             env=_WORKER_ENV,
         )
@@ -142,6 +150,15 @@ class ProcessExecutor:
     def submit[R](self, fn: Callable[..., R], /, *args: object) -> Future[R]:
         """Run ``fn(*args)`` in a worker; :class:`MappedArray` arguments arrive memory-mapped."""
         return cast("Future[R]", self._pool.submit(_run, fn, args))
+
+    def restart(self) -> None:
+        """Kill the workers and start a new pool; running and queued tasks fail.
+
+        Used after a worker crash (loky then refuses new tasks) and for stuck workers on
+        cancel. Shared files stay.
+        """
+        self._pool.shutdown(wait=False, kill_workers=True)
+        self._pool = self._new_pool()
 
     def shutdown(self, *, kill: bool = False) -> None:
         """Stop the workers and delete the shared files.
