@@ -3,8 +3,9 @@
 """Task executor (ARCHITECTURE.md §3.4, ADR-004; measured in ``docs/spikes/parallel.md``).
 
 :class:`ProcessExecutor` runs tasks in a warm loky process pool. Every worker caps BLAS at
-one thread (threadpoolctl, after NumPy is loaded; ``VECLIB_MAXIMUM_THREADS=1`` for macOS
-Accelerate), so results do not depend on the core count. :meth:`ProcessExecutor.share`
+one thread, so results do not depend on the core count: the thread-count variables of
+OpenBLAS, OpenMP, MKL and Accelerate are set to 1 before anything loads (this also covers
+SciPy's own OpenBLAS, loaded later), and threadpoolctl caps what NumPy loaded. :meth:`ProcessExecutor.share`
 saves a large array once as ``.npy``; workers open it memory-mapped instead of receiving a
 pickled copy per task. :func:`task_seeds` gives each task its own seed from the run's
 root seed. The scheduler (T2.08) owns the core budget and the task order; other
@@ -46,7 +47,10 @@ _log = logging.getLogger(__name__)
 SHARE_THRESHOLD_BYTES = 1 << 20
 """Arrays of at least this many bytes are passed to workers as memory-mapped files."""
 
-_limiter: object = None  # keeps the worker's BLAS limit alive for the worker's life
+_WORKER_ENV = dict.fromkeys(
+    ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"), "1"
+)
+_limiter: object = None  # keeps the worker's thread limit alive for the worker's life
 
 
 class Executor(Protocol):
@@ -70,20 +74,21 @@ class MappedArray:
 def task_seeds(root_seed: int, n_tasks: int) -> list[int]:
     """One seed per task: child *i* of ``SeedSequence(root_seed).spawn(n_tasks)``.
 
-    Each child becomes one ``int`` (the cache key's ``seed``); a task builds its generator
-    with ``numpy.random.default_rng(seed)``. Task *i* must be the same task on every run:
-    the caller keeps the order stable.
+    Each child becomes one 53-bit ``int`` (the cache key's ``seed``; exact as a JSON number
+    in the UI); a task builds its generator with ``numpy.random.default_rng(seed)``. Call it
+    once per run over the whole task list in a stable order: task *i* must be the same task
+    on every run, and two calls with the same root give the same seeds.
     """
     children = np.random.SeedSequence(root_seed).spawn(n_tasks)
-    return [int(child.generate_state(1, np.uint64)[0]) for child in children]
+    return [int(child.generate_state(1, np.uint64)[0] >> 11) for child in children]
 
 
 def _init_worker() -> None:
-    """loky initializer: cap BLAS at one thread in this worker."""
+    """loky initializer: cap BLAS and OpenMP at one thread in this worker."""
     global _limiter  # noqa: PLW0603
     # threadpoolctl only limits libraries already loaded (spike finding 2).
     importlib.import_module("numpy")
-    _limiter = threadpool_limits(limits=1, user_api="blas")
+    _limiter = threadpool_limits(limits=1)
 
 
 def _run[R](fn: Callable[..., R], args: tuple[object, ...]) -> R:
@@ -111,7 +116,7 @@ class ProcessExecutor:
             max_workers=max_workers,
             timeout=idle_timeout,
             initializer=_init_worker,
-            env={"VECLIB_MAXIMUM_THREADS": "1"},
+            env=_WORKER_ENV,
         )
 
     @property
@@ -121,10 +126,13 @@ class ProcessExecutor:
     def share(self, array: NDArray[np.generic]) -> NDArray[np.generic] | MappedArray:
         """Return ``array`` itself if small, else save it once and return its :class:`MappedArray`.
 
-        Pass the result as a top-level task argument; the task receives an array either way.
+        Pass the result as a top-level task argument (inside a list or dataclass it stays a
+        :class:`MappedArray`); the task receives an array either way. A small array is pickled
+        when the task is sent, so do not change it in place after :meth:`submit`.
         """
         if array.nbytes < SHARE_THRESHOLD_BYTES:
             return array
+        # shortcut: shared files live until shutdown, add release() once a pool serves many runs.
         self._spill_dir.mkdir(parents=True, exist_ok=True)
         path = self._spill_dir / f"shared_{uuid.uuid4().hex}.npy"
         np.save(path, array, allow_pickle=False)
@@ -135,16 +143,22 @@ class ProcessExecutor:
         """Run ``fn(*args)`` in a worker; :class:`MappedArray` arguments arrive memory-mapped."""
         return cast("Future[R]", self._pool.submit(_run, fn, args))
 
-    def shutdown(self) -> None:
-        """Wait for running tasks, stop the workers, delete the shared files."""
-        # Workers hold the memory maps open; Windows cannot delete the files before they exit.
-        self._pool.shutdown(wait=True)
-        for path in self._spilled:
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                _log.warning("could not delete shared array %s", path, exc_info=True)
-        self._spilled.clear()
+    def shutdown(self, *, kill: bool = False) -> None:
+        """Stop the workers and delete the shared files.
+
+        Waits for every submitted task; ``kill`` terminates the workers instead (running and
+        queued tasks then fail).
+        """
+        try:
+            # Workers hold the memory maps open; Windows cannot delete the files before they exit.
+            self._pool.shutdown(wait=True, kill_workers=kill)
+        finally:
+            for path in self._spilled:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    _log.warning("could not delete shared array %s", path, exc_info=True)
+            self._spilled.clear()
 
     def __enter__(self) -> Self:
         return self
@@ -155,4 +169,4 @@ class ProcessExecutor:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        self.shutdown()
+        self.shutdown(kill=exc is not None)  # an error: don't run the rest of the queue

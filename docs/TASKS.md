@@ -41,7 +41,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.04 App workspace | [x] T1.02b Block contract: state + sklearn wrapper | [x] T2.04 Graph compiler |
 | [x] T0.05 Native skeleton | [x] T1.03 Parameter schema | [x] T2.05 Leakage rules + suite |
 | [x] T0.06 Full CI + rulesets 👤 | [x] T1.04 METHODS.md part 1 👤 | [x] T2.06 Cache |
-| [x] T0.07 QA tooling | [x] T1.05 CSV/Excel readers | [ ] T2.07 Executor + seeds |
+| [x] T0.07 QA tooling | [x] T1.05 CSV/Excel readers | [x] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [ ] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [ ] T2.09 Crash recovery |
 | [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [ ] T2.10 CV / nested CV / search |

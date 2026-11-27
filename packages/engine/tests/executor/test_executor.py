@@ -15,6 +15,7 @@ from pathlib import Path
 import cloudpickle
 import numpy as np
 import pytest
+import scipy.linalg
 from numpy.typing import NDArray
 from threadpoolctl import threadpool_info, threadpool_limits
 
@@ -26,11 +27,10 @@ cloudpickle.register_pickle_by_value(sys.modules[__name__])
 
 
 def worker_facts(_: int) -> tuple[int, int, str | None]:
-    """pid, largest BLAS thread count, VECLIB_MAXIMUM_THREADS in this worker."""
-    blas = max(
-        (int(lib["num_threads"]) for lib in threadpool_info() if lib["user_api"] == "blas"),
-        default=0,
-    )
+    """pid, largest thread count of any pool, VECLIB_MAXIMUM_THREADS in this worker."""
+    # SciPy ships its own OpenBLAS, loaded only now, after the worker initializer ran.
+    scipy.linalg.solve(np.eye(3), np.ones(3))
+    blas = max((int(lib["num_threads"]) for lib in threadpool_info()), default=0)
     return os.getpid(), blas, os.environ.get("VECLIB_MAXIMUM_THREADS")
 
 
@@ -62,7 +62,8 @@ def test_workers_stay_warm_with_one_blas_thread(tmp_path: Path) -> None:
     assert pids == {pid for pid, _, _ in second}  # same processes, no respawn
     assert len(pids) <= 2
     assert os.getpid() not in pids
-    # threadpoolctl sees OpenBLAS (capped at 1); it cannot see macOS Accelerate (env cap).
+    # Every pool threadpoolctl sees (NumPy's and SciPy's OpenBLAS, OpenMP) runs 1 thread;
+    # it cannot see macOS Accelerate (capped by env).
     allowed = {0, 1} if sys.platform == "darwin" else {1}
     assert all(blas in allowed for _, blas, _ in first + second)
     assert all(veclib == "1" for _, _, veclib in first + second)
@@ -84,9 +85,10 @@ def test_large_inputs_arrive_memory_mapped(tmp_path: Path, matrix: NDArray[np.fl
 def test_task_seeds_are_spawned_children_of_the_root_seed() -> None:
     seeds = task_seeds(20261117, 4)
     children = np.random.SeedSequence(20261117).spawn(4)
-    assert seeds == [int(c.generate_state(1, np.uint64)[0]) for c in children]
+    assert seeds == [int(c.generate_state(1, np.uint64)[0]) >> 11 for c in children]
     assert len(set(seeds)) == 4
-    assert task_seeds(20261117, 4) == seeds
+    assert all(0 <= seed < 2**53 for seed in seeds)  # exact as a JSON number
+    assert task_seeds(20261117, 9)[:4] == seeds  # task i's seed does not depend on n
 
 
 def test_results_identical_on_1_and_3_workers_and_in_process(
