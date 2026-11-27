@@ -30,6 +30,7 @@ from vibechem_core.blocks.validate.folds import (
 )
 from vibechem_core.data import Axis, Fold, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import BlockInputError, VibeChemWarning
+from vibechem_core.lv_rules import select_lv
 from vibechem_core.metrics import cv_metrics
 
 N_LV = 4
@@ -181,6 +182,40 @@ def test_folds_that_ignore_groups_warn() -> None:
         cv(data, kfold(data))
     coded = [w.message for w in caught if isinstance(w.message, VibeChemWarning)]
     assert any(w.code == VALIDATION_GROUPS_IGNORED and w.params == {"n_groups": 8} for w in coded)
+
+
+def test_haaland_thomas_and_van_der_voet_use_the_row_residuals_averaged_over_repeats() -> None:
+    data = dataset()
+    folds = RepeatedKFold().apply(
+        data, parse_params(RepeatedKFoldParams, {"k": 3, "repeats": 2, "seed": 1})
+    )
+    # squared residual per row (sorted row_index) and LV count, mean over repeats, by scikit-learn
+    order = {r: i for i, r in enumerate(sorted(data.row_index.tolist()))}
+    position = {r: i for i, r in enumerate(data.row_index.tolist())}
+    y = cast(NDArray[np.float64], data.y)[:, 0]
+    rows = np.zeros((N_LV + 1, data.n_samples))
+    for f in folds.folds:
+        tr = [position[r] for r in f.train.tolist()]
+        va = [position[r] for r in f.validation.tolist()]
+        at = [order[r] for r in f.validation.tolist()]
+        rows[0, at] += (y[va] - y[tr].mean()) ** 2 / 2
+        for a in range(1, N_LV + 1):
+            pls: Any = PLSRegression(n_components=a, scale=False)
+            pls.fit(data.X[tr], y[tr])
+            rows[a, at] += (pls.predict(data.X[va]).ravel() - y[va]) ** 2 / 2
+    state = PLS().fit(data, parse_params(PLSParams, {"n_components": N_LV}))
+    fold_runs = runs(data, folds)
+    for rule in ("haaland_thomas", "van_der_voet"):
+        params = parse_params(CVParams, {"lv_rule": rule})
+        result = CrossValidation().apply(
+            state, folds, params, fold_runs, rng=np.random.default_rng(5)
+        )
+        np.testing.assert_allclose(result.details["press"], rows.sum(axis=1), rtol=1e-10)  # T-lib
+        expected = select_lv(
+            rule, result.details["rmsecv"], rows.sum(axis=1), np.ones((N_LV + 1, 6)),
+            row_sq_err=rows, rng=np.random.default_rng(5),
+        )  # fmt: skip
+        assert result.metrics["n_lv"] == expected
 
 
 def test_pls2_is_not_supported_yet() -> None:

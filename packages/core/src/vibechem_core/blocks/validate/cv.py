@@ -58,20 +58,41 @@ class CVParams:
     lv_rule: str = Param("global_min", choices=LV_RULES)
     alpha: float = Param(0.05, min=1e-6, max=0.5, visible_if=("lv_rule", ("ttest",)))
     wold_threshold: float = Param(0.95, min=0.5, max=1.0, visible_if=("lv_rule", ("wold",)))
+    f_alpha: float = Param(0.25, min=1e-6, max=0.5, visible_if=("lv_rule", ("haaland_thomas",)))
+    randomisation_alpha: float = Param(
+        0.05, min=1e-6, max=0.5, visible_if=("lv_rule", ("van_der_voet",))
+    )
+    n_randomisations: int = Param(
+        1000, min=99, max=100000, visible_if=("lv_rule", ("van_der_voet",))
+    )
+    seed: int = Param(0, min=0, visible_if=("lv_rule", ("van_der_voet",)))
 
 
 class CrossValidation(Block):
     block_id = "validate.cv"
     version = "1.0.0"
     icon = "glyph-cv"
-    references = ("stone1974cv", "martens1989", "mevik2007pls", "wold1978cv", "hastie2009esl")
+    references = (
+        "stone1974cv",
+        "martens1989",
+        "mevik2007pls",
+        "wold1978cv",
+        "hastie2009esl",
+        "haaland1988pls",
+        "vandervoet1994",
+    )
     fitted = False
     inputs = (port("model", "Model", refit_per_fold=True), port("folds", "Folds"))
     outputs = (port("results", "Results"),)
     params_type = CVParams
 
     def apply(
-        self, model: State, folds: FoldSet, params: CVParams, fold_runs: Sequence[FoldRun]
+        self,
+        model: State,
+        folds: FoldSet,
+        params: CVParams,
+        fold_runs: Sequence[FoldRun],
+        rng: np.random.Generator | None = None,
     ) -> Results:
         if (
             "classes" in model.values
@@ -103,32 +124,42 @@ class CrossValidation(Block):
         members = {
             rep: [i for i, r in enumerate(fold_runs) if r.fold.repeat == rep] for rep in repeats
         }
+        first_rows: NDArray[np.int64] | None = None
         for rep, idx in members.items():
             rows = np.concatenate([fold_runs[i].validation.row_index for i in idx])
             if np.unique(rows).size != rows.size:
                 raise BlockInputError(
                     VALIDATION_FOLDS_INVALID, {"reason": "duplicate_prediction", "repeat": rep}
                 )
-            if rows.size != folds.n_samples:
+            rows = np.sort(rows)
+            if rows.size != folds.n_samples or (
+                first_rows is not None and not np.array_equal(rows, first_rows)
+            ):
                 raise BlockInputError(
                     VALIDATION_FOLDS_INVALID, {"reason": "missing_prediction", "repeat": rep}
                 )
+            first_rows = rows
 
         # Step 3: per repeat and LV count: PRESS, RMSECV (pooled or fold mean), fold RMSEs
         fold_rmse = np.stack([np.sqrt((e**2).mean(axis=1)) for e in errors], axis=1)  # (A+1, K)
         press_r: list[NDArray[np.float64]] = []
         rmsecv_r: list[NDArray[np.float64]] = []
+        row_sq_r: list[NDArray[np.float64]] = []  # (A+1, n) in row_index order
         for idx in members.values():
             e = np.concatenate([errors[i] for i in idx], axis=1)
+            order = np.argsort(np.concatenate([fold_runs[i].validation.row_index for i in idx]))
+            row_sq_r.append(e[:, order] ** 2)
             press_r.append((e**2).sum(axis=1))
             if params.aggregation == "pooled":
                 rmsecv_r.append(np.sqrt((e**2).mean(axis=1)))
             else:
                 rmsecv_r.append(fold_rmse[:, idx].mean(axis=1))
 
-        # Step 4: curve = mean over repeats; SD and SE of the r*k fold RMSEs (N19)
+        # Step 4: curve = mean over repeats; SD and SE of the r*k fold RMSEs (N19); squared
+        # residual of each row, mean over repeats (N26)
         rmsecv = np.mean(rmsecv_r, axis=0)
         press = np.mean(press_r, axis=0)
+        row_sq_err = np.mean(row_sq_r, axis=0)
         fold_sd, fold_se = fold_sd_se(fold_rmse)
 
         # Step 5: LV count chosen by the rule
@@ -139,6 +170,11 @@ class CrossValidation(Block):
             fold_rmse,
             alpha=params.alpha,
             wold_threshold=params.wold_threshold,
+            row_sq_err=row_sq_err,
+            f_alpha=params.f_alpha,
+            randomisation_alpha=params.randomisation_alpha,
+            n_randomisations=params.n_randomisations,
+            rng=np.random.default_rng(params.seed) if rng is None else rng,
         )
 
         # Step 6: METHODS §8 CV metrics at n_lv per repeat, then the mean over repeats (N9)

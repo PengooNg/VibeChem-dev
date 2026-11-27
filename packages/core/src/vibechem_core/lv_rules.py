@@ -4,9 +4,12 @@
 
 Inputs are indexed by the LV count a = 0 ... A: the CV curve ``rmsecv[a]`` and ``press[a]``,
 and ``fold_rmse[a, f]``, the RMSE of fold f (all folds of all repeats, the same folds for
-every a). Candidates are a = 1 ... A (METHODS.md N17). Ported from pengoo
-``select_n_components`` and ``_wold_r_criterion`` (TECH_STACK.md §11.2); the paired t-test's
-alpha is a parameter here, and an unknown rule raises as in pengoo.
+every a); ``row_sq_err[a, i]``, the squared out-of-fold residual of row i (mean over repeats),
+for ``haaland_thomas`` and ``van_der_voet``. Candidates are a = 1 ... A (METHODS.md N17).
+``global_min`` ... ``wold`` are ported from pengoo ``select_n_components`` and
+``_wold_r_criterion`` (TECH_STACK.md §11.2); the paired t-test's alpha is a parameter here,
+and an unknown rule raises as in pengoo. ``haaland_thomas`` follows Haaland & Thomas (1988),
+``van_der_voet`` van der Voet (1994) as in R pls ``selectNcomp`` (METHODS.md N25, N26).
 """
 
 from __future__ import annotations
@@ -15,10 +18,18 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from scipy.stats import f as f_dist  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 from scipy.stats import ttest_rel  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
-type LVRule = Literal["global_min", "one_se", "ttest", "wold"]
-LV_RULES: tuple[LVRule, ...] = ("global_min", "one_se", "ttest", "wold")
+type LVRule = Literal["global_min", "one_se", "ttest", "wold", "haaland_thomas", "van_der_voet"]
+LV_RULES: tuple[LVRule, ...] = (
+    "global_min",
+    "one_se",
+    "ttest",
+    "wold",
+    "haaland_thomas",
+    "van_der_voet",
+)
 
 
 def fold_sd_se(fold_rmse: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -26,6 +37,14 @@ def fold_sd_se(fold_rmse: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.fl
     folds = np.asarray(fold_rmse, dtype=np.float64)
     sd = folds.std(axis=1, ddof=1)
     return sd, sd / np.sqrt(folds.shape[1])
+
+
+def randomisation_p(d: ArrayLike, n_randomisations: int, rng: np.random.Generator) -> float:
+    """One-sided sign-swap p of mean(d) > 0: (#{T* >= T} + 1/2) / (B + 1), as R pls."""
+    diff = np.asarray(d, dtype=np.float64)
+    signs = rng.choice(np.array([-1.0, 1.0]), size=(n_randomisations, diff.size))
+    count = int(np.count_nonzero((signs * diff).mean(axis=1) >= diff.mean()))
+    return (count + 0.5) / (n_randomisations + 1)
 
 
 def select_lv(
@@ -36,6 +55,11 @@ def select_lv(
     *,
     alpha: float = 0.05,
     wold_threshold: float = 0.95,
+    row_sq_err: ArrayLike | None = None,
+    f_alpha: float = 0.25,
+    randomisation_alpha: float = 0.05,
+    n_randomisations: int = 1000,
+    rng: np.random.Generator | None = None,
 ) -> int:
     """The LV count (1 ... A) that ``rule`` chooses; see the module docstring."""
     if rule not in LV_RULES:
@@ -54,6 +78,27 @@ def select_lv(
 
     if rule == "global_min":
         return best
+    if rule in ("haaland_thomas", "van_der_voet"):
+        if row_sq_err is None:
+            raise ValueError(f"rule {rule!r} needs row_sq_err")
+        rows = np.asarray(row_sq_err, dtype=np.float64)
+        if rows.ndim != 2 or len(rows) != len(curve) or not np.isfinite(rows).all():
+            raise ValueError("row_sq_err needs a finite shape (A + 1, n)")
+        a_min = 1 + int(np.argmin(sums[1:]))
+        if rule == "haaland_thomas":
+            if sums[a_min] == 0.0:
+                return a_min
+            n = rows.shape[1]
+            for a in range(1, a_min + 1):
+                if float(f_dist.sf(sums[a] / sums[a_min], n, n)) > f_alpha:  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                    return a
+            return a_min
+        if rng is None:
+            raise ValueError("rule 'van_der_voet' needs a numpy.random.Generator (rng)")
+        for a in range(1, a_min):
+            if randomisation_p(rows[a] - rows[a_min], n_randomisations, rng) > randomisation_alpha:
+                return a
+        return a_min
     if rule == "one_se":
         threshold = curve[best] + fold_sd_se(folds)[1][best]
         return 1 + int(np.flatnonzero(curve[1:] <= threshold)[0])

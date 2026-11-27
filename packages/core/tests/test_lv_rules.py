@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 from scipy.stats import ttest_rel  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
-from vibechem_core.lv_rules import fold_sd_se, select_lv
+from vibechem_core.lv_rules import fold_sd_se, randomisation_p, select_lv
 
 FLAT = np.ones((5, 4))  # fold RMSEs the rule under test does not use
 
@@ -75,3 +77,48 @@ def test_bad_inputs_raise() -> None:
         select_lv("global_min", [2, np.nan], [2, 1], np.ones((2, 3)))
     with pytest.raises(ValueError, match="shape"):
         select_lv("global_min", [2, 1], [2, 1], np.ones((3, 3)))
+
+
+def test_haaland_thomas_takes_the_fewest_lvs_whose_press_ratio_is_not_significant() -> None:
+    # n = 2 rows: P(F(2, 2) >= x) = 1 / (1 + x) in closed form (T-exact)
+    rows = np.ones((5, 2))
+    press = [10, 4, 1.5, 1.0, 1.2]  # a_min = 3; p(1) = 1/5, p(2) = 1/2.5, p(3) = 1/2
+    assert select_lv("haaland_thomas", np.ones(5), press, FLAT, row_sq_err=rows) == 2
+    assert select_lv("haaland_thomas", np.ones(5), press, FLAT, row_sq_err=rows, f_alpha=0.1) == 1
+    assert select_lv("haaland_thomas", np.ones(5), press, FLAT, row_sq_err=rows, f_alpha=0.45) == 3
+    assert select_lv("haaland_thomas", np.ones(3), [3, 0, 0], FLAT[:3], row_sq_err=rows[:3]) == 1
+
+
+def test_randomisation_p_matches_the_exact_sign_flip_p() -> None:
+    d = np.array([0.9, 1.4, -0.3, 0.6, 2.0, -0.8, 0.5, 1.1, -0.2, 0.7])
+    # exact p over all 2^10 sign vectors (the identity included), independent of our code
+    t = d.mean()
+    flips = [np.mean(d * np.array(s)) >= t - 1e-12 for s in itertools.product((-1, 1), repeat=10)]
+    exact = float(np.mean(flips))
+    b = 4000
+    p = randomisation_p(d, b, np.random.default_rng(0))
+    assert abs(p - exact) <= 4 * np.sqrt(exact * (1 - exact) / b) + 1 / b
+    # all d = 0: every T* equals T, p = (B + 1/2) / (B + 1)
+    assert randomisation_p(np.zeros(4), 99, np.random.default_rng(0)) == pytest.approx(99.5 / 100)
+
+
+def test_van_der_voet_takes_the_fewest_lvs_not_significantly_worse_than_the_minimum() -> None:
+    rng = np.random.default_rng(1)
+    base = rng.uniform(0.5, 1.5, size=30)
+    noise = rng.normal(0, 0.05, size=30)
+    noise += 0.01 - noise.mean()  # mean d = 0.01, t about 1.1: not significant
+    rows = np.stack([base + 9, base + 4, base + noise, base, base + 0.3])  # a_min = 3
+    press = rows.sum(axis=1)
+
+    def pick(randomisation_alpha: float = 0.05) -> int:
+        return select_lv(
+            "van_der_voet", np.ones(5), press, FLAT, row_sq_err=rows,
+            rng=np.random.default_rng(7), randomisation_alpha=randomisation_alpha,
+        )  # fmt: skip
+
+    assert pick() == 2  # a = 1 is far worse (p about 0); a = 2 differs only by noise
+    assert pick(randomisation_alpha=0.999) == 3  # nothing passes: a_min
+    with pytest.raises(ValueError, match="Generator"):
+        select_lv("van_der_voet", np.ones(5), press, FLAT, row_sq_err=rows)
+    with pytest.raises(ValueError, match="row_sq_err"):
+        select_lv("haaland_thomas", np.ones(5), press, FLAT)
