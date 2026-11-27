@@ -1,10 +1,11 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.4 · Last updated: 2026-11-24 · Reviewers: K (API, formats), Quan (scientific fields)
+> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewer: Quan (API, formats, scientific fields)
+> v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
-> Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with K's approval), then implement.
-> §1–§4 and §7 written (§4 draft); §5 (T1.03), §6 (T2.03) are filled in by those steps.
+> Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with Quan's approval), then implement.
+> §1–§5 and §7 written (§4, §5 draft); §6 (T2.03) is filled in by that step.
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
 ## Contents
@@ -182,6 +183,7 @@ Validation: `language` ∈ {`en`,`ja`,`vi`}; `1 ≤ cores_to_use ≤ cpu_cores_l
 }
 ```
 `implementation.library` is `"vibechem"` for our own code; reports use it to cite reused libraries (PROJECT.md §5.1).
+The `/blocks/{id}` object is the `/blocks` entry (`title_key`, `tooltip_key`, `icon`, `tier` included) plus `params` (§5), `references`, `implementation`, `help_key` (`blocks.<block_id>.help`) and `custom_panel` (`null` or the panel's id, ADR-005). The example above abbreviates: every param entry carries `label_key`, `tooltip_key` and `advanced` (§5.1).
 
 **`GET /port-types`** → `200`
 ```json
@@ -242,10 +244,11 @@ Response:
     "metadata": ["Origin"],
     "spectral_columns": { "from": "1100", "to": "2498", "count": 1557, "axis_unit": "nm" }
   },
-  "warnings": [ { "code": "IMPORT_DUPLICATE_SAMPLE_IDS", "params": { "count": 3 } } ]
+  "warnings": [ { "code": "IMPORT_DUPLICATE_SAMPLE_IDS", "params": { "count": 3 } } ],
+  "needs_interpolation": false
 }
 ```
-`format_hint`: `auto` | `csv` | `tsv` | `xlsx` | `jcamp` | `spc`. Multiple paths are concatenated (Multifile behaviour); axis mismatch → warning + `needs_interpolation: true`.
+`format_hint`: `auto` | `csv` | `tsv` | `xlsx` | `jcamp` | `spc` | `spa` | `perkinelmer` | `wdf` | `opus` *(the last four proposed T1.06b)*. Role suggestions and parsing rules for CSV/TSV/Excel (comment lines, headerless axis + spectra files, the spectral column run, the axis-unit guess) are documented in `vibechem_core/io/table.py` (T1.05); JCAMP-DX (`.jdx`, `.dx`, `.jcamp`) and Galactic SPC (`.spc`) rules in `vibechem_core/io/jcamp.py` and `io/spc.py` (T1.06), Thermo OMNIC SPA (`.spa`), PerkinElmer (`.sp`), Renishaw WiRE (`.wdf`) and Bruker OPUS (`.0`, `.1`, …) rules in `io/spa.py`, `io/perkinelmer.py`, `io/wdf.py` and `io/opus.py` (T1.06b; maps and data series → `IMPORT_FILE_INVALID` reason `unsupported`; the OPUS data block is the file's first unless the reader's `block` option asks for absorbance, sample or reference — not yet an API field): one row per spectrum (per SPC subfile, per WDF spectrum), a `title` text column, spectral columns named by their axis value, the axis unit taken from the file when it is nm, cm⁻¹ or µm. `axis_unit` is a guess the user confirms at commit. Multiple paths are concatenated (Multifile behaviour, `vibechem_core/io/multifile.py`): a `source_file` text column first, columns matched by name, spectral columns by axis value on the union axis; axis mismatch (also between the subfiles of one SPC file) → warning `IMPORT_AXIS_MISMATCH` + `needs_interpolation: true` *(proposed T1.06)*.
 
 **Step 2 — `POST /projects/{project_id}/imports/{import_id}/commit`** → `201` dataset
 ```json
@@ -397,7 +400,7 @@ Errors: revision not current → `409 PIPELINE_REVISION_CONFLICT`; invalid pipel
   "created_at": "2026-11-17T06:04:10Z",
   "size_bytes": 482133,
   "content": {
-    "metrics": { "rmsecv": 0.84, "r2cv": 0.962, "bias": -0.02, "rpd": 5.1, "rpiq": 6.3, "n_lv": 7 },
+    "metrics": { "rmsecv": 0.84, "r2cv": 0.962, "secv": 0.84, "bias_cv": -0.02, "rpd_cv": 5.1, "rpiq_cv": 6.3, "press": 42.3, "n_lv": 7 },
     "y_unit": "%",
     "leakage_safe": true
   }
@@ -515,7 +518,7 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 
 ---
 
-## 4. Port types *(DRAFT, T0.14 — Quan reviews; K confirms at demo v0)*
+## 4. Port types *(DRAFT, T0.14 — Quan reviews)*
 A port is a named, typed input or output of a block (PRD F-07). Every edge connects one output port to one input port. The engine checks types **statically** when a pipeline is validated (`PIPELINE_PORT_TYPE_MISMATCH`, §2.6 validate); checks that depend on the data (matching rows, axes, presence of Y) run when the block runs and set the node to `error` (§3 `node.state`). Implemented in T2.01 (`vibechem_engine/ports/`); the Python classes behind the types come from T1.01 (`SpectralDataset`) and T1.02a/b (block contract).
 
 ### 4.1 Type registry
@@ -523,7 +526,7 @@ Seven types in v1. Names are case-sensitive and appear as `port_type` in `/block
 | `name` | Carries | Python object (core) | `shape_icon` (UI_GUIDE §6) | `description_key` |
 |---|---|---|---|---|
 | `Spectra` | n samples × p variables on one spectral axis, plus sample annotations | `SpectralDataset` | `circle` | `ports.spectra` |
-| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | `pyarrow.Table` wrapper | `circle` | `ports.table` |
+| `Table` | Rows × named columns (metadata, scores, metric tables, ID lists) | mapping column name → 1-D NumPy array, all of one length (no pyarrow in core, T1.05); the engine converts it to an Arrow table | `circle` | `ports.table` |
 | `Model` | Fitted state of a predictive block (regression, classification, projection, one-class) | `ModelState` | `diamond` | `ports.model` |
 | `Transform` | Fitted state of a non-predictive block that maps spectra to spectra (scaler, MSC reference, PDS/DS matrix, EPO projection) | `TransformState` | `diamond_outline` *(proposed; add to UI_GUIDE §6)* | `ports.transform` |
 | `Folds` | Row-index sets for validation: k folds, repeats, or one train/test hold-out | `FoldSet` | `triangle` | `ports.folds` |
@@ -587,12 +590,13 @@ Summary `content`: `{ "kind", "producer", "n_fitted": n, ... block-specific (e.g
 | `seed` | int \| null | Seed used (null for deterministic schemes) |
 
 Summary `content`: `{ "scheme", "n_folds", "n_repeats", "n_samples", "groups_respected" }`.
+Core: `vibechem_core.data.FoldSet` with `Fold(fold, repeat, train, validation)` entries *(T1.10)*. Hold-out split blocks set `groups_respected: false` when the input has `group_ids` and `group_aware` is off; the engine turns that into `VALIDATION_GROUPS_IGNORED`. A block with several data outputs returns a dict keyed by output `port_id` (accepted, Quan 2026-11-26); a block with one output returns the object itself. CV fold blocks (T1.11) set `groups_respected: false` when the input has `group_ids` and the scheme ignores them (k-fold, venetian blinds, contiguous blocks, repeated k-fold); leave-one-out with groups is leave-one-group-out, and group k-fold `requires: ["groups"]`.
 
 **`Results`**
 | Field | Type | Notes |
 |---|---|---|
 | `kind` | `cv` \| `nested_cv` \| `test_set` \| `permutation` \| `search` \| `statistics` | |
-| `metrics` | object: name → number | Names from METHODS.md (e.g. `rmsecv`, `r2cv`, `bias`, `rpd`); original Y units |
+| `metrics` | object: name → number | Names from METHODS.md §8, one per metric and set (e.g. `rmsecv`, `r2cv`, `bias_cv`, `rpd_cv`, `rss_c`); original Y units |
 | `y_unit` | str \| null | |
 | `predictions` | Table \| null | Columns `row_index`, `sample_id`, `fold`, `repeat`, `y_true_<col>`, `y_pred_<col>` (classification: `class_true`, `class_pred`, `score_<class>`) |
 | `candidates` | Table \| null | `search` / `nested_cv`: one row per parameter candidate with its metrics |
@@ -653,6 +657,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 | Slope/bias correction | `model: Model` · `reference: Spectra` (`requires: ["y"]`) | `model: Model` |
 | Domain adaptation (di-PLS) | `source: Spectra` (`requires: ["y"]`) · `target: Spectra` (`axis_match: source`, Y not needed) | `model: Model` |
 | Prediction map (`imaging.predict_map`) | `cube: ImageCube` · `model: Model` | `map: ImageCube` (one band per predicted Y column / class score) |
+| PLS regression (`model.pls`) *(accepted, Quan 2026-11-26)* | `spectra: Spectra` (`requires: ["y"]`) · `y_transform: Transform` (optional; a y scaling fitted with `target = y`, kept in the model state so every prediction is mapped back to original Y units, METHODS.md §1) | `predictions: Table` (`row_index`, `sample_id`, `y_pred_<col>` with all fitted LVs) · `model: Model` (`kind: regression`; state holds means, W, P, Q, R, T, B, explained variance and the `algorithm` (`nipals` / `simpls`; for SIMPLS, W = R with unit columns, METHODS.md#simpls); LV sweep and VIP from the state (VIP, algorithm: decided, Quan 2026-11-26)) |
 | Refold (`imaging.refold`) | `spectra: Spectra` (`requires: ["spatial"]`) | `cube: ImageCube` |
 | ROI / mask (`imaging.roi`) | `cube: ImageCube` | `cube: ImageCube` (with `mask`) · `mean_spectra: Spectra` (one row per ROI) |
 
@@ -670,14 +675,69 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
-## 5. Block parameter schema *(filled in by T1.03)*
-To define: parameter types (`int`, `float`, `bool`, `enum`, `string`, `range`, `column_ref`, `wavelength_range`, `list`), units, conditional visibility (`visible_if`), cross-field constraints, `advanced` flag, translation keys.
+## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews)*
+The `params` list of `GET /blocks/{block_id}` (§2.3). The inspector form is generated from it (ADR-005), pipeline files store the values (`nodes[].params`, §2.6/§6), and the engine validates those values against it. Source of truth in code: `Param(...)` fields of a block's params dataclass (`vibechem_core.block`); `BlockMeta.to_detail_dict()` produces the `/blocks/{id}` object; `vibechem_engine.api.schemas.BlockDetail` (pydantic) is this section as a model and gives its JSON Schema.
+
+### 5.1 Parameter entry
+Fields present for every type:
+| Field | Type | Meaning |
+|---|---|---|
+| `param_id` | str, `snake_case` | Unique within the block; the key in `nodes[].params` |
+| `type` | see §5.2 | Parameter type |
+| `default` | JSON value of `type` | Used when the pipeline does not set the parameter. Never `null` (no nullable parameters in v1) |
+| `label_key` | str | Default `blocks.<block_id>.params.<param_id>` |
+| `tooltip_key` | str | Default `blocks.<block_id>.params.<param_id>.tip` |
+| `advanced` | bool | `true` = shown under "Advanced" in the inspector |
+
+Optional fields, present only when set:
+| Field | Types | Meaning |
+|---|---|---|
+| `min`, `max` | `int`, `float` | Inclusive bounds (numbers) |
+| `odd_only` | `int` | `true` = value must be odd (e.g. Savitzky–Golay window) |
+| `choices` | `enum` (required there) | Allowed values: a non-empty list of JSON scalars of one kind (all str, all int, all float or all bool), no duplicates; `default` is one of them |
+| `unit` | `int`, `float` | Display unit of the value, e.g. `nm`, `cm-1`, `%`, `s`; text, not translated |
+| `constraint` | `int`, `float` | Cross-field rule `"<param_id> <op> <operand>"`: the left side is this parameter, `<op>` ∈ `<` `<=` `>` `>=` `!=`, `<operand>` is another `int`/`float` parameter of the block or a number. Example: `"polyorder < window"`. Single spaces around `<op>`; parsed, never evaluated as code |
+| `visible_if` | any | `{ "param_id": "<other>", "values": [...] }`: the inspector shows this field only while the other parameter (type `bool` or `enum`) has one of `values`. A hidden parameter keeps its value and is still validated |
+
+### 5.2 Types
+| `type` | JSON value | Extra fields | Status |
+|---|---|---|---|
+| `int` | integer (not `true`/`false`) | `min`, `max`, `odd_only`, `unit`, `constraint` | implemented |
+| `float` | number, finite; integers are accepted and stored as float | `min`, `max`, `unit`, `constraint` | implemented |
+| `bool` | `true` / `false` | — | implemented |
+| `enum` | one of `choices` (same kind: `1` does not match `true`, `"1"` does not match `1`; JSON has one number type, so an integer matches a float choice: `1` selects `1.0`) | `choices` | implemented |
+| `string` | string | — | implemented |
+| `range` | `[low, high]` numbers, `low <= high` | `min`, `max`, `unit` | *reserved*: shape fixed, `Param` refuses it until the first block that needs it |
+| `wavelength_range` | `[low, high]` in the unit of the input spectral axis; checked against the axis at run time | — | *reserved* |
+| `wavelength_ranges` | `[[a, b], ...]`: at least one pair of finite numbers in the unit of the input spectral axis, each pair in either order (stored as `[min, max]` when parsed); checked against the axis at run time by the block: no axis point selected → `BLOCK_PARAM_INVALID` reason `constraint` | — | implemented *(T1.07)* |
+| `column_ref` | string: a column name of the input data | `roles`: subset of `y`, `class`, `group`, `metadata` the column may have | *reserved* |
+| `list` | array of scalars | `item_type` (`int`\|`float`\|`string`), `min_items`, `max_items` | *reserved* |
+A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
+
+### 5.3 Validation of values
+`vibechem_core.block.parse_params(params_type, values)` turns the `nodes[].params` object into the block's params dataclass. Missing parameters take their `default`. The first problem found raises `BLOCK_PARAM_INVALID` (§7) with `params`: `param_id`, `reason` and, when it helps the message, `value` (scalars only) and `constraint`. When `params` itself is not a JSON object: `reason` `type` without `param_id`.
+| `reason` | When |
+|---|---|
+| `unknown` | Key that is not a `param_id` of the block |
+| `type` | Value of the wrong JSON type, or a non-finite float; for `wavelength_ranges` also an empty list or an item that is not a pair of finite numbers |
+| `below_min` / `above_max` | Outside `min` / `max` |
+| `not_odd` | `odd_only` and the value is even |
+| `not_a_choice` | `enum` value not in `choices` |
+| `constraint` | A `constraint` is false (checked after every value is valid) |
+In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised while a block runs, it sets the node to `error` (§3). Block definitions are checked when a block is registered: defaults must pass the same rules, and `constraint`/`visible_if` must name another parameter of a suitable type (definition mistakes raise `TypeError`/`ValueError`, not a code).
+
+### 5.4 Open points for review
+1. Constraint as a restricted string (above, keeps the §2.3 form) vs. a structured object `{ "left", "op", "right" }`.
+2. One code `BLOCK_PARAM_INVALID` with a `reason` param vs. one code per reason.
+3. `visible_if` with one condition only; `and`/`or` combinations wait for a block that needs them.
 
 ## 6. File formats *(filled in by T2.03)*
 To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` (zip: `manifest.json` + `.npy`), `.vcz` project archive, cache index; versioning and migrations.
 
+**Fitted block state (T1.02b, proposal for T2.03 to adopt inside `.vcm` or change).** `vibechem_core.block.save_state` writes one directory per state: `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}` and `arrays/<i>.npy` for the i-th array name (files named by position, so names never become paths). `load_state` reads arrays with `allow_pickle=False`, rejects unknown keys, other `state_version`s, non-finite numbers and non-`.npy` files with `ValueError` (the engine reports `MODEL_PACKAGE_INVALID`, §7).
+
 ## 7. Error codes catalogue
-Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5).
+Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5). This table is the single registry of codes, errors and warnings alike (ARCHITECTURE.md ADR-010). Rows marked *warning* use the translation key `warnings.<area>.<name>` instead of `errors.<area>.<name>`; a block warning (*warning (node)*) is raised as `VibeChemWarning` and does not stop the node.
 | Code | HTTP / where | Defined in | Meaning |
 |---|---|---|---|
 | `AUTH_TOKEN_INVALID` | 401 | `engine/api` | Missing or wrong session token |
@@ -685,8 +745,11 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `PROJECT_PATH_NOT_EMPTY` | 409 | `engine/project` | Create into a non-empty folder |
 | `PROJECT_PATH_NOT_WRITABLE` | 422 | `engine/project` | No write permission |
 | `PROJECT_ALREADY_OPEN` | 409 | `engine/project` | Another project is open |
-| `IMPORT_FORMAT_UNKNOWN` | 422 | `core/io` | File type not recognised |
-| `IMPORT_DUPLICATE_SAMPLE_IDS` | warning | `core/io` | Repeated sample IDs |
+| `IMPORT_FORMAT_UNKNOWN` | 422 | `core/io` | File type not recognised (`params.format`: the extension or `format_hint`) |
+| `IMPORT_FILE_INVALID` | 422 | `core/io` | The file cannot be read as a table: `params.reason` ∈ `encoding` (not UTF-8), `empty` (also: a spectrum with fewer than 2 points), `no_spectra` (headerless file with one column), `row_length` (+ `row`, `expected`, `found`), `duplicate_column` (+ `column`; also a clash between merged files), `corrupt` (unreadable Excel, JCAMP-DX, SPC, SPA, PerkinElmer, WDF or OPUS file, e.g. truncated, or a point count that disagrees with the header) *(proposed T1.05; vendor formats T1.06b)*; `unsupported` (+ `feature` ∈ `compound`, `peak_table` for JCAMP-DX, `spc_version` + `version` for SPC; `wdf_map` for WDF maps, `opus_block` + `block` and `opus_series` for OPUS *(proposed T1.06b)*), `axis` (axis values not finite and strictly monotonic) *(proposed T1.06)* |
+| `IMPORT_DUPLICATE_SAMPLE_IDS` | warning | `core/io` | Repeated sample IDs (`params.count`: number of IDs that occur more than once) |
+| `IMPORT_NON_NUMERIC_VALUES` | warning | `core/io` | Spectral cells that are empty or not finite numbers, read as NaN (`params.count`, `params.column`: the first such column) *(proposed T1.05)* |
+| `IMPORT_AXIS_MISMATCH` | warning | `core/io` | Spectra on different axes were put on the union axis, missing points NaN; the import result has `needs_interpolation: true` (`params.axes`: number of distinct axes) *(proposed T1.06)* |
 | `DATASET_IN_USE` | 409 | `engine/project` | Dataset referenced by a pipeline |
 | `PIPELINE_REVISION_CONFLICT` | 409 | `engine/api` | Stale `If-Match` revision |
 | `PIPELINE_PORT_TYPE_MISMATCH` | 422 | `engine/graph` | Incompatible edge |
@@ -702,7 +765,19 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file |
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
-| `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it) |
-| `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3) |
+| `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
+| `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |
+| `BLOCK_AXIS_NOT_UNIFORM` | warning (node) | `core/blocks/preprocess` | Savitzky–Golay: the axis steps deviate by more than 1 % from the mean step, so derivatives are taken per point (`params.max_deviation`: largest relative deviation, e.g. `0.46`) *(proposed T1.08)* |
+| `BLOCK_CONSTANT_COLUMNS` | warning (node) | `core/blocks/preprocess` | Autoscaling/Pareto: training columns with zero variance are centred and left unscaled (scale 1) (`params.columns`: column positions in X, or in y with `target = y`) *(proposed T1.09)* |
+| `BLOCK_MISSING_VALUES` | node error | `core/blocks/split` | Guard error (METHODS.md N1, N14): a block received NaN in X or in a used y, which only direct Python API calls can cause (the engine removes such rows at entry); `params.port_id`. Raised by the split blocks and `model.pls` (T1.12a); other blocks do not check yet *(proposed T1.10)* |
+| `BLOCK_CONSTANT_RESPONSE` | node error | `core/blocks/split` | SPXY: every response value is equal (with `group_aware`: every group-mean value, BUG #58), so the y term of the joint distance is undefined (METHODS.md N13; no fall-back to Kennard–Stone); `params.port_id` *(proposed T1.10)*. PLS (`model.pls`): every training y column is constant *(proposed T1.12a)* |
+| `BLOCK_PLS_COMPONENTS_CAPPED` | warning (node) | `core/blocks/model` | PLS with `n_components_mode = search_max`: the searched maximum LV count is above n_min = min(n_train − 1, p) and was capped (`params.from`, `params.to`) (Quan 2026-11-26) *(proposed T1.12a)* |
+| `BLOCK_PLS_EQUIVALENT_MLR` | warning (node) | `core/blocks/model` | PLS fitted with n_min = min(n_train − 1, p) components: equivalent to multiple linear regression (least squares, no latent-variable regularisation; with p ≥ n the training rows are fitted exactly) (`params.n_components`) (Quan 2026-11-26) *(proposed T1.12a)* |
+| `BLOCK_SPLIT_STRATUM_TOO_SMALL` | warning (node) | `core/blocks/split` | Stratified random split: strata with fewer than 2 sampling units are put in training (`params.strata`: stratum labels — class names, or y-bin numbers from 0) *(proposed T1.10)* |
+| `BLOCK_PLS_PRECISION_LOST` | warning (node) | `core/blocks/model` | PLS with `algorithm = simpls`: the scores of the first `params.n_components` components deviate from orthonormal by more than 1e-6 (`params.max_deviation`: largest deviation), so the components from that LV count on are dropped (set to 0; predictions for more LVs equal those for one LV fewer); NIPALS keeps them (METHODS.md#simpls) (decided, Quan 2026-11-26) |
+| `METRIC_UNDEFINED` | warning | `core/metrics` | A metric cannot be computed for the set and is NaN (METHODS.md §8): `params.metric` (result name, e.g. `secv`, or `sensitivity`/`specificity`/`auc` with `params.class`), `params.reason` ∈ `n_lt_2`, `constant_y`, `constant_prediction` (slope/intercept), `zero_rmse` (RPD/RPIQ of a perfect fit), `class_absent`, `only_class` |
+| `METRIC_FEW_SAMPLES` | warning | `core/metrics` | CV or test set smaller than ISO 12099:2010 asks for: `params.metric` (`secv`/`sep` with `params.minimum` 20, `bias_cv`/`bias_p` with 10), `params.n` |
+| `BLOCK_INPUT_REQUIREMENT_MISSING` | node error | `core/block` | Input lacks content the port `requires` (Y, classes, groups, spatial, predictions) (§4.3); scaling blocks with `target = y` raise it themselves when y is absent or its columns differ from the fitted ones (`params.port_id`, `params.requirement` = `y`, `params.expected`: fitted y column names) *(proposed T1.09)*; `model.pls` raises it on `y_transform` (`params.port_id` = `y_transform`) when the transform is not a `target = y` scaling of the same y columns fitted on the same training rows (its y is not centred) *(proposed T1.12a)*; grouped CV schemes (group k-fold, leave-one-group-out) also raise it, `requirement` = `groups`, when a group label is empty *(proposed T1.11)*; so do the split blocks with `group_aware` (BUG #58) |
 | `BLOCK_INPUT_ROWS_MISMATCH` | node error | `core/block` | `rows_match` inputs share too few sample IDs (§4.5) |
 | `BLOCK_INPUT_AXIS_MISMATCH` | node error | `core/block` | Input axis differs from the matched port or the fitted state's axis (§4.5) |
+| `BLOCK_PARAM_INVALID` | 422 (validate issue) / node error | `core/block` | A parameter value breaks its schema: unknown key, type, bounds, odd, choices or constraint (`params.reason`, §5.3) *(proposed T1.03)* |

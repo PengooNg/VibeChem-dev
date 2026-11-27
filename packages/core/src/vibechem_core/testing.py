@@ -12,6 +12,10 @@ Like ``numpy.testing``, this module ships with the package but is meant for test
   golden file and name the first node whose output changed (QA.md §5); storage and
   ``--force-regen`` come from pytest-regressions' ``data_regression`` fixture.
 - :func:`load_hypothesis_profile` selects the hypothesis settings profile (``ci`` on CI).
+- :class:`DummyOffset` (stateless) and :class:`DummyCenter` (fitted) are the smallest
+  blocks that follow the block contract (``vibechem_core.block``), for contract,
+  registry and engine tests; :class:`DummySchema` declares one parameter of every
+  implemented schema type (DATA_MODEL.md §5) for schema tests.
 
 Only numpy is imported at module level; hypothesis and PyYAML are imported inside the
 functions that need them, so the shipped package has no test-tool dependencies.
@@ -23,11 +27,15 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
+
+from vibechem_core.block import Block, NoParams, Param, State, port
+from vibechem_core.data import SpectralDataset
 
 if TYPE_CHECKING:
     from pytest_regressions.data_regression import DataRegressionFixture
@@ -35,6 +43,11 @@ if TYPE_CHECKING:
 __all__ = [
     "HYPOTHESIS_PROFILE_ENV",
     "REFERENCE_LOG_ENV",
+    "DummyCenter",
+    "DummyOffset",
+    "DummyOffsetParams",
+    "DummySchema",
+    "DummySchemaParams",
     "assert_close",
     "assert_reference",
     "check_golden",
@@ -266,3 +279,80 @@ def _first_changed_node(path: Path, node_hashes: Mapping[str, str]) -> str | Non
             return f"{node} (expected {expected.get(node, 'no entry')}, got {h})"
     removed = [n for n in expected if n not in node_hashes]
     return f"{removed[0]} (missing from this run)" if removed else None
+
+
+# ---- Dummy blocks (T1.02a) ----------------------------------------------------------
+# The smallest stateless and fitted blocks, used to test the block contract, the
+# registry, state serialisation (T1.02b), the parameter schema (T1.03) and the engine.
+
+
+@dataclass(frozen=True)
+class DummyOffsetParams:
+    offset: float = Param(
+        0.0, min=-1e6, max=1e6, tooltip_key="blocks.testing.offset.params.offset.tip"
+    )
+
+
+class DummyOffset(Block):
+    """Stateless dummy block: adds ``offset`` to every value."""
+
+    block_id = "testing.offset"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = False
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"),)
+    params_type = DummyOffsetParams
+
+    def apply(self, spectra: SpectralDataset, params: DummyOffsetParams) -> SpectralDataset:
+        return spectra.with_X(spectra.X + params.offset, step=f"Offset({params.offset})")
+
+
+class DummyCenter(Block):
+    """Fitted dummy block: subtracts the column means of the training rows."""
+
+    block_id = "testing.center"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = True
+    tier = "P1"
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"), port("transform", "Transform"))
+
+    def fit(self, spectra: SpectralDataset, params: NoParams) -> State:  # noqa: ARG002
+        return State({"n_fitted": spectra.X.shape[0]}, {"mean": spectra.X.mean(axis=0)})
+
+    def apply(
+        self,
+        spectra: SpectralDataset,
+        params: NoParams,  # noqa: ARG002
+        state: State,
+    ) -> SpectralDataset:
+        return spectra.with_X(spectra.X - state.arrays["mean"], step="Center")
+
+
+@dataclass(frozen=True)
+class DummySchemaParams:
+    window: int = Param(15, min=5, max=101, odd_only=True, unit="points")
+    polyorder: int = Param(2, min=0, max=6, constraint="polyorder < window")
+    scale: float = Param(1.0, min=0.0, unit="%", advanced=True)
+    mode: str = Param("mean", choices=("mean", "median"))
+    deriv: int = Param(0, choices=(0, 1, 2))
+    clip: bool = Param(False)
+    label: str = Param("", visible_if=("mode", ("median",)))
+    ranges: tuple[tuple[float, float], ...] = Param(((1700.0, 900.0),))  # stored as (900.0, 1700.0)
+
+
+class DummySchema(Block):
+    """Stateless dummy block with one parameter per schema type; returns its input."""
+
+    block_id = "testing.schema"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = False
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"),)
+    params_type = DummySchemaParams
+
+    def apply(self, spectra: SpectralDataset, params: DummySchemaParams) -> SpectralDataset:  # noqa: ARG002
+        return spectra

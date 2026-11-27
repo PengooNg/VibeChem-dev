@@ -1,0 +1,350 @@
+% SPDX-License-Identifier: GPL-3.0-or-later
+% VibeChem method references (docs/METHODS.md). Keys are cited by blocks (`references = (...)`).
+% DOI, volume, issue and pages checked against Crossref on 2026-11-25; remaining details checked by Quan 2026-11-25.
+
+% ---- Preprocessing ----
+@article{barnes1989snv,
+  author  = {Barnes, R. J. and Dhanoa, M. S. and Lister, S. J.},
+  title   = {Standard Normal Variate Transformation and De-Trending of Near-Infrared Diffuse Reflectance Spectra},
+  journal = {Applied Spectroscopy},
+  year    = {1989},
+  volume  = {43},
+  number  = {5},
+  pages   = {772--777},
+  doi     = {10.1366/0003702894202201}
+}
+
+@article{geladi1985msc,
+  author  = {Geladi, Paul and MacDougall, Douglas and Martens, Harald},
+  title   = {Linearization and Scatter-Correction for Near-Infrared Reflectance Spectra of Meat},
+  journal = {Applied Spectroscopy},
+  year    = {1985},
+  volume  = {39},
+  number  = {3},
+  pages   = {491--500},
+  doi     = {10.1366/0003702854248656}
+}
+
+@article{rinnan2009review,
+  author  = {Rinnan, {\AA}smund and van den Berg, Frans and Engelsen, S{\o}ren Balling},
+  title   = {Review of the most common pre-processing techniques for near-infrared spectra},
+  journal = {TrAC Trends in Analytical Chemistry},
+  year    = {2009},
+  volume  = {28},
+  number  = {10},
+  pages   = {1201--1222},
+  doi     = {10.1016/j.trac.2009.07.007}
+}
+
+@article{savitzky1964,
+  author  = {Savitzky, Abraham and Golay, M. J. E.},
+  title   = {Smoothing and Differentiation of Data by Simplified Least Squares Procedures},
+  journal = {Analytical Chemistry},
+  year    = {1964},
+  volume  = {36},
+  number  = {8},
+  pages   = {1627--1639},
+  doi     = {10.1021/ac60214a047}
+}
+
+@article{steinier1972,
+  author  = {Steinier, Jean and Termonia, Yves and Deltour, Jules},
+  title   = {Smoothing and differentiation of data by simplified least square procedure},
+  journal = {Analytical Chemistry},
+  year    = {1972},
+  volume  = {44},
+  number  = {11},
+  pages   = {1906--1909},
+  doi     = {10.1021/ac60319a045}
+}
+
+@article{vandenberg2006scaling,
+  author  = {van den Berg, Robert A. and Hoefsloot, Huub C. J. and Westerhuis, Johan A. and Smilde, Age K. and van der Werf, Mari{\"e}t J.},
+  title   = {Centering, scaling, and transformations: improving the biological information content of metabolomics data},
+  journal = {BMC Genomics},
+  year    = {2006},
+  volume  = {7},
+  pages   = {142},
+  doi     = {10.1186/1471-2164-7-142}
+}
+
+% ---- Splits and validation ----
+@article{kennard1969,
+  author  = {Kennard, R. W. and Stone, L. A.},
+  title   = {Computer Aided Design of Experiments},
+  journal = {Technometrics},
+  year    = {1969},
+  volume  = {11},
+  number  = {1},
+  pages   = {137--148},
+  doi     = {10.1080/00401706.1969.10490666}
+}
+
+@article{galvao2005spxy,
+  author  = {Galv{\~a}o, Roberto Kawakami Harrop and Araujo, M{\'a}rio C{\'e}sar Ugulino and Jos{\'e}, Gledson Em{\'\i}dio and Pontes, M{\'a}rcio Jos{\'e} Coelho and Silva, Edvan Cirino and Saldanha, Teresa Cristina Bezerra},
+  title   = {A method for calibration and validation subset partitioning},
+  journal = {Talanta},
+  year    = {2005},
+  volume  = {67},
+  number  = {4},
+  pages   = {736--740},
+  doi     = {10.1016/j.talanta.2005.03.025}
+}
+
+@article{snee1977duplex,
+  author  = {Snee, Ronald D.},
+  title   = {Validation of Regression Models: Methods and Examples},
+  journal = {Technometrics},
+  year    = {1977},
+  volume  = {19},
+  number  = {4},
+  pages   = {415--428},
+  doi     = {10.1080/00401706.1977.10489581}
+}
+
+@article{daszykowski2002,
+  author  = {Daszykowski, M. and Walczak, B. and Massart, D. L.},
+  title   = {Representative subset selection},
+  journal = {Analytica Chimica Acta},
+  year    = {2002},
+  volume  = {468},
+  number  = {1},
+  pages   = {91--103},
+  doi     = {10.1016/S0003-2670(02)00651-7}
+}
+
+@article{stone1974cv,
+  author  = {Stone, M.},
+  title   = {Cross-Validatory Choice and Assessment of Statistical Predictions},
+  journal = {Journal of the Royal Statistical Society: Series B (Methodological)},
+  year    = {1974},
+  volume  = {36},
+  number  = {2},
+  pages   = {111--133},
+  doi     = {10.1111/j.2517-6161.1974.tb00994.x}
+}
+
+@article{esbensen2010validation,
+  author  = {Esbensen, Kim H. and Geladi, Paul},
+  title   = {Principles of Proper Validation: use and abuse of re-sampling for validation},
+  journal = {Journal of Chemometrics},
+  year    = {2010},
+  volume  = {24},
+  number  = {3-4},
+  pages   = {168--187},
+  doi     = {10.1002/cem.1310}
+}
+
+@misc{eigenvector_cv,
+  author = {{Eigenvector Research}},
+  title  = {PLS\_Toolbox documentation: cross-validation methods (venetian blinds, contiguous blocks)},
+  note   = {Software documentation; checked by Quan 2026-11-25}
+}
+
+% ---- PLS ----
+@article{wold1984collinearity,
+  author  = {Wold, S. and Ruhe, A. and Wold, H. and Dunn, III, W. J.},
+  title   = {The Collinearity Problem in Linear Regression. The Partial Least Squares (PLS) Approach to Generalized Inverses},
+  journal = {SIAM Journal on Scientific and Statistical Computing},
+  year    = {1984},
+  volume  = {5},
+  number  = {3},
+  pages   = {735--743},
+  doi     = {10.1137/0905052}
+}
+
+@article{geladi1986pls,
+  author  = {Geladi, Paul and Kowalski, Bruce R.},
+  title   = {Partial least-squares regression: a tutorial},
+  journal = {Analytica Chimica Acta},
+  year    = {1986},
+  volume  = {185},
+  pages   = {1--17},
+  doi     = {10.1016/0003-2670(86)80028-9}
+}
+
+@article{hoskuldsson1988,
+  author  = {H{\"o}skuldsson, Agnar},
+  title   = {PLS regression methods},
+  journal = {Journal of Chemometrics},
+  year    = {1988},
+  volume  = {2},
+  number  = {3},
+  pages   = {211--228},
+  doi     = {10.1002/cem.1180020306}
+}
+
+@article{wold2001pls,
+  author  = {Wold, Svante and Sj{\"o}str{\"o}m, Michael and Eriksson, Lennart},
+  title   = {PLS-regression: a basic tool of chemometrics},
+  journal = {Chemometrics and Intelligent Laboratory Systems},
+  year    = {2001},
+  volume  = {58},
+  number  = {2},
+  pages   = {109--130},
+  doi     = {10.1016/S0169-7439(01)00155-1}
+}
+
+@article{dejong1993simpls,
+  author  = {de Jong, Sijmen},
+  title   = {SIMPLS: An alternative approach to partial least squares regression},
+  journal = {Chemometrics and Intelligent Laboratory Systems},
+  year    = {1993},
+  volume  = {18},
+  number  = {3},
+  pages   = {251--263},
+  doi     = {10.1016/0169-7439(93)85002-X}
+}
+
+@incollection{wold1993vip,
+  author    = {Wold, Svante and Johansson, Erik and Cocchi, Marina},
+  title     = {{PLS} --- Partial Least-Squares Projections to Latent Structures},
+  booktitle = {3D QSAR in Drug Design: Theory, Methods and Applications},
+  editor    = {Kubinyi, Hugo},
+  publisher = {ESCOM},
+  address   = {Leiden},
+  year      = {1993},
+  pages     = {523--550},
+  note      = {Bibliographic details checked by Quan 2026-11-25}
+}
+
+@article{chong2005vip,
+  author  = {Chong, Il-Gyo and Jun, Chi-Hyuck},
+  title   = {Performance of some variable selection methods when multicollinearity is present},
+  journal = {Chemometrics and Intelligent Laboratory Systems},
+  year    = {2005},
+  volume  = {78},
+  number  = {1-2},
+  pages   = {103--112},
+  doi     = {10.1016/j.chemolab.2004.12.011}
+}
+
+@article{mehmood2012review,
+  author  = {Mehmood, Tahir and Liland, Kristian Hovde and Snipen, Lars and S{\ae}b{\o}, Solve},
+  title   = {A review of variable selection methods in Partial Least Squares Regression},
+  journal = {Chemometrics and Intelligent Laboratory Systems},
+  year    = {2012},
+  volume  = {118},
+  pages   = {62--69},
+  doi     = {10.1016/j.chemolab.2012.07.010}
+}
+
+@article{barker2003plsda,
+  author  = {Barker, Matthew and Rayens, William},
+  title   = {Partial least squares for discrimination},
+  journal = {Journal of Chemometrics},
+  year    = {2003},
+  volume  = {17},
+  number  = {3},
+  pages   = {166--173},
+  doi     = {10.1002/cem.785}
+}
+
+@article{ballabio2013plsda,
+  author  = {Ballabio, Davide and Consonni, Viviana},
+  title   = {Classification tools in chemistry. Part 1: linear models. {PLS-DA}},
+  journal = {Analytical Methods},
+  year    = {2013},
+  volume  = {5},
+  number  = {16},
+  pages   = {3790--3798},
+  doi     = {10.1039/c3ay40582f},
+  note    = {Crossref lists only the first page (3790); last page checked by Quan 2026-11-25}
+}
+
+% ---- Metrics ----
+@techreport{iso12099_2010,
+  author      = {{ISO}},
+  title       = {Animal feeding stuffs, cereals and milled cereal products --- Guidelines for the application of near infrared spectrometry},
+  institution = {International Organization for Standardization},
+  type        = {International Standard},
+  number      = {ISO 12099:2010},
+  year        = {2010},
+  note        = {Residual, bias (Eq. 1--3) and slope regression (5.4.1) read in the official iTeh preview on 2026-11-25; SEP section (6.5) checked by Quan 2026-11-25. Superseded by ISO 12099:2017 (same sign convention per its preview text)}
+}
+
+@article{fearn2002sep,
+  author  = {Fearn, Tom},
+  title   = {Assessing Calibrations: {SEP}, {RPD}, {RER} and {R}$^2$},
+  journal = {NIR news},
+  year    = {2002},
+  volume  = {13},
+  number  = {6},
+  pages   = {12--13},
+  doi     = {10.1255/nirn.689}
+}
+
+@article{bellonmaurel2010rpiq,
+  author  = {Bellon-Maurel, V{\'e}ronique and Fernandez-Ahumada, Elvira and Palagos, Bernard and Roger, Jean-Michel and McBratney, Alex},
+  title   = {Critical review of chemometric indicators commonly used for assessing the quality of the prediction of soil attributes by {NIR} spectroscopy},
+  journal = {TrAC Trends in Analytical Chemistry},
+  year    = {2010},
+  volume  = {29},
+  number  = {9},
+  pages   = {1073--1081},
+  doi     = {10.1016/j.trac.2010.05.006}
+}
+
+@book{martens1989,
+  author    = {Martens, Harald and N{\ae}s, Tormod},
+  title     = {Multivariate Calibration},
+  publisher = {Wiley},
+  address   = {Chichester},
+  year      = {1989},
+  note      = {Edition details and the RMSECV definition page checked by Quan 2026-11-25}
+}
+
+@article{fawcett2006roc,
+  author  = {Fawcett, Tom},
+  title   = {An introduction to {ROC} analysis},
+  journal = {Pattern Recognition Letters},
+  year    = {2006},
+  volume  = {27},
+  number  = {8},
+  pages   = {861--874},
+  doi     = {10.1016/j.patrec.2005.10.010}
+}
+
+% ---- Reference data and software ----
+@article{kalivas1997,
+  author  = {Kalivas, John H.},
+  title   = {Two data sets of near infrared spectra},
+  journal = {Chemometrics and Intelligent Laboratory Systems},
+  year    = {1997},
+  volume  = {37},
+  number  = {2},
+  pages   = {255--259},
+  doi     = {10.1016/S0169-7439(97)00038-5}
+}
+
+@article{mevik2007pls,
+  author  = {Mevik, Bj{\o}rn-Helge and Wehrens, Ron},
+  title   = {The pls Package: Principal Component and Partial Least Squares Regression in {R}},
+  journal = {Journal of Statistical Software},
+  year    = {2007},
+  volume  = {18},
+  number  = {2},
+  pages   = {1--23},
+  doi     = {10.18637/jss.v018.i02}
+}
+
+@article{pedregosa2011sklearn,
+  author  = {Pedregosa, F. and Varoquaux, G. and Gramfort, A. and Michel, V. and Thirion, B. and Grisel, O. and Blondel, M. and Prettenhofer, P. and Weiss, R. and Dubourg, V. and Vanderplas, J. and Passos, A. and Cournapeau, D. and Brucher, M. and Perrot, M. and Duchesnay, E.},
+  title   = {Scikit-learn: Machine Learning in {P}ython},
+  journal = {Journal of Machine Learning Research},
+  year    = {2011},
+  volume  = {12},
+  pages   = {2825--2830},
+  note    = {No DOI; details checked by Quan 2026-11-25}
+}
+
+@article{virtanen2020scipy,
+  author  = {Virtanen, Pauli and Gommers, Ralf and Oliphant, Travis E. and others},
+  title   = {{SciPy} 1.0: fundamental algorithms for scientific computing in {P}ython},
+  journal = {Nature Methods},
+  year    = {2020},
+  volume  = {17},
+  number  = {3},
+  pages   = {261--272},
+  doi     = {10.1038/s41592-019-0686-2}
+}

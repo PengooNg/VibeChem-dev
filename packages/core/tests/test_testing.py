@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from pytest_regressions.data_regression import DataRegressionFixture
 
 from vibechem_core import testing
+from vibechem_core.data import Axis, SpectralDataset
 
 
 def test_assert_close_passes_within_tolerance() -> None:
@@ -206,3 +207,16 @@ def test_check_golden_names_first_changed_node(
         testing.check_golden(data_regression, {"dataset": "aaaa", "snv": "bbbb"}, golden)
     with pytest.raises(AssertionError, match=r"changed: msc \(expected no entry, got ffff\)"):
         testing.check_golden(data_regression, {**hashes, "msc": "ffff"}, golden)
+
+
+def test_dummy_schema_block_returns_its_input() -> None:
+    data = SpectralDataset(
+        np.ones((2, 3)),
+        Axis(np.arange(3), "index"),
+        signal_unit="arbitrary",
+        sample_ids=["a", "b"],
+        row_index=np.arange(2),
+        source_id="ds_test",
+    )
+    assert testing.DummySchema().apply(spectra=data, params=testing.DummySchemaParams()) is data
+    assert testing.DummySchema.metadata().block_id == "testing.schema"

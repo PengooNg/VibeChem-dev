@@ -1,6 +1,8 @@
 # VibeChem — Function Catalog & Priority List
 
-> Status: v0.3 · Last updated: 2026-11-18
+> Status: v0.5 · Last updated: 2026-11-25
+> v0.5: T1.00b pengoo port inventory — "Likely source" notes name the pengoo function to port (per-function decisions and defects to fix in TECH_STACK.md §11.2); rows marked *proposed (T1.00b)* were approved at the Phase 1 gate (2026-11-27), including Duplex in the Kennard–Stone / SPXY row.
+> v0.4: T1.00 Quasar port inventory — "Likely source" notes name the Quasar/Orange module to port or the library to wrap instead (osp = orange-spectroscopy, o3 = Orange3, commits and per-module decisions in TECH_STACK.md §11.1); rows marked *proposed (T1.00)* await Quan's approval.
 > v0.3: pengoo wording ("ported from pengoo"); reuse sources per class; PDF via desktop app.
 > Goal: include every function that serves chemometrics, vibrational & hyperspectral data, conventional statistics and plotting. Nothing is cut; everything is **ordered**.
 > Each function becomes one block (or a mode of one block). Every block must have: an icon, a student tooltip, a method reference (auto-citation), a METHODS.md entry and a reference test (QA.md §3).
@@ -19,7 +21,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 ---
 
 ## 1. Data input/output
-*Likely source: pandas/pyarrow (CSV, Excel), `jcamp` (JCAMP-DX), existing SPC/OPUS readers on PyPI (search first), scipy.io / h5py (.mat, HDF5), `spectral` (ENVI).*
+*Likely source: pandas/pyarrow (CSV, Excel), `jcamp` (JCAMP-DX); SPC → port osp `utils/spc` (Rohan Isaac's `spc`, GPL-3.0) or `spc-io` (T1.06 decides); OPUS → wrap `brukeropus` (Quasar's `opusFC` rejected); OMNIC SPA, PerkinElmer .sp → port osp `io/omnic.py`, `io/perkinelmer.py` + `utils/specio`; Renishaw WDF → wrap `renishawWiRE`; .mat → `scipy.io` (osp `io/matlab.py` role rules); ENVI → `spectral`; Agilent FPA → `agilent-format`; OMNIC map → port osp `utils/pymca5` (MIT); multi-file behaviour from osp `owmultifile`.*
 | Function | Tier |
 |---|---|
 | CSV/TSV, Excel import with column-role assignment | P0 |
@@ -28,11 +30,13 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Merge metadata table by sample ID | P0 |
 | Export data/results (CSV, Excel), save project | P0 |
 | Bruker OPUS | P1 |
+| Thermo OMNIC SPA, PerkinElmer .sp, Renishaw WDF *(proposed (T1.00); from "Other vendor formats")* | P1 |
 | MATLAB .mat, HDF5, NumPy | P1 |
 | Hyperspectral cubes: ENVI (.hdr/.raw), Specim, .mat cube | P2 |
 | Other vendor formats (on user request) | P3 |
 
 ## 2. Data handling
+*Likely source: interpolation → port osp `preprocess` `Interpolate`/`InterpolateToDomain` + NaN helpers in `preprocess/utils.py` (on SciPy `interp1d`); average by group → port osp `owaverage.average_table`; impute → scikit-learn `SimpleImputer` (o3 `impute.py` not ported).*
 | Function | Tier |
 |---|---|
 | Select / exclude rows and columns (with logged reason) | P0 |
@@ -43,7 +47,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Data augmentation (noise, shift, scatter simulation) | P3 |
 
 ## 3. Exploration & plotting
-*Likely source: scikit-learn (PCA, clustering, t-SNE), SciPy (dendrogram), `umap-learn` (if approved); plots drawn in the UI (uPlot).*
+*Likely source: scikit-learn (PCA, clustering, t-SNE), SciPy (dendrogram; small tree helpers `prune`/`top_clusters` ported from o3 `clustering/hierarchical.py`), `umap-learn` (if approved); 2D-COS → port osp `owcos.calc_cos` (check against R `corr2D`); SNR → port osp `owsnr`; plots drawn in the UI (uPlot); spectra-viewer QoL list from osp `owspectra` (spec only).*
 | Function | Tier |
 |---|---|
 | Spectra viewer (Quasar-level QoL: group mean ± SD, line select, peak labels, shortcuts, resampling) | P0 |
@@ -51,21 +55,25 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Scatter, line, box/violin, histogram/KDE, bar | P0 |
 | Heat map, correlation matrix, correlation spectrum (X vs Y per wavelength) | P0 |
 | Publication figure presets (vector export, DPI, journal widths) | P0 |
-| Hierarchical clustering + dendrogram, k-Means | P1 |
+| SNR per group / position *(proposed (T1.00); PRD Appendix A parity)* | P0 |
+| Hierarchical clustering + dendrogram, k-Means | P0 (raised from P1 by Quan 2026-11-25, T1.00: v1.0 Quasar parity, PRD Appendix A) |
 | 2D correlation spectroscopy (2D-COS: synchronous/asynchronous) | P1 |
 | Band-assignment overlay (functional-group reference bands) | P1 |
 | t-SNE, UMAP, MDS, 3D scatter, parallel coordinates | P1 |
 | DBSCAN, self-organising map | P2 |
 
 ## 4. Preprocessing
-*Likely source: SciPy (`savgol_filter`), scikit-learn scalers, `chemotools` (MSC, SNV, derivatives, detrend), `pybaselines` (all baselines incl. ModPoly/IModPoly), Orange-Spectroscopy (EMSC, ME-EMSC, spike removal — port), pengoo (ported parts).*
+*Likely source: SciPy (`savgol_filter`, `gaussian_filter1d` — Quasar wraps the same), scikit-learn scalers, `chemotools` (MSC, SNV, derivatives, detrend), `pybaselines` (ALS, arPLS, airPLS, polynomial, ModPoly/IModPoly, SNIP — preferred over Quasar's LGPL ALS copy). **Port from pengoo `preprocessing.py`** (TECH_STACK.md §11.2): `snv`, `msc` (with the ddof fix), axis-based detrend, Coca-Lopez spike removal (second despike method), `wavelet_denoise` (P1, needs PyWavelets). **Port from osp `preprocess/`** (TECH_STACK.md §11.1): `Cut`, `RubberbandBaseline`, `LinearBaseline`, `Normalize` (vector/area/attribute/min-max), `NormalizeReference`, `Absorbance`/`Transmittance`, `PCADenoising`, `ShiftAndScale`, `Despike`, `EMSC` (+ `npfunc`; MSC = order-0 case; interferents → extended EMSC), `ME_EMSC`, `AtmCorr` + `SpSubtract`, `Integrate`; interferogram → port osp `irfft.py`; peak fitting → wrap `lmfit` with osp `peakfit_compute` set-up.*
 | Function | Tier |
 |---|---|
 | Range cut, Savitzky–Golay smoothing & derivatives, Gaussian/moving-average smoothing | P0 |
 | SNV, MSC, EMSC (basic), detrend | P0 |
 | Baseline: polynomial, ALS, airPLS, rubber-band | P0 |
 | Normalisation: vector, min-max, area, by peak/attribute, by reference | P0 |
+| Band integration: area, height, peak position *(proposed (T1.00); PRD Appendix A "Integrate" parity)* | P0 |
 | Spike/cosmic-ray removal | P0 |
+| Baseline: SNIP (pybaselines) *(approved at the Phase 1 gate (T1.00b); used in pengoo's grid search)* | P0 |
+| Median-filter smoothing *(approved at the Phase 1 gate (T1.00b); pengoo `median_denoise`)* | P0 |
 | Mean-centring, autoscaling, Pareto, range scaling | P0 |
 | Transmittance↔absorbance, log(1/R), Kubelka–Munk | P0 |
 | PCA denoising | P0 |
@@ -78,15 +86,16 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Interferogram → spectrum | P3 |
 
 ## 5. Sample selection & splitting
-*Likely source: scikit-learn (random, stratified, group), `kennard-stone` (KS); SPXY/Duplex likely small own code.*
+*Likely source: scikit-learn (random, stratified, group), `kennard-stone` (KS, cross-check); **port from pengoo `model_metrics.py`**: `_ks_order`, SPXY distance, `_duplex_order`, `split_cal_test` (stratified, sampling units kept whole).*
 | Function | Tier |
 |---|---|
 | Random, Y-stratified, by group, user column | P0 |
 | Kennard–Stone, SPXY, Duplex | P0 |
+| Rank-rotate split with protected y-extremes *(approved at the Phase 1 gate (T1.00b); pengoo `split_cal_test`)* | P1 |
 | Puchwein, D-optimal | P2 |
 
 ## 6. Validation
-*Likely source: scikit-learn splitters; nested CV orchestration is our own engine code (differentiator).*
+*Likely source: scikit-learn splitters (o3 `evaluation/testing.py` wraps the same, not ported); nested CV orchestration is our own engine code (differentiator); permutation test → port the logic of o3 `widgets/evaluate/owpermutationplot.permutation()` (with a `Generator`, our folds); group k-fold with combined group columns, folds materialised once, group-leak check → port from pengoo `model_metrics.py`.*
 | Function | Tier |
 |---|---|
 | k-fold, venetian blinds, contiguous blocks, LOO, repeated k-fold, Monte-Carlo CV | P0 |
@@ -97,7 +106,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Bootstrap, .632, repeated double CV (rdCV) | P1 |
 
 ## 7. Optimisation & search
-*Likely source: scikit-learn `ParameterGrid`; preprocessing-chain search ported from pengoo; `optuna` for Bayesian (if approved).*
+*Likely source: scikit-learn `ParameterGrid`; LV rules (global min, 1-SE, paired t-test, Wold R) → port pengoo `select_n_components`; preprocessing-chain search → port pengoo `grid_search.py` (no pickle, no joblib); `optuna` for Bayesian (if approved).*
 | Function | Tier |
 |---|---|
 | LV-number rules: min RMSECV, 1-SE rule, Wold's R, randomisation test | P0 |
@@ -107,13 +116,14 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Multi-objective view (error vs complexity Pareto front) | P2 |
 
 ## 8. Variable selection
-*Likely source: mostly own code on top of PLS (VIP, SR, iPLS, CARS, SPA are short); check existing Python packages per method first; CAKE from Quan's own code.*
+*Likely source: **port from pengoo `variable_selection.py`** + `model_metrics.py`: VIP, selectivity ratio, jackknife, SPA, CARS, SWSR, sPLS, ACO, siPLS, MW-PLS and the shared subset scorer (SPA and CARS to be aligned with their papers, TECH_STACK.md §11.2); iPLS forward/backward is not in pengoo (own code); CAKE from Quan's own code.*
 | Function | Tier |
 |---|---|
 | VIP, selectivity ratio, regression coefficients + Jackknife (Martens' uncertainty test) | P0 |
 | iPLS (forward/backward), CARS, SPA | P0 |
 | Selection inside CV + stability map | P0 |
 | GA-PLS, UVE / MC-UVE, siPLS, sPLS, ACO, SWSR | P1 |
+| MW-PLS (moving-window PLS) *(approved at the Phase 1 gate (T1.00b); pengoo `moving_window_pls`)* | P1 |
 | CAKE (owner's method) | P1 |
 | VCPA, IRIV, Boruta / RF importance | P2 |
 
@@ -162,7 +172,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Deep domain adaptation | P3 |
 
 ## 13. Statistical testing
-*Likely source: SciPy `stats`; `statsmodels` (Tukey HSD, multiple-testing correction, if approved).*
+*Likely source: SciPy `stats`; `statsmodels` (Tukey HSD, multiple-testing correction, if approved); model-comparison tests (van der Voet, Pitman–Morgan, F, Brown–Forsythe, Welch, bootstrap ΔRMSEP, Holm) → port pengoo `validate_models`.*
 | Function | Tier |
 |---|---|
 | Descriptive statistics, confidence intervals | P0 |
@@ -171,12 +181,13 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Mann–Whitney, Wilcoxon signed-rank, Kruskal–Wallis | P0 |
 | Pearson / Spearman correlation | P0 |
 | Model comparison: paired tests on CV errors, randomisation t-test (van der Voet) | P0 |
+| Bias and slope significance tests on a test set (ISO 12099) *(approved at the Phase 1 gate (T1.00b); pengoo `validate_models`)* | P0 |
 | Multiple-testing correction (Bonferroni, Holm, BH-FDR) | P1 |
 | Bland–Altman, equivalence tests, bootstrap CIs | P1 |
 | MANOVA, ASCA (designed experiments) | P2 |
 
 ## 14. Interpretation & diagnostics
-*Likely source: scikit-learn metrics (confusion matrix, ROC); `shap` (P1, if approved).*
+*Likely source: scikit-learn metrics (confusion matrix, ROC; o3 `scoring.py` wraps the same); residuals / DModX → port o3 `regression/pls.py` `dmodx`, `_residual_ssx`; `shap` (P1, if approved).*
 | Function | Tier |
 |---|---|
 | Coefficient / VIP / loading plots over the spectrum | P0 |
@@ -186,6 +197,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Elliptical joint confidence region (EJCR) for slope/bias | P1 |
 
 ## 15. Hyperspectral imaging
+*Likely source: port osp `utils/__init__.py` hypercube helpers, `utils/binning.py`, `owreshape`, `owstackalign` + `utils/skimage` (BSD-3); readers `spectral` (ENVI), `agilent-format`; viewer spec from osp `owhyper`.*
 | Function | Tier |
 |---|---|
 | Cube viewer: band image, RGB/false colour, pixel spectrum | P2 |
@@ -222,4 +234,4 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 ---
 
 ## P0 size check
-P0 ≈ 90 functions. Realistic only because the numerical core reuses mature libraries (NumPy, SciPy, scikit-learn, chemotools, pybaselines) and code ported from pengoo and Orange-Spectroscopy, and every block follows one template (CLAUDE.md §5). Any P0 item without an existing reference implementation to test against is flagged to Quan (algorithm review) and K (test infrastructure) before work starts. Libraries marked "if approved" are not yet in TECH_STACK.md §1 and need K's approval before use.
+P0 ≈ 90 functions. Realistic only because the numerical core reuses mature libraries (NumPy, SciPy, scikit-learn, chemotools, pybaselines) and code ported from pengoo and Orange-Spectroscopy, and every block follows one template (CLAUDE.md §5). Any P0 item without an existing reference implementation to test against is flagged to Quan (algorithm review and test infrastructure) before work starts. Libraries marked "if approved" are not yet in TECH_STACK.md §1 and need Quan's approval before use.

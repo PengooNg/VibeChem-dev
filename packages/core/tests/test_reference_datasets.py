@@ -83,7 +83,8 @@ def test_unknown_name_lists_available_datasets() -> None:
 
 def test_unknown_expected_name_lists_available_files() -> None:
     with pytest.raises(
-        KeyError, match="available: gasoline_nir_pls, olive_oil_ftir_classification"
+        KeyError,
+        match="available: gasoline_nir_pls, gasoline_nir_splits, olive_oil_ftir_classification",
     ):
         rd.load_expected("gasoline_pls")
 

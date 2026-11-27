@@ -7,6 +7,7 @@
 
 **Public API:**
 - `python -m vibechem_engine.api [--testdata-dir PATH]` — start the HTTP API (DATA_MODEL.md §1 "Start-up"); `VIBECHEM_DEV=1` allows the Vite dev server origin. The desktop app ships this entry point frozen with PyInstaller (`scripts/build_engine.py` → `vibechem-engine[.exe]`; `__main__` calls `multiprocessing.freeze_support()` first).
+- `vibechem_engine.api.schemas` (T1.03): pydantic models of the `GET /blocks/{block_id}` object (`BlockDetail`, parameter entries discriminated by `type`), i.e. DATA_MODEL.md §5 as a model; `BlockDetail.model_json_schema()` is its JSON Schema. Not yet served by a route.
 - `vibechem_engine.api.create_app(token, *, testdata_dir, dev=False)` — the FastAPI app: `/api/v1/health`, `/api/v1/blocks` (static SNV entry), temporary `/api/v1/skeleton/run` (§2.12, removed in T4.01).
 
 Later: the Python API and CLI (T2.11) and the rest of the HTTP/WS API in `docs/DATA_MODEL.md`.

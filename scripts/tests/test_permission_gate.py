@@ -267,6 +267,58 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(gate.decide(event, posix_ctx)[0], "deny")
 
 
+class TildeRegressionTests(unittest.TestCase):
+    """Issue #44, won't fix: every ``~`` word is checked, also in comments and quoted text.
+
+    Exempting comments was tried in PR #46; three code reviews found ways to fake a
+    comment (the segment split does not know bash escaping, #45). Write "about" instead.
+    """
+
+    def test_tilde_in_comment_or_quoted_text_denied(self) -> None:
+        for c in [
+            "echo hi  # ~ approx",
+            "cat <<'EOF'\n# ~ comment\nEOF",
+            "python - <<'EOF'\nx = 1  # ~3 s\nEOF",
+            # quoted '~ x': a program may expand it itself (ntpath.expanduser)
+            'echo "~ about 5 s"',
+            'git commit -m "~ approx"',
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+    def test_real_tilde_paths_denied(self) -> None:
+        for c in [
+            "ls ~",
+            "cat ~/.ssh/id_rsa",
+            "cp build.zip ~/Documents",
+            "ls ~quan",
+            'cat "~/.ssh/id_rsa"',
+            "echo ok # fine; cat ~/.ssh/id_rsa",
+            # quoting tricks: the '#' looks like a comment only because ';' splits a quoted string
+            'cat ";# " ~/.ssh/id_rsa',
+            'cat "a; # $(cat ~/.ssh/id_rsa) ; b"',
+            # outside paths in comments are checked
+            "echo hi # see /c/Users/quan/Documents",
+            "echo hi # ~/.ssh/id_rsa",
+            # cmd has no '#' comments: ~/.. there is a relative path out of the project
+            "cmd /c type x # ~/../../Users/quan/secret.txt",
+            # fake comments found in the #46 reviews: bash expands the ~ in all of these
+            "ls x\\ # ~",
+            "ls ${a:- # } ~-",
+            "ls # ~root",
+            "ls # ~+",
+            "ls # ~-",
+            'pwsh -c "ls <# x #> ~"',
+            "ls <# x #> ~",
+            "ls x\\;# ~",
+            "echo a\\\n# ~",
+            "ls ${a:-;# } ~",
+            "ls x\u00a0# ~",  # no-break space: a word break in Python, not in bash
+        ]:
+            with self.subTest(c=c):
+                self.assertEqual(bash(c), "deny")
+
+
 class ToolTests(unittest.TestCase):
     def test_mcp(self) -> None:
         self.assertEqual(tool("mcp__context7__query-docs"), "allow")

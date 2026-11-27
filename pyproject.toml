@@ -13,7 +13,7 @@ dev = [
     "import-linter",
     "loky>=3.7.0",
     "pre-commit",
-    "pyinstaller>=6.21,<6.22",
+    "pyinstaller>=6.22.3,<6.23",
     "pyright[nodejs]",
     "pytest",
     "pytest-cov",
@@ -24,7 +24,8 @@ dev = [
 
 [tool.uv]
 # cloudpickle (from loky) 3.1.3 was released 2026-11-18, less than two weeks before T0.13.
-constraint-dependencies = ["cloudpickle<3.1.3"]
+# narwhals (from scikit-learn) 2.29.0 was released 2026-11-17, less than two weeks before T1.02b.
+constraint-dependencies = ["cloudpickle<3.1.3", "narwhals<2.29.0"]
 
 [tool.ruff]
 target-version = "py312"
@@ -92,10 +93,10 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "core"
-name = "vibechem_core never imports vibechem_engine or fastapi (TECH_STACK.md 3.1)"
+name = "vibechem_core never imports vibechem_engine, fastapi or pyarrow (TECH_STACK.md 3.1)"
 type = "forbidden"
 source_modules = ["vibechem_core"]
-forbidden_modules = ["vibechem_engine", "fastapi"]
+forbidden_modules = ["vibechem_engine", "fastapi", "pyarrow"]
 
 [[tool.importlinter.contracts]]
 id = "native"

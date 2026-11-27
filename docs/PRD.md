@@ -8,7 +8,7 @@
 ## 1. Product statement
 VibeChem is a free, open-source (GPL-3.0-or-later) **installable desktop application** for **chemometrics on vibrational and hyperspectral data**, with conventional statistics and publication plotting. Users build analyses as a **visual pipeline of symbol blocks** — grouped into classes, connected freely, each opening a detailed configuration — and get **rigorous, publication-grade validation** by default.
 
-Name: *Vib*rational spectroscopy + *Chem*ometrics; also *vibecoded* (≈80–90 % AI-generated; architecture and infrastructure reviewed by K, algorithms by Quan).
+Name: *Vib*rational spectroscopy + *Chem*ometrics; also *vibecoded* (≈80–90 % AI-generated; reviewed by Quan, with AI review agents for architecture and infrastructure).
 
 ## 2. Positioning — why VibeChem wins ("ăn tiền")
 | | PLS_Toolbox / Unscrambler | Quasar (Orange + Spectroscopy) | **VibeChem** |
