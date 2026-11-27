@@ -4,7 +4,7 @@
 # macOS Intel and Linux; Electron e2e tests on Windows, macOS and Linux (T0.10). Later steps
 # add their jobs here: installers incl. macOS Intel (T0.11), benchmarks + determinism 1 vs N
 # cores (T2.12). ci.yml also runs the e2e tests on every PR (job `check`).
-# Any failure opens (or comments on) one `S2` issue.
+# Any failed, cancelled or timed-out job opens (or comments on) one `S2` issue.
 name: nightly
 
 on:
@@ -28,6 +28,7 @@ jobs:
       refs: ${{ steps.pick.outputs.refs }}
     steps:
       - id: pick
+        shell: bash # -eo pipefail: a failed `gh api` must fail the job, not test main only
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -120,7 +121,8 @@ jobs:
   report:
     name: open S2 issue on failure
     needs: [refs, check, e2e]
-    if: failure()
+    # cancelled() alone is only a whole-run cancel; a job that hits timeout-minutes is a cancelled need.
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
