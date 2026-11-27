@@ -59,7 +59,8 @@ def test_workers_stay_warm_with_one_blas_thread(tmp_path: Path) -> None:
         first = [executor.submit(worker_facts, i).result() for i in range(6)]
         second = [executor.submit(worker_facts, i).result() for i in range(6)]
     pids = {pid for pid, _, _ in first}
-    assert pids == {pid for pid, _, _ in second}  # same processes, no respawn
+    # Which idle worker takes a task is arbitrary (macOS often uses one), so subset, not equal.
+    assert {pid for pid, _, _ in second} <= pids  # no new process, no respawn
     assert len(pids) <= 2
     assert os.getpid() not in pids
     # Every pool threadpoolctl sees (NumPy's and SciPy's OpenBLAS, OpenMP) runs 1 thread;
