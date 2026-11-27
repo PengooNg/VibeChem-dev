@@ -206,6 +206,33 @@ def predict_sweep(state: State, spectra: SpectralDataset) -> NDArray[np.float64]
     return _to_original_units(state, a["y_mean"] + cumulative.transpose(1, 0, 2))
 
 
+_COMPONENT_ARRAYS = (
+    "weights",
+    "loadings",
+    "y_loadings",
+    "rotations",
+    "scores",
+    "x_explained",
+    "y_explained",
+)
+
+
+def truncate(state: State, n_lv: int) -> State:
+    """The state with its first ``n_lv`` components, B = R Q' rebuilt from them.
+
+    Components are fitted one after another, so this equals a refit with
+    ``n_components = n_lv`` on the same rows (METHODS.md#pls-lv-sweep).
+    """
+    n_fitted = cast(int, state.values["n_components"])
+    if not 1 <= n_lv <= n_fitted:
+        raise ValueError(f"n_lv must be in 1 ... {n_fitted}, got {n_lv}")
+    a = dict(state.arrays)
+    for name in _COMPONENT_ARRAYS:
+        a[name] = a[name][..., :n_lv]
+    a["coefficients"] = (a["rotations"] @ a["y_loadings"].T) * a["y_std"] / a["x_std"][:, None]
+    return State({**state.values, "n_components": n_lv}, a)
+
+
 def vip(state: State, n_lv: int | None = None) -> NDArray[np.float64]:
     """VIP of every X variable from the first ``n_lv`` components (default all), shape (p,).
 

@@ -64,7 +64,8 @@ def runs(data: SpectralDataset, folds: FoldSet) -> list[FoldRun]:
 
 def cv(data: SpectralDataset, folds: FoldSet, **values: Any) -> Results:
     state = PLS().fit(data, parse_params(PLSParams, {"n_components": N_LV}))
-    return CrossValidation().apply(state, folds, parse_params(CVParams, values), runs(data, folds))
+    out = CrossValidation().apply(state, folds, parse_params(CVParams, values), runs(data, folds))
+    return cast(Results, out["results"])
 
 
 def kfold(data: SpectralDataset) -> FoldSet:
@@ -103,6 +104,18 @@ def test_curve_matches_scikit_learn_and_metrics_are_at_the_chosen_lv() -> None:
     assert sorted(result.predictions["row_index"].tolist()) == sorted(data.row_index.tolist())
     assert result.y_unit == "%"
     assert np.isnan(result.details["rmsecv_repeat_sd"])
+
+
+def test_model_output_predicts_like_a_fit_at_the_chosen_lv() -> None:
+    data = dataset()
+    folds = kfold(data)
+    state = PLS().fit(data, parse_params(PLSParams, {"n_components": N_LV}))
+    out = CrossValidation().apply(state, folds, parse_params(CVParams, {}), runs(data, folds))
+    n_lv = int(cast(Results, out["results"]).metrics["n_lv"])
+    sk: Any = PLSRegression(n_components=n_lv, scale=False, max_iter=10_000, tol=1e-20)
+    expected = np.asarray(sk.fit(data.X, data.y).predict(data.X)).ravel()
+    actual = PLS().apply(data, PLSParams(), cast(Any, out["model"]))["y_pred_y0"]
+    np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-12)  # T-lib
 
 
 def test_repeated_cv_averages_the_repeats() -> None:
@@ -217,9 +230,8 @@ def test_haaland_thomas_and_van_der_voet_use_the_row_residuals_averaged_over_rep
     ):
         rule = cast(str, values["lv_rule"])
         params = parse_params(CVParams, values)
-        result = CrossValidation().apply(
-            state, folds, params, fold_runs, rng=np.random.default_rng(5)
-        )
+        out = CrossValidation().apply(state, folds, params, fold_runs, rng=np.random.default_rng(5))
+        result = cast(Results, out["results"])
         np.testing.assert_allclose(result.details["press"], rows.sum(axis=1), rtol=1e-10)  # T-lib
         expected = select_lv(
             rule, result.details["rmsecv"], rows.sum(axis=1), np.ones((N_LV + 1, 6)),

@@ -19,7 +19,7 @@ import pytest
 from numpy.typing import NDArray
 from sklearn.cross_decomposition import PLSRegression  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
-from vibechem_core.block import Block, port
+from vibechem_core.block import Block, State, port
 from vibechem_core.blocks.model.pls import PLS
 from vibechem_core.blocks.preprocess.scaling import Autoscale
 from vibechem_core.blocks.preprocess.snv import SNV
@@ -174,6 +174,8 @@ def test_five_fold_curve_matches_hand_written_scikit_learn_cv(gasoline: Spectral
     np.testing.assert_allclose(got.details["rmsecv"][1:], sklearn_curve(gasoline, folds), rtol=1e-10, atol=1e-12)  # fmt: skip
     rows = cast(NDArray[np.int64], cast(Any, got.predictions)["row_index"])
     assert sorted(rows.tolist()) == sorted(gasoline.row_index.tolist())  # one OOF row each
+    model = cast(State, out.output("cv", "model"))  # the full-data model at the chosen LV
+    assert model.values["n_components"] == got.metrics["n_lv"]
 
 
 def test_fitted_preprocessing_is_refitted_on_each_fold(gasoline: SpectralDataset) -> None:

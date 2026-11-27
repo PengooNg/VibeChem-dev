@@ -27,6 +27,7 @@ from vibechem_core.blocks.model.pls import (
     PLS,
     PLSParams,
     predict_sweep,
+    truncate,
     vip,
 )
 from vibechem_core.blocks.preprocess.scaling import Autoscale, ScalingParams
@@ -176,6 +177,8 @@ def test_lv_sweep_equals_separate_fits(k: int, check: Any, scale: bool, algorith
     for a in range(1, 9):
         separate = PLS().fit(train, params(n_components=a, scale=scale, algorithm=algorithm))
         check(sweep[a], predicted(PLS().apply(new, params(), separate)), f"a = {a}")
+        cut = PLS().apply(new, params(), truncate(fitted, a))
+        check(predicted(cut), predicted(PLS().apply(new, params(), separate)), f"truncate {a}")
 
 
 @pytest.mark.parametrize("algorithm", ["nipals", "simpls"])

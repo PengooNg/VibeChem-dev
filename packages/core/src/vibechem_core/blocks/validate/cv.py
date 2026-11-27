@@ -6,6 +6,7 @@ Class:          validate
 Ports:          in  -> model : Model (refit_per_fold)
                 in  -> folds : Folds
                 out -> results : Results
+                out -> model   : Model (the input model at the chosen LV count)
 Reference:      Stone (1974), J. R. Stat. Soc. B 36, 111-147; Martens & Naes (1989),
                 Multivariate Calibration; Mevik & Wehrens (2007), J. Stat. Softw. 18(2)
 METHODS:        docs/METHODS.md#cv, #lv-rules, #rmsecv
@@ -17,7 +18,8 @@ Reviewer:       Quan
 The engine runner re-fits the subgraph feeding ``model`` on every fold's training rows
 and calls ``apply`` with ``fold_runs``: per fold, the fold's model state and the model's
 input on the fold's validation rows (taken by ``row_index``). ``model`` itself is the
-model fitted on all training rows. PLS1 only (METHODS.md#cv edge cases).
+model fitted on all training rows; the ``model`` output is it cut to the chosen LV count
+(:func:`~vibechem_core.blocks.model.pls.truncate`). PLS1 only (METHODS.md#cv edge cases).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING, Block, Param, State, port
-from vibechem_core.blocks.model.pls import predict_sweep
+from vibechem_core.blocks.model.pls import predict_sweep, truncate
 from vibechem_core.data import Fold, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import BlockInputError, VibeChemWarning
 from vibechem_core.lv_rules import LV_RULES, fold_sd_se, select_lv
@@ -69,7 +71,7 @@ class CVParams:
 
 class CrossValidation(Block):
     block_id = "validate.cv"
-    version = "1.0.0"
+    version = "1.1.0"
     icon = "glyph-cv"
     references = (
         "stone1974cv",
@@ -82,7 +84,7 @@ class CrossValidation(Block):
     )
     fitted = False
     inputs = (port("model", "Model", refit_per_fold=True), port("folds", "Folds"))
-    outputs = (port("results", "Results"),)
+    outputs = (port("results", "Results"), port("model", "Model"))
     params_type = CVParams
 
     def apply(
@@ -92,7 +94,7 @@ class CrossValidation(Block):
         params: CVParams,
         fold_runs: Sequence[FoldRun],
         rng: np.random.Generator | None = None,
-    ) -> Results:
+    ) -> dict[str, Results | State]:
         if (
             "classes" in model.values
             or len(cast(list[str], model.values.get("y_columns", []))) != 1
@@ -205,7 +207,7 @@ class CrossValidation(Block):
             f"y_true_{name}": np.concatenate(y_true),
             f"y_pred_{name}": np.concatenate([s[n_lv] for s in sweeps]),
         }  # fmt: skip
-        return Results(
+        results = Results(
             kind="cv",
             metrics={**metrics, "n_lv": float(n_lv)},
             y_unit=validation[0].y_units[0] if validation[0].y_units else None,
@@ -225,3 +227,5 @@ class CrossValidation(Block):
                 "aggregation": params.aggregation,
             },
         )
+        # Step 7: the model fitted on all training rows, cut to n_lv components (= a refit)
+        return {"results": results, "model": truncate(model, n_lv)}
