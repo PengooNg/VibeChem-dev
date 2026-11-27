@@ -1,0 +1,57 @@
+{
+ "additionalProperties": false,
+ "properties": {
+  "format_version": {
+   "const": 1,
+   "title": "Format Version",
+   "type": "integer"
+  },
+  "project_id": {
+   "pattern": "^prj_[0-9A-Za-z]+$",
+   "title": "Project Id",
+   "type": "string"
+  },
+  "name": {
+   "minLength": 1,
+   "title": "Name",
+   "type": "string"
+  },
+  "created_at": {
+   "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+   "title": "Created At",
+   "type": "string"
+  },
+  "updated_at": {
+   "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+   "title": "Updated At",
+   "type": "string"
+  },
+  "datasets": {
+   "items": {
+    "pattern": "^ds_[0-9A-Za-z]+$",
+    "type": "string"
+   },
+   "title": "Datasets",
+   "type": "array"
+  },
+  "pipelines": {
+   "items": {
+    "pattern": "^ppl_[0-9A-Za-z]+$",
+    "type": "string"
+   },
+   "title": "Pipelines",
+   "type": "array"
+  }
+ },
+ "required": [
+  "format_version",
+  "project_id",
+  "name",
+  "created_at",
+  "updated_at",
+  "datasets",
+  "pipelines"
+ ],
+ "title": "ProjectFile",
+ "type": "object"
+}

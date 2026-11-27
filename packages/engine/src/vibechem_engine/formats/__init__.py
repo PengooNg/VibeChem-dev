@@ -18,17 +18,30 @@ from vibechem_engine.formats.pipeline import (
     load_pipeline,
     save_pipeline,
 )
+from vibechem_engine.formats.project import (
+    PROJECT_FILE_INVALID,
+    ProjectFile,
+    load_project,
+    save_project,
+)
 
 __all__ = [
     "PIPELINE_FILE_INVALID",
+    "PROJECT_FILE_INVALID",
     "FormatError",
     "PipelineFile",
+    "ProjectFile",
     "json_schemas",
     "load_pipeline",
+    "load_project",
     "save_pipeline",
+    "save_project",
 ]
 
 
 def json_schemas() -> dict[str, dict[str, Any]]:
     """JSON Schema of each format, keyed by the committed file name."""
-    return {"pipeline.schema.json": PipelineFile.model_json_schema()}
+    return {
+        "pipeline.schema.json": PipelineFile.model_json_schema(),
+        "project.schema.json": ProjectFile.model_json_schema(),
+    }

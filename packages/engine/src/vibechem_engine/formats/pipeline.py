@@ -68,7 +68,7 @@ class Edge(StrictModel):
     to_port: PortId
 
 
-def _repeated(ids: Sequence[str]) -> list[str]:
+def repeated(ids: Sequence[str]) -> list[str]:
     return sorted({i for i in ids if ids.count(i) > 1})
 
 
@@ -85,15 +85,15 @@ class PipelineFile(StrictModel):
     @field_validator("nodes")
     @classmethod
     def _unique_nodes(cls, nodes: tuple[Node, ...]) -> tuple[Node, ...]:
-        if repeated := _repeated([n.node_id for n in nodes]):
-            raise ValueError(f"repeated node_id {repeated}")
+        if twice := repeated([n.node_id for n in nodes]):
+            raise ValueError(f"repeated node_id {twice}")
         return nodes
 
     @field_validator("edges")
     @classmethod
     def _unique_edges(cls, edges: tuple[Edge, ...]) -> tuple[Edge, ...]:
-        if repeated := _repeated([e.edge_id for e in edges]):
-            raise ValueError(f"repeated edge_id {repeated}")
+        if twice := repeated([e.edge_id for e in edges]):
+            raise ValueError(f"repeated edge_id {twice}")
         return edges
 
     @model_validator(mode="after")
