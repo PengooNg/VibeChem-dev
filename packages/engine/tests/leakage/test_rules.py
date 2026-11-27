@@ -71,6 +71,17 @@ LEAKY = {
         "pls",
         "spectra",
     ),
+    # external test set: the model was fitted on all rows, test rows included
+    "model_fitted_on_all_rows_applied_to_test": (
+        [
+            "src.spectra -> pls.spectra",
+            "src.spectra -> split.spectra",
+            "pls.model -> pred.model",
+            "split.test -> pred.spectra",
+        ],
+        "pred",
+        "model",
+    ),
     # a y scaling fitted once on all rows, handed to the per-fold PLS
     "y_transform_fitted_on_all_rows": (
         [

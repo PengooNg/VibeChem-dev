@@ -17,6 +17,11 @@ DATA_MODEL.md §4.6). Static, on the user graph; every finding is ``PIPELINE_LEA
      not pass (e.g. MSC ``reference`` wired from the unsplit dataset while ``spectra``
      are the training rows, R39).
 
+   A ``Model``/``Transform`` input is leaky when another input of the same node holds
+   test rows of a split (``<split>.test``) and the state's tags from that source did
+   not pass ``<split>.train`` (a model fitted on rows that include the test set,
+   applied to it; DATA_MODEL.md §4.6 external test set).
+
    Checked once outside the folds and once per fold scope, where the fold source stream
    is narrowed to the fold's ``train`` rows and nodes outside the refit subgraph keep
    their full-row tags. Inputs from another data source are never leaky.
@@ -44,6 +49,7 @@ type Tag = tuple[str, tuple[Stream, ...]]  # (data source node_id, row subsets o
 type Tagger = Callable[[str, str], frozenset[Tag]]
 
 _SUBSET_PORTS = frozenset({"train", "test"})
+_STATE_TYPES = frozenset({"Model", "Transform"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +98,10 @@ def row_leaks(
         (outer_inputs, frozenset(metas)),
         *((_tagger(metas, into, s, outer)[1], s.nodes) for s in scopes),
     ]:
-        found |= {(n, p) for n in nodes if metas[n].fitted for p in _leaky_ports(inputs(n))}
+        for n in nodes:
+            tagged = inputs(n)
+            fit_leaks = _leaky_ports(tagged) if metas[n].fitted else []
+            found |= {(n, p) for p in [*fit_leaks, *_stale_states(metas[n], tagged)]}
     rank = {n: i for i, n in enumerate(order)}
     return [
         GraphIssue(PIPELINE_LEAKAGE, n, p)
@@ -150,5 +159,29 @@ def _leaky_ports(inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
             any(p == "test" for _, p in path)
             or any(s not in path for other, s in subsets if other == src)
             for src, path in tags
+        )
+    ]
+
+
+def _stale_states(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
+    """State input ports of one node that may have seen the test rows it is applied to."""
+    states = {p.port_id for p in meta.inputs if p.port_type in _STATE_TYPES}
+    tests = {
+        (src, split)
+        for port_id, tags in inputs
+        if port_id not in states
+        for src, path in tags
+        for split, part in path
+        if part == "test"
+    }
+    return [
+        port_id
+        for port_id, tags in inputs
+        if port_id in states
+        and any(
+            (split, "train") not in path
+            for src, path in tags
+            for other, split in tests
+            if other == src
         )
     ]
