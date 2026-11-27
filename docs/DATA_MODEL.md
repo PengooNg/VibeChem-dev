@@ -1,11 +1,12 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.6 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> v0.6: §6 file formats drafted (T2.03): common rules, `project.json`, pipeline file, `.vcm` model package, migrations; codes `PIPELINE_FILE_INVALID`, `PROJECT_FILE_INVALID` proposed in §7.
 > v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
 > Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with Quan's approval), then implement.
-> §1–§5 and §7 written (§4, §5 draft); §6 (T2.03) is filled in by that step.
+> §1–§7 written (§4, §5, §6 draft).
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
 ## Contents
@@ -731,10 +732,77 @@ In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised whi
 2. One code `BLOCK_PARAM_INVALID` with a `reason` param vs. one code per reason.
 3. `visible_if` with one condition only; `and`/`or` combinations wait for a block that needs them.
 
-## 6. File formats *(filled in by T2.03)*
-To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` (zip: `manifest.json` + `.npy`), `.vcz` project archive, cache index; versioning and migrations.
+## 6. File formats *(DRAFT, T2.03 — Quan reviews)*
+Code: `vibechem_engine.formats` (pydantic models, `load_*`/`save_*`, `read_model`/`write_model`). JSON Schemas (exported from the models, kept in sync by a test): `packages/engine/src/vibechem_engine/formats/schemas/{pipeline,project,model_manifest}.schema.json`. No pickle anywhere (ADR-007; a test scans `packages/*/src`).
 
-**Fitted block state (T1.02b, proposal for T2.03 to adopt inside `.vcm` or change).** `vibechem_core.block.save_state` writes one directory per state: `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}` and `arrays/<i>.npy` for the i-th array name (files named by position, so names never become paths). `load_state` reads arrays with `allow_pickle=False`, rejects unknown keys, other `state_version`s, non-finite numbers and non-`.npy` files with `ValueError` (the engine reports `MODEL_PACKAGE_INVALID`, §7).
+### 6.1 Common rules
+- UTF-8 JSON, `snake_case` keys, timestamps `YYYY-MM-DDTHH:MM:SS[.fff]Z`. Written with LF line endings, through a temporary file that replaces the target (no half-written file after a crash).
+- Every file carries an integer `format_version`. **Unknown keys are rejected**; any field change bumps `format_version` and ships a migration (§6.5). (The API's "ignore unknown fields" rule, §1, is for HTTP clients, not files.)
+- Values must have their exact JSON type (no `"12"` for `12`, no `true` for `1`); integers are accepted where a number is expected. `NaN`, `Infinity`, numbers that overflow to infinity (e.g. `1e400`) and a key repeated within one object are rejected. Timestamps must be real dates and times in ASCII digits.
+- A JSON file larger than 16 MiB is rejected before parsing.
+- An invalid file raises the format's code (§7) with `params.reason`:
+| `reason` | Extra params | When |
+|---|---|---|
+| `json` | `detail` | Not UTF-8, not JSON, not an object, NaN/Infinity/overflow, repeated key |
+| `too_large` | `limit` (bytes) | Over the size limit |
+| `schema` | `location` (dotted path, e.g. `nodes.1.node_id`; `""` for whole-document rules), `detail` (English) | First field that breaks the schema or a rule below; also a migration that fails on a malformed old file |
+| `version` | `found` (int or null), `supported` | `format_version` missing, newer than this app, or without a migration path |
+| `zip`, `entry`, `state` | see §6.4 | Model packages only |
+
+### 6.2 Project folder and `project.json`
+Folder layout (ARCHITECTURE.md §2.3): `project.json` · `data/<dataset_id>/` (dataset storage: defined by the project/dataset step) · `pipelines/<pipeline_id>.vcp.json` · `cache/` (index and entries: T2.06) · `models/*.vcm` · `reports/`. All references inside the folder are relative (ADR-006).
+
+`project.json` (format 1):
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `project_id` | `prj_…` | |
+| `name` | str, non-empty | |
+| `created_at`, `updated_at` | timestamp | |
+| `datasets` | `ds_…`[] | Unique; order = display order; each is `data/<dataset_id>/` |
+| `pipelines` | `ppl_…`[] | Unique; order = display order; each is `pipelines/<pipeline_id>.vcp.json` |
+No absolute `path`: the API manifest's `path` (§2.4) is where the engine opened the folder. Loading migrates in memory; writing the upgraded file back after the `project.json.bak-{timestamp}` backup (§2.4) is done by project open. Invalid → `PROJECT_FILE_INVALID`.
+
+### 6.3 Pipeline file `pipelines/<pipeline_id>.vcp.json`
+The pipeline document of §2.6, format 1:
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `pipeline_id` | `ppl_…` | |
+| `name` | str, non-empty | |
+| `revision` | int ≥ 0 | §1 concurrency control |
+| `nodes` | node[] | `node_id` unique |
+| `edges` | edge[] | `edge_id` unique; order = order of a `multiple: true` input's edges (§4.4) |
+| `created_at`, `updated_at` | timestamp | |
+
+Node: `node_id` (`nd_…`), `block_id` (as in the block registry), `block_version` (`MAJOR.MINOR.PATCH`), `params` (JSON object, values checked against the block's schema by `parse_params`, §5.3), `position` `{x, y}` (numbers), `label` (str or null). Edge: `edge_id` (`eg_…`), `from_node`, `from_port`, `to_node`, `to_port` (port ids `snake_case`). Ids after the prefix are `[0-9A-Za-z]+` (ULIDs in practice).
+Checked at load beyond the JSON Schema: unique node and edge ids, every edge names existing nodes (RISKS R50). Port names, port types, required inputs and cycles are graph validation (`vibechem_engine.graph`, §4.4), not file validity. Invalid → `PIPELINE_FILE_INVALID`.
+**Container frames (§4.6):** v1 stores no frame. A nested-CV or grid-search frame is derived from the graph: the validation node plus the subgraph feeding its `refit_per_fold` port. If §4.7.2 is decided for explicit container nodes instead, that is format 2 with a migration.
+
+### 6.4 Model package `models/<name>.vcm`
+A zip (stored or deflate) with exactly these entries:
+```
+manifest.json
+states/<i>/state.json          i = 0 … len(states) − 1
+states/<i>/arrays/<j>.npy      layout of vibechem_core.block.save_state (T1.02b)
+```
+State layout (T1.02b, adopted): `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}`, `arrays/<j>.npy` for the j-th name (files named by position, so names never become paths), loaded with `allow_pickle=False`.
+`manifest.json` (format 1):
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `name` | str, non-empty | §2.10 `model.name` |
+| `vibechem_version` | str | App version that wrote it |
+| `trained_at` | timestamp | |
+| `pipeline` | pipeline document (§6.3) | The nodes needed to apply the model; which nodes, and the applicability-domain content, are defined by the export / predict steps (F-70, F-71) |
+| `states` | `[{node_id, block_id, block_version}]` | One per fitted node; `states[i]` is stored in `states/<i>/`. Each must match a pipeline node's `block_id` and `block_version`, `node_id` unique — so a state can never be given to another block (RISKS R35) |
+Reading refuses (code `MODEL_PACKAGE_INVALID`): not a zip / corrupt / truncated / encrypted or patched entries / other compression → `reason: zip` (`detail`); any other entry name, a repeated entry, a missing `manifest.json`, or a `states/<i>/` with no manifest entry → `reason: entry` (`entry`); more than 10 000 entries, total declared uncompressed size > 2 GiB or `manifest.json` > 16 MiB → `too_large`; state indexes are ASCII without leading zeros, at most 9 digits; a state `load_state` rejects (pickled or object array, bad `state.json`, missing file, an extra array file, a `.npy` header whose shape needs more bytes than the file holds) → `reason: state` (`index`, `detail`); manifest problems → `json` / `schema` / `version` as §6.1. The embedded pipeline is migrated with the pipeline migrations; its `version` error carries `location: "pipeline"`. Unpacking writes only to a temporary folder, under names that passed the entry check.
+
+### 6.5 Versions and migrations
+`vibechem_engine.formats.migrations`: `CURRENT_VERSIONS` (`pipeline`, `project`, `model`: all 1) and one function per step, registered with `@migration(kind, from_version)`, that takes the parsed JSON of version n and returns version n + 1 (it must set `format_version`). Loading runs the chain up to the current version, then validates. A file newer than the app, or with no path, → `reason: version`. Example (in `tests/formats/test_pipeline.py`): a format 2 that renames node `label` to `title`. Block versions (`block_version`) are separate: a block's own parameter changes are handled by the block (later step), not by the file format.
+
+### 6.6 `.vcz` project archive and cache index
+`.vcz` = zip of the project folder (`cache/` left out unless `include_cache`), to be read with entry checks like §6.4; built and specified in detail by the export step. The cache index format is defined by T2.06.
 
 ## 7. Error codes catalogue
 Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5). This table is the single registry of codes, errors and warnings alike (ARCHITECTURE.md ADR-010). Rows marked *warning* use the translation key `warnings.<area>.<name>` instead of `errors.<area>.<name>`; a block warning (*warning (node)*) is raised as `VibeChemWarning` and does not stop the node.
@@ -762,7 +830,9 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `RUN_ALREADY_ACTIVE` | 409 | `engine/scheduler` | Run already active on this pipeline/project |
 | `RESULT_TOO_LARGE_USE_EXPORT` | 413 | `engine/api` | Use export for very large data |
 | `EXPORT_FORMAT_UNAVAILABLE` | 422 | `engine/api` | Format needs the desktop app (e.g. PDF) |
-| `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file |
+| `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file (`params.reason`, §6.4) |
+| `PIPELINE_FILE_INVALID` | 422 | `engine/formats` | A pipeline file breaks §6.3 (`params.reason`, §6.1) *(proposed T2.03)* |
+| `PROJECT_FILE_INVALID` | 422 | `engine/formats` | `project.json` breaks §6.2 (`params.reason`, §6.1) *(proposed T2.03)* |
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
