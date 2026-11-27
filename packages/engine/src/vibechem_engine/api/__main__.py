@@ -12,7 +12,8 @@ enables dev mode (Vite dev server origin allowed).
 
 This file is also the entry script of the PyInstaller engine bundle that the desktop
 app ships (``scripts/build_engine.py``, TASKS.md T0.11), so it calls
-``multiprocessing.freeze_support()`` first (TECH_STACK.md §12).
+``loky_freeze_support()`` and then ``multiprocessing.freeze_support()`` first
+(TECH_STACK.md §12, ADR-004).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import uvicorn
 from vibechem_core.reference_datasets import find_testdata_dir
 from vibechem_engine.api.app import create_app
 from vibechem_engine.api.security import new_session_token
+from vibechem_engine.executor.freeze import loky_freeze_support
 
 HOST = "127.0.0.1"
 
@@ -75,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    # A frozen bundle re-runs this script in spawned worker processes; let them start.
+    # A frozen bundle re-runs this script in spawned worker processes; let them start
+    # (loky's command lines first: docs/spikes/parallel.md finding 1).
+    loky_freeze_support()
     multiprocessing.freeze_support()
     sys.exit(main())
