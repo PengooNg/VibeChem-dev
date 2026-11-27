@@ -7,7 +7,12 @@ declarations and returns all problems as :class:`GraphIssue` items, the ``issues
 ``POST …/validate``. Checks that need data (rows, axes, Y) run when a block runs.
 
 A pipeline that references an unknown block, node or port, or repeats a ``node_id``,
-is malformed rather than invalid: no §7 code covers it, so it raises ``ValueError``.
+is malformed rather than invalid: no §7 code covers it, so it raises ``ValueError``
+(RISKS.md R50). The document's own shape (required keys) is the pipeline schema's job
+(T2.03); a missing key raises ``KeyError``.
+
+``graphlib`` finds one cycle per call, so a graph with two cycles reports one
+``PIPELINE_CYCLE`` until it is fixed.
 """
 
 from __future__ import annotations
@@ -75,10 +80,9 @@ def validate_graph(pipeline: Mapping[str, Any], registry: Registry) -> list[Grap
         node_id = node["node_id"]
         if node_id in metas:
             raise ValueError(f"duplicate node_id {node_id!r}")
-        try:
-            metas[node_id] = registry.meta(node["block_id"])
-        except KeyError:
-            raise ValueError(f"node {node_id!r}: unknown block_id {node['block_id']!r}") from None
+        if node["block_id"] not in registry:
+            raise ValueError(f"node {node_id!r}: unknown block_id {node['block_id']!r}")
+        metas[node_id] = registry.meta(node["block_id"])
 
     issues: list[GraphIssue] = []
     connected: set[tuple[str, str]] = set()

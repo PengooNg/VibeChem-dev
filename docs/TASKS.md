@@ -36,7 +36,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 |---|---|---|
 | [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [x] T2.00 CI false-pass guards 👤 |
 | | [x] T1.00b pengoo port inventory | [x] T2.01 Port types |
-| [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
+| [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [x] T2.02 Pipeline graph |
 | [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
 | [x] T0.04 App workspace | [x] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
 | [x] T0.05 Native skeleton | [x] T1.03 Parameter schema | [ ] T2.05 Leakage rules + suite |
