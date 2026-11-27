@@ -144,12 +144,14 @@ def run_jobs(
         settled += 1
         node_settled[job.node_id] += 1
         sorter.done(job.task_id)
-        eta_s = round((clock() - started) / settled * (len(jobs) - settled), 1)
+        per_job_s = (clock() - started) / settled  # run throughput, also used for node ETAs
         n, total, done = job.node_id, node_total[job.node_id], node_settled[job.node_id]
         data: dict[str, object]
         if total > 1:
+            eta_s = round(per_job_s * (total - done), 1)
             data = {"node_id": n, "done": done, "total": total, "eta_s": eta_s}
             progress(n, "node.progress", data, done == total)
+        eta_s = round(per_job_s * (len(jobs) - settled), 1)
         data = {"done_tasks": settled, "total_tasks": len(jobs), "eta_s": eta_s}
         progress(None, "run.progress", data, settled == len(jobs))
 
