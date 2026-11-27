@@ -12,12 +12,16 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 from sklearn.cross_decomposition import PLSRegression  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
+from sklearn.metrics import accuracy_score, recall_score, roc_auc_score  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
 
-from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING, parse_params
+from vibechem_core.block import parse_params
 from vibechem_core.blocks.model.pls import PLS, PLSParams
+from vibechem_core.blocks.model.plsda import PLSDA, PLSDAParams
 from vibechem_core.blocks.validate.cv import (
+    VALIDATION_CLASS_MISSING_IN_FOLD,
     VALIDATION_FOLDS_INVALID,
     VALIDATION_GROUPS_IGNORED,
+    VALIDATION_Y_SCALES_DIFFER,
     CrossValidation,
     CVParams,
     FoldRun,
@@ -243,8 +247,155 @@ def test_haaland_thomas_and_van_der_voet_use_the_row_residuals_averaged_over_rep
     assert chosen[2] < chosen[0]  # a looser test leaves a_min: the a < a_min branch runs
 
 
-def test_pls2_is_not_supported_yet() -> None:
+def sklearn_pls2_curve(
+    data: SpectralDataset, folds: FoldSet, Y: NDArray[np.float64], scale: bool
+) -> NDArray[np.float64]:
+    """RMSECV = sqrt(PRESS / (n k)) for a = 1 ... N_LV, residuals divided by each fold's
+    training Y SD when ``scale`` (the fitted space, N28); scikit-learn on positions."""
+    position = {r: i for i, r in enumerate(data.row_index.tolist())}
+    curve: list[float] = []
+    for a in range(1, N_LV + 1):
+        sse = 0.0
+        for f in folds.folds:
+            tr = [position[r] for r in f.train.tolist()]
+            va = [position[r] for r in f.validation.tolist()]
+            pls: Any = PLSRegression(n_components=a, scale=scale, max_iter=10_000, tol=1e-20)
+            pred = np.asarray(pls.fit(data.X[tr], Y[tr]).predict(data.X[va]))
+            sd = Y[tr].std(axis=0, ddof=1) if scale else np.ones(Y.shape[1])
+            sse += float((((pred - Y[va]) / sd) ** 2).sum())
+        curve.append(np.sqrt(sse / Y.size))
+    return np.array(curve)
+
+
+def pls_cv(data: SpectralDataset, scale: bool) -> Results:
+    folds = kfold(data)
+    params = parse_params(PLSParams, {"n_components": N_LV, "scale": scale})
+    fold_runs = [FoldRun(f, PLS().fit(data.rows(f.train), params), data.rows(f.validation)) for f in folds.folds]  # fmt: skip
+    out = CrossValidation().apply(PLS().fit(data, params), folds, parse_params(CVParams, {}), fold_runs)  # fmt: skip
+    return cast(Results, out["results"])
+
+
+@pytest.mark.parametrize("scale", [False, True])
+def test_pls2_curve_sums_press_over_columns_in_the_fitted_space(scale: bool) -> None:
     data = dataset(k=2)
-    with pytest.raises(BlockInputError) as err:
-        cv(data, kfold(data))
-    assert err.value.code == BLOCK_INPUT_REQUIREMENT_MISSING
+    Y = cast(NDArray[np.float64], data.y)
+    result = pls_cv(data, scale)
+    expected = sklearn_pls2_curve(data, kfold(data), Y, scale)
+    np.testing.assert_allclose(
+        result.details["rmsecv"][1:], expected, rtol=1e-6, atol=1e-9
+    )  # T-iter
+    n_lv = int(result.metrics["n_lv"])
+    assert set(result.metrics) == {"rmsecv", "press", "n_lv"}
+    assert result.metrics["press"] == pytest.approx(result.details["press"][n_lv])
+    assert set(result.details["per_column"]) == {"y0", "y1"}
+    preds = cast(Any, result.predictions)
+    e1 = cast(NDArray[np.float64], preds["y_pred_y1"] - preds["y_true_y1"])
+    rmse_y1 = float(np.sqrt(np.mean(e1**2)))  # original Y units
+    assert result.details["per_column"]["y1"]["rmsecv"] == pytest.approx(rmse_y1)
+
+
+def test_unscaled_pls2_with_very_different_y_variances_warns() -> None:
+    base = dataset(k=2)
+    Y = cast(NDArray[np.float64], base.y) * np.array([1.0, 10.0])  # variance ratio about 100
+    data = SpectralDataset(
+        base.X, base.axis, signal_unit="absorbance", sample_ids=base.sample_ids,
+        row_index=base.row_index, source_id="ds", y=Y, y_columns=["y0", "y1"], y_units=["%", "%"],
+    )  # fmt: skip
+    found: dict[bool, list[dict[str, Any]]] = {}
+    for scale in (False, True):
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            pls_cv(data, scale)
+        found[scale] = [
+            dict(w.message.params)
+            for w in record
+            if isinstance(w.message, VibeChemWarning)
+            and w.message.code == VALIDATION_Y_SCALES_DIFFER
+        ]
+    assert found[True] == []
+    assert len(found[False]) == 1
+    assert found[False][0]["threshold"] == 10.0
+    assert found[False][0]["ratio"] > 10.0
+
+
+def classes_dataset(labels: list[str]) -> SpectralDataset:
+    rng = np.random.default_rng(11)
+    names = sorted(set(labels))
+    centre = rng.normal(size=(len(names), 6))
+    X = centre[[names.index(c) for c in labels]] + 0.8 * rng.normal(size=(len(labels), 6))
+    return SpectralDataset(
+        X, Axis(np.arange(6.0), "nm"), signal_unit="absorbance",
+        sample_ids=[f"s{i}" for i in range(len(labels))],
+        row_index=np.arange(len(labels))[::-1] + 40, source_id="ds",
+        classes=labels, class_column="type",
+    )  # fmt: skip
+
+
+def plsda_cv(data: SpectralDataset, folds: FoldSet, **values: Any) -> Results:
+    params = parse_params(PLSDAParams, {"n_components": N_LV})
+    fold_runs = [FoldRun(f, PLSDA().fit(data.rows(f.train), params), data.rows(f.validation)) for f in folds.folds]  # fmt: skip
+    out = CrossValidation().apply(PLSDA().fit(data, params), folds, parse_params(CVParams, values), fold_runs)  # fmt: skip
+    return cast(Results, out["results"])
+
+
+def test_plsda_cv_matches_a_hand_written_scikit_learn_loop() -> None:
+    labels = ["a", "b", "c"] * 8 + ["a", "c", "a"]  # 10, 8, 9; every fold has every class
+    data = classes_dataset(labels)
+    folds = kfold(data)
+    result = plsda_cv(data, folds, micro_metrics=True)
+
+    # Independent loop: indicator matrix, scikit-learn PLS per fold and LV count, argmax
+    position = {r: i for i, r in enumerate(data.row_index.tolist())}
+    names = np.array(["a", "b", "c"])
+    truth = np.array(labels)
+    Y = (truth[:, None] == names[None, :]).astype(float)
+    oof = np.zeros((N_LV + 1, len(labels), 3))
+    for f in folds.folds:
+        tr = [position[r] for r in f.train.tolist()]
+        va = [position[r] for r in f.validation.tolist()]
+        oof[0][va] = Y[tr].mean(axis=0)
+        for a in range(1, N_LV + 1):
+            pls: Any = PLSRegression(n_components=a, scale=False, max_iter=10_000, tol=1e-20)
+            oof[a][va] = pls.fit(data.X[tr], Y[tr]).predict(data.X[va])
+    press = ((oof - Y[None]) ** 2).sum(axis=(1, 2))
+    np.testing.assert_allclose(result.details["press"], press, rtol=1e-6, atol=1e-9)  # T-iter
+    n_lv = int(result.metrics["n_lv"])
+    assert n_lv == 1 + int(np.argmin(press[1:]))
+    pred = names[oof[n_lv].argmax(axis=1)]
+    error = [float((names[o.argmax(axis=1)] != truth).mean()) for o in oof]
+    np.testing.assert_allclose(result.details["error_rate"], error)
+    m = result.metrics
+    s = oof[n_lv]
+    recall, auc = cast(Any, recall_score), cast(Any, roc_auc_score)
+    assert m["accuracy_cv"] == pytest.approx(accuracy_score(truth, pred))
+    assert m["sensitivity_cv"] == pytest.approx(recall(truth, pred, average="macro"))
+    assert m["sensitivity_w_cv"] == pytest.approx(recall(truth, pred, average="weighted"))
+    assert m["auc_cv"] == pytest.approx(auc(truth, s, multi_class="ovr", average="macro"))
+    assert m["auc_w_cv"] == pytest.approx(auc(truth, s, multi_class="ovr", average="weighted"))
+    assert m["auc_micro_cv"] == pytest.approx(auc(Y, s, average="micro"))
+    assert m["class_ratio_cv"] == pytest.approx(10 / 8)
+    preds = cast(Any, result.predictions)
+    order = [position[r] for r in preds["row_index"].tolist()]
+    np.testing.assert_array_equal(preds["class_true"], truth[order])
+    np.testing.assert_array_equal(preds["class_pred"], pred[order])
+    np.testing.assert_allclose(preds["score_b"], s[order, 1], rtol=1e-6, atol=1e-9)
+    assert result.y_unit is None
+    assert set(result.details["per_class"]) == {"a", "b", "c"}
+
+
+def test_class_missing_from_a_training_fold_warns_and_scores_zero() -> None:
+    labels = ["a"] * 8 + ["b"] * 8 + ["c"] * 2  # contiguous 3-fold: one fold holds every c
+    data = classes_dataset(labels)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        result = plsda_cv(data, kfold(data))
+    found = [
+        dict(w.message.params)
+        for w in record
+        if isinstance(w.message, VibeChemWarning)
+        and w.message.code == VALIDATION_CLASS_MISSING_IN_FOLD
+    ]
+    assert found
+    assert all(p["class"] == "c" for p in found)
+    preds = cast(Any, result.predictions)
+    assert (preds["score_c"][preds["class_true"] == "c"] == 0).all()

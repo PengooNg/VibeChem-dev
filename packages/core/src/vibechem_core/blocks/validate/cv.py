@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # packages/core/src/vibechem_core/blocks/validate/cv.py
 """
-Block:          Cross-validation of a PLS regression model, with LV-number choice
+Block:          Cross-validation of a PLS or PLS-DA model, with LV-number choice
 Class:          validate
 Ports:          in  -> model : Model (refit_per_fold)
                 in  -> folds : Folds
@@ -9,9 +9,10 @@ Ports:          in  -> model : Model (refit_per_fold)
                 out -> model   : Model (the input model at the chosen LV count)
 Reference:      Stone (1974), J. R. Stat. Soc. B 36, 111-147; Martens & Naes (1989),
                 Multivariate Calibration; Mevik & Wehrens (2007), J. Stat. Softw. 18(2)
-METHODS:        docs/METHODS.md#cv, #lv-rules, #rmsecv
-Implementation: own NumPy code on core ``predict_sweep``, ``cv_metrics`` and
-                ``lv_rules`` (pengoo ``calculate_cv_rmse`` aggregation, TECH_STACK.md §11.2)
+METHODS:        docs/METHODS.md#cv, #lv-rules, #rmsecv, #classification-metrics
+Implementation: own NumPy code on core ``predict_sweep``, ``cv_metrics``,
+                ``classification_metrics`` and ``lv_rules`` (pengoo ``calculate_cv_rmse``
+                aggregation, TECH_STACK.md §11.2)
 Fitted:         No (the engine re-fits the model's subgraph per fold)
 Reviewer:       Quan
 
@@ -19,11 +20,14 @@ The engine runner re-fits the subgraph feeding ``model`` on every fold's trainin
 and calls ``apply`` with ``fold_runs``: per fold, the fold's model state and the model's
 input on the fold's validation rows (taken by ``row_index``). ``model`` itself is the
 model fitted on all training rows; the ``model`` output is it cut to the chosen LV count
-(:func:`~vibechem_core.blocks.model.pls.truncate`). PLS1 only (METHODS.md#cv edge cases).
+(:func:`~vibechem_core.blocks.model.pls.truncate`). PLS2 and PLS-DA (a PLS2 on the class
+indicator matrix) choose the LV count on the PRESS summed over the Y columns in the space
+the model was fitted in (METHODS.md N28, N29).
 """
 
 from __future__ import annotations
 
+import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -37,12 +41,16 @@ from vibechem_core.blocks.model.pls import predict_sweep, truncate
 from vibechem_core.data import Fold, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import BlockInputError, VibeChemWarning
 from vibechem_core.lv_rules import LV_RULES, fold_sd_se, select_lv
-from vibechem_core.metrics import cv_metrics
+from vibechem_core.metrics import classification_metrics, cv_metrics
 
 # Node error: a row is predicted twice or never in one repeat (``reason``, ``repeat``).
 VALIDATION_FOLDS_INVALID = "VALIDATION_FOLDS_INVALID"
 # Warning: the folds split groups (replicates) across training and validation (``n_groups``).
 VALIDATION_GROUPS_IGNORED = "VALIDATION_GROUPS_IGNORED"
+# Warning: a class of the model is absent from a fold's training rows (``class``, ``fold``, ``repeat``).
+VALIDATION_CLASS_MISSING_IN_FOLD = "VALIDATION_CLASS_MISSING_IN_FOLD"
+# Warning: unscaled PLS2 whose Y column variances differ more than ``threshold`` (``ratio``).
+VALIDATION_Y_SCALES_DIFFER = "VALIDATION_Y_SCALES_DIFFER"
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,9 @@ class CVParams:
     n_randomisations: int = Param(
         1000, min=99, max=100000, visible_if=("lv_rule", ("van_der_voet",))
     )
+    micro_metrics: bool = Param(False, advanced=True)
+    severe_imbalance_ratio: float = Param(20.0, min=1.0, advanced=True)
+    y_variance_ratio: float = Param(10.0, min=1.0, advanced=True)
 
 
 class CrossValidation(Block):
@@ -81,6 +92,9 @@ class CrossValidation(Block):
         "hastie2009esl",
         "haaland1988pls",
         "vandervoet1994",
+        "fawcett2006roc",
+        "ballabio2013plsda",
+        "fernandez2008imbalanced",
     )
     fitted = False
     inputs = (port("model", "Model", refit_per_fold=True), port("folds", "Folds"))
@@ -95,14 +109,9 @@ class CrossValidation(Block):
         fold_runs: Sequence[FoldRun],
         rng: np.random.Generator | None = None,
     ) -> dict[str, Results | State]:
-        if (
-            "classes" in model.values
-            or len(cast(list[str], model.values.get("y_columns", []))) != 1
-        ):
-            raise BlockInputError(
-                BLOCK_INPUT_REQUIREMENT_MISSING,
-                {"port_id": "model", "requirement": "y", "expected": "one regression column"},
-            )
+        classes = cast(list[str] | None, model.values.get("classes"))
+        columns = cast(list[str], model.values["y_columns"])
+        k = len(columns)
         if [(r.fold.fold, r.fold.repeat) for r in fold_runs] != [
             (f.fold, f.repeat) for f in folds.folds
         ]:
@@ -114,11 +123,19 @@ class CrossValidation(Block):
             )
 
         # Step 1: LV sweep of every fold model on its validation rows; A = the smallest
-        # fitted LV count over the folds (N24)
-        sweeps = [predict_sweep(r.state, r.validation)[:, :, 0] for r in fold_runs]
+        # fitted LV count over the folds (N24); PLS-DA: a class absent from a fold's
+        # training rows has indicator 0 there, so its predicted value is 0 (N29)
+        sweeps = [_sweep(r, classes) for r in fold_runs]
         n_lv_max = min(len(s) for s in sweeps) - 1
-        y_true = [cast(NDArray[np.float64], r.validation.y)[:, 0] for r in fold_runs]
-        errors = [s[: n_lv_max + 1] - y for s, y in zip(sweeps, y_true, strict=True)]
+        y_true = [_truth(r.validation, classes) for r in fold_runs]
+        # Residuals in the space the fold model was fitted in (N28); PLS1 keeps Y units and
+        # PLS-DA fits the raw indicator matrix
+        space = [
+            _fit_scale(r.state) if k > 1 and classes is None else np.ones(k) for r in fold_runs
+        ]
+        errors = [
+            (s[: n_lv_max + 1] - y) / c for s, y, c in zip(sweeps, y_true, space, strict=True)
+        ]  # (A+1, n_f, k)
 
         # Step 2: one out-of-fold prediction for every row of the folds, per repeat (N23)
         repeats = sorted({r.fold.repeat for r in fold_runs})
@@ -141,18 +158,19 @@ class CrossValidation(Block):
                 )
             first_rows = rows
 
-        # Step 3: per repeat and LV count: PRESS, RMSECV (pooled or fold mean), fold RMSEs
-        fold_rmse = np.stack([np.sqrt((e**2).mean(axis=1)) for e in errors], axis=1)  # (A+1, K)
+        # Step 3: per repeat and LV count: PRESS, RMSECV (pooled or fold mean), fold RMSEs;
+        # sums and means run over the rows and the k Y columns (N28)
+        fold_rmse = np.stack([np.sqrt((e**2).mean(axis=(1, 2))) for e in errors], axis=1)
         press_r: list[NDArray[np.float64]] = []
         rmsecv_r: list[NDArray[np.float64]] = []
         row_sq_r: list[NDArray[np.float64]] = []  # (A+1, n) in row_index order
         for idx in members.values():
             e = np.concatenate([errors[i] for i in idx], axis=1)
             order = np.argsort(np.concatenate([fold_runs[i].validation.row_index for i in idx]))
-            row_sq_r.append(e[:, order] ** 2)
-            press_r.append((e**2).sum(axis=1))
+            row_sq_r.append((e[:, order] ** 2).sum(axis=2))
+            press_r.append((e**2).sum(axis=(1, 2)))
             if params.aggregation == "pooled":
-                rmsecv_r.append(np.sqrt((e**2).mean(axis=1)))
+                rmsecv_r.append(np.sqrt((e**2).mean(axis=(1, 2))))
             else:
                 rmsecv_r.append(fold_rmse[:, idx].mean(axis=1))
 
@@ -184,33 +202,61 @@ class CrossValidation(Block):
             rng=None if seed is None else np.random.default_rng(seed),
         )
 
-        # Step 6: METHODS §8 CV metrics at n_lv per repeat, then the mean over repeats (N9)
-        per_repeat: list[dict[str, float]] = []
-        for idx in members.values():
-            per_repeat.append(
-                cv_metrics(
-                    np.concatenate([y_true[i] for i in idx]),
-                    np.concatenate([sweeps[i][n_lv] for i in idx]),
-                    np.concatenate([np.full(y_true[i].size, fold_runs[i].fold.fold) for i in idx]),
-                    cast(Any, params.aggregation),
-                )
-            )
-        metrics = {k: float(np.mean([m[k] for m in per_repeat])) for k in per_repeat[0]}
-        at_n_lv = [float(r[n_lv]) for r in rmsecv_r]
-        name = cast(list[str], model.values["y_columns"])[0]
+        # Step 6: METHODS §8 CV metrics at n_lv per repeat, then the mean over repeats (N9):
+        # PLS1 the regression names; PLS2 the curve's rmsecv/press, per column in
+        # details; PLS-DA the classification names (N22, N27)
         validation = [r.validation for r in fold_runs]
+        fold_ids = [np.full(r.validation.n_samples, r.fold.fold) for r in fold_runs]
+        details: dict[str, Any] = {}
+        if classes is not None:
+            metrics, details = _classification(
+                fold_runs, sweeps, members, classes, n_lv, n_lv_max, params
+            )
+        else:
+            per_column = {
+                col: _mean(
+                    [
+                        cv_metrics(
+                            np.concatenate([y_true[i][:, j] for i in idx]),
+                            np.concatenate([sweeps[i][n_lv][:, j] for i in idx]),
+                            np.concatenate([fold_ids[i] for i in idx]),
+                            cast(Any, params.aggregation),
+                        )
+                        for idx in members.values()
+                    ]
+                )
+                for j, col in enumerate(columns)
+            }
+            if k == 1:
+                metrics = per_column[columns[0]]
+            else:
+                metrics = {"rmsecv": float(rmsecv[n_lv]), "press": float(press[n_lv])}
+                details["per_column"] = per_column
+                if not model.values["scale"] and not model.values["y_transform"]:
+                    _check_y_scales(y_true, members, params.y_variance_ratio)
+        at_n_lv = [float(r[n_lv]) for r in rmsecv_r]
         predictions: dict[str, NDArray[Any]] = {
             "row_index": np.concatenate([v.row_index for v in validation]),
             "sample_id": np.concatenate([np.array(v.sample_ids, dtype=np.str_) for v in validation]),
-            "fold": np.concatenate([np.full(r.validation.n_samples, r.fold.fold) for r in fold_runs]),
+            "fold": np.concatenate(fold_ids),
             "repeat": np.concatenate([np.full(r.validation.n_samples, r.fold.repeat) for r in fold_runs]),
-            f"y_true_{name}": np.concatenate(y_true),
-            f"y_pred_{name}": np.concatenate([s[n_lv] for s in sweeps]),
         }  # fmt: skip
+        scores = np.concatenate([s[n_lv] for s in sweeps])
+        if classes is not None:
+            labels = np.asarray(classes, dtype=np.str_)
+            predictions["class_true"] = np.concatenate([np.asarray(v.classes, dtype=np.str_) for v in validation])  # fmt: skip
+            predictions["class_pred"] = labels[scores.argmax(axis=1)]
+            predictions.update({f"score_{c}": scores[:, g] for g, c in enumerate(classes)})
+        else:
+            truth = np.concatenate(y_true)
+            for j, col in enumerate(columns):
+                predictions[f"y_true_{col}"] = truth[:, j]
+                predictions[f"y_pred_{col}"] = scores[:, j]
+        units = set(validation[0].y_units or ())
         results = Results(
             kind="cv",
             metrics={**metrics, "n_lv": float(n_lv)},
-            y_unit=validation[0].y_units[0] if validation[0].y_units else None,
+            y_unit=units.pop() if classes is None and len(units) == 1 else None,
             predictions=predictions,
             details={
                 "lv": list(range(n_lv_max + 1)),
@@ -225,7 +271,96 @@ class CrossValidation(Block):
                 "lv_rule": params.lv_rule,
                 "randomisation_seed": seed,
                 "aggregation": params.aggregation,
+                **details,
             },
         )
         # Step 7: the model fitted on all training rows, cut to n_lv components (= a refit)
         return {"results": results, "model": truncate(model, n_lv)}
+
+
+def _sweep(run: FoldRun, classes: list[str] | None) -> NDArray[np.float64]:
+    sweep = predict_sweep(run.state, run.validation)
+    if classes is None:
+        return sweep
+    fitted = cast(list[str], run.state.values["classes"])
+    full = np.zeros((*sweep.shape[:2], len(classes)))
+    for g, c in enumerate(classes):
+        if c in fitted:
+            full[:, :, g] = sweep[:, :, fitted.index(c)]
+        else:
+            params = {"class": c, "fold": run.fold.fold, "repeat": run.fold.repeat}
+            warnings.warn(VibeChemWarning(VALIDATION_CLASS_MISSING_IN_FOLD, params), stacklevel=3)
+    return full
+
+
+def _truth(data: SpectralDataset, classes: list[str] | None) -> NDArray[np.float64]:
+    if classes is None:
+        return cast(NDArray[np.float64], data.y)
+    if data.classes is None:
+        raise BlockInputError(
+            BLOCK_INPUT_REQUIREMENT_MISSING, {"port_id": "model", "requirement": "classes"}
+        )
+    return (np.asarray(data.classes)[:, None] == np.asarray(classes)[None, :]).astype(np.float64)
+
+
+def _fit_scale(state: State) -> NDArray[np.float64]:
+    """Per Y column: original units / fitted units (built-in ``scale``, then ``y_transform``)."""
+    scale = state.arrays["y_std"]
+    if state.values["y_transform"]:
+        scale = scale * state.arrays["y_inverse_scale"]
+    return scale
+
+
+def _mean(per_repeat: list[dict[str, float]]) -> dict[str, float]:
+    return {k: float(np.mean([m[k] for m in per_repeat])) for k in per_repeat[0]}
+
+
+def _classification(
+    fold_runs: Sequence[FoldRun],
+    sweeps: list[NDArray[np.float64]],
+    members: dict[int, list[int]],
+    classes: list[str],
+    n_lv: int,
+    n_lv_max: int,
+    params: CVParams,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    labels = np.asarray(classes, dtype=np.str_)
+    per_repeat: list[dict[str, float]] = []
+    per_class: list[dict[str, dict[str, float]]] = []
+    error_rate: list[list[float]] = []
+    for r, idx in enumerate(members.values()):
+        truth = np.concatenate([np.asarray(fold_runs[i].validation.classes, dtype=np.str_) for i in idx])  # fmt: skip
+        sweep = np.concatenate([sweeps[i][: n_lv_max + 1] for i in idx], axis=1)  # (A+1, n, G)
+        error_rate.append([float((labels[s.argmax(axis=1)] != truth).mean()) for s in sweep])
+        m, pc = classification_metrics(
+            truth,
+            labels[sweep[n_lv].argmax(axis=1)],
+            sweep[n_lv],
+            labels,
+            "cv",
+            micro=params.micro_metrics,
+            # every repeat predicts the same rows, so the class ratio is checked once
+            severe_imbalance_ratio=params.severe_imbalance_ratio if r == 0 else None,
+        )
+        per_repeat.append(m)
+        per_class.append(pc)
+    return _mean(per_repeat), {
+        "per_class": {
+            c: {s: float(np.mean([pc[c][s] for pc in per_class])) for s in per_class[0][c]}
+            for c in classes
+        },
+        "error_rate": np.mean(error_rate, axis=0).tolist(),
+    }
+
+
+def _check_y_scales(
+    y_true: list[NDArray[np.float64]], members: dict[int, list[int]], threshold: float
+) -> None:
+    first = next(iter(members.values()))
+    var = np.var(np.concatenate([y_true[i] for i in first]), axis=0, ddof=1)
+    ratio = float(var.max() / var.min()) if var.min() > 0 else math.inf
+    if ratio > threshold:
+        warnings.warn(
+            VibeChemWarning(VALIDATION_Y_SCALES_DIFFER, {"ratio": ratio, "threshold": threshold}),
+            stacklevel=3,
+        )
