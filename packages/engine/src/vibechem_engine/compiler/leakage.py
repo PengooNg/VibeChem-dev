@@ -19,7 +19,9 @@ DATA_MODEL.md §4.6). Static, on the user graph; every finding is ``PIPELINE_LEA
    - is not a subset of the training rows of the same source: its subsets do not start
      with those of the first input (e.g. MSC ``reference`` wired from the unsplit
      dataset while ``spectra`` are the training rows, R39), or the first input itself
-     mixes rows of one source with different subsets.
+     mixes rows of one source with different subsets, or
+   - inside a fold scope, comes from the fold source's dataset without passing the
+     fold's ``train`` rows (whichever input it is).
 
    A ``Model``/``Transform`` input is leaky when another input of the same node holds
    test rows of a split (``<split>.test``) and the state's tags from that source did
@@ -36,7 +38,7 @@ only partly (or not at all) is still rejected; refine per port if a real block n
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,7 +59,6 @@ PIPELINE_LEAKAGE = "PIPELINE_LEAKAGE"
 type Edge = Mapping[str, Any]
 type Stream = tuple[str, str]  # (node_id, output port_id)
 type Tag = tuple[str, tuple[Stream, ...]]  # (data source node_id, row subsets on the path)
-type Tagger = Callable[[str, str], frozenset[Tag]]
 
 _SUBSET_PORTS = frozenset({"train", "test"})
 _STATE_TYPES = frozenset({"Model", "Transform"})
@@ -115,15 +116,15 @@ def row_leaks(
     for e in edges:
         into[e["to_node"]].append(e)
 
-    outer, outer_inputs = _tagger(metas, into, order, sources, None, None)
+    outer = _Tagger(metas, into, order, sources, None, None)
     found: set[tuple[str, str]] = set()
-    for inputs, nodes in [
-        (outer_inputs, frozenset(metas)),
-        *((_tagger(metas, into, order, sources, s, outer)[1], s.nodes) for s in scopes),
+    for tagger, nodes in [
+        (outer, frozenset(metas)),
+        *((_Tagger(metas, into, order, sources, s, outer), s.nodes) for s in scopes),
     ]:
         for n in nodes:
-            tagged = inputs(n)
-            fit_leaks = _leaky_ports(metas[n], tagged) if metas[n].fitted else []
+            tagged = tagger.inputs(n)
+            fit_leaks = tagger.leaky_ports(n, tagged) if metas[n].fitted else []
             found |= {(n, p) for p in [*fit_leaks, *_stale_states(metas[n], tagged)]}
     rank = {n: i for i, n in enumerate(order)}
     return [
@@ -132,61 +133,85 @@ def row_leaks(
     ]
 
 
-def _tagger(
-    metas: Mapping[str, BlockMeta],
-    into: Mapping[str, list[Edge]],
-    order: Sequence[str],
-    sources: Mapping[str, str],
-    scope: FoldScope | None,
-    outer: Tagger | None,
-) -> tuple[Tagger, Callable[[str], list[tuple[str, frozenset[Tag]]]]]:
-    """Tags of a stream, and of each input of a node, in one context (``scope``)."""
-    memo: dict[str, frozenset[Tag]] = {}
+class _Tagger:
+    """Tags of streams and node inputs in one context: outside the folds (``scope`` is
+    ``None``) or one fold scope, where every same-source fit input must hold only the
+    fold's ``train`` rows."""
 
-    def inputs(node: str) -> list[tuple[str, frozenset[Tag]]]:
-        return [(e["to_port"], stream(e["from_node"], e["from_port"])) for e in into[node]]
-
-    def node_tags(node: str) -> frozenset[Tag]:
-        if node not in memo:
-            if not into[node]:
-                memo[node] = frozenset({(sources[node], ())})
-            else:
-                memo[node] = _output_tags(metas[node], inputs(node))
-        return memo[node]
-
-    def stream(node: str, port: str) -> frozenset[Tag]:
+    def __init__(
+        self,
+        metas: Mapping[str, BlockMeta],
+        into: Mapping[str, list[Edge]],
+        order: Sequence[str],
+        sources: Mapping[str, str],
+        scope: FoldScope | None,
+        outer: _Tagger | None,
+    ) -> None:
+        self.metas, self.into, self.sources = metas, into, sources
+        self.scope, self.outer = scope, outer
+        self.memo: dict[str, frozenset[Tag]] = {}
+        self.required: dict[str, Stream] = {}
         if scope is not None and outer is not None:
-            if (node, port) == scope.source:
-                return _narrow(outer(node, port), (scope.node_id, "train"))
-            if node not in scope.nodes:
-                return outer(node, port)
-        tags = node_tags(node)
-        return _narrow(tags, (node, port)) if port in _SUBSET_PORTS else tags
+            marker = (scope.node_id, "train")
+            self.required = {src: marker for src, _ in outer.stream(*scope.source)}
+        for node in order:  # fill the memo in topological order: no deep recursion
+            self.node_tags(node)
 
-    for node in order:  # fill the memo in topological order: no deep recursion
-        node_tags(node)
-    return stream, inputs
+    def inputs(self, node: str) -> list[tuple[str, frozenset[Tag]]]:
+        return [
+            (e["to_port"], self.stream(e["from_node"], e["from_port"])) for e in self.into[node]
+        ]
+
+    def leaky_ports(self, node: str, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
+        return _leaky_ports(self.metas[node], inputs, self.required)
+
+    def node_tags(self, node: str) -> frozenset[Tag]:
+        if node not in self.memo:
+            if not self.into[node]:
+                self.memo[node] = frozenset({(self.sources[node], ())})
+            else:
+                tagged = self.inputs(node)
+                meta = self.metas[node]
+                leaky = set(self.leaky_ports(node, tagged)) if meta.fitted else set[str]()
+                self.memo[node] = _output_tags(meta, tagged, leaky)
+        return self.memo[node]
+
+    def stream(self, node: str, port: str) -> frozenset[Tag]:
+        if self.scope is not None and self.outer is not None:
+            if (node, port) == self.scope.source:
+                return _narrow(self.outer.stream(node, port), (self.scope.node_id, "train"))
+            if node not in self.scope.nodes:
+                return self.outer.stream(node, port)
+        tags = self.node_tags(node)
+        return _narrow(tags, (node, port)) if port in _SUBSET_PORTS else tags
 
 
 def _narrow(tags: frozenset[Tag], subset: Stream) -> frozenset[Tag]:
     return frozenset((src, (*path, subset)) for src, path in tags)
 
 
-def _output_tags(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> frozenset[Tag]:
+def _output_tags(
+    meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]], leaky: set[str]
+) -> frozenset[Tag]:
     """Union of the input tags. For a fitted block, leaky inputs are left out (a leak is
     reported once, at the fit that sees it) and so are same-source inputs of the first
     input's sources: they passed the check, so they hold a subset of its rows."""
     if not meta.fitted:
         return frozenset(t for _, tags in inputs for t in tags)
-    leaky, primary = set(_leaky_ports(meta, inputs)), meta.inputs[0].port_id
+    primary = meta.inputs[0].port_id
     first = frozenset(t for p, tags in inputs if p == primary and p not in leaky for t in tags)
     trained = {src for src, _ in first}
     others = (t for p, tags in inputs if p not in leaky | {primary} for t in tags)
     return first | {t for t in others if t[0] not in trained}
 
 
-def _leaky_ports(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) -> list[str]:
-    """Ports of one fit task whose tags break rule 2."""
+def _leaky_ports(
+    meta: BlockMeta,
+    inputs: Sequence[tuple[str, frozenset[Tag]]],
+    required: Mapping[str, Stream],
+) -> list[str]:
+    """Ports of one fit task whose tags break rule 2; ``required``: source -> the subset
+    every tag of that source must have passed (a fold's ``train`` rows)."""
     primary = meta.inputs[0].port_id
     train: dict[str, set[tuple[Stream, ...]]] = {}
     for port_id, tags in inputs:
@@ -196,6 +221,8 @@ def _leaky_ports(meta: BlockMeta, inputs: Sequence[tuple[str, frozenset[Tag]]]) 
 
     def leaky(port_id: str, src: str, path: tuple[Stream, ...]) -> bool:
         if any(part == "test" for _, part in path):
+            return True
+        if src in required and required[src] not in path:
             return True
         rows = train.get(src, set())
         if port_id == primary:

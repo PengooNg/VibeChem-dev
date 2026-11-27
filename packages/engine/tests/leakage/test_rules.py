@@ -6,10 +6,13 @@ port it came through (T2.05 "Done when", R39)."""
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from collections.abc import Callable
 
 import pytest
 
+from vibechem_core.block import Block
 from vibechem_engine.compiler import CompiledPipeline
 
 type CompileEdges = Callable[..., CompiledPipeline]
@@ -69,6 +72,21 @@ LEAKY = {
             "split.train -> pred.spectra",
         ],
         "pls",
+        "spectra",
+    ),
+    # inside a fold the first input must be the fold's training rows too (unsplit spectra
+    # with a fold-train reference refits on every row, test and validation rows included)
+    "unsplit_spectra_in_fold_scope": (
+        [
+            "src.spectra -> split.spectra",
+            "split.train -> kfold.spectra",
+            "kfold.folds -> cv.folds",
+            "src.spectra -> msc.spectra",
+            "split.train -> msc.reference",
+            "msc.spectra -> pls.spectra",
+            "pls.model -> cv.model",
+        ],
+        "msc",
         "spectra",
     ),
     # a second data node loading the same dataset is the same source (same block, params)
@@ -162,3 +180,22 @@ def test_safe_pipeline_compiles(compile_edges: CompileEdges, case: str) -> None:
     compiled = compile_edges(SAFE[case], {"src2": {"dataset": "another file"}})
     assert compiled.issues == ()
     assert compiled.tasks != ()
+
+
+def test_every_fitted_core_block_takes_its_training_rows_first() -> None:
+    # the provenance rule treats a fitted block's first input as its training rows
+    package = importlib.import_module("vibechem_core.blocks")
+    for module in pkgutil.walk_packages(package.__path__, "vibechem_core.blocks."):
+        importlib.import_module(module.name)
+    fitted = [
+        b
+        for b in _subclasses(Block)
+        if getattr(b, "fitted", False) and b.__module__.startswith("vibechem_core.blocks")
+    ]
+    assert fitted
+    for block in fitted:
+        assert block.inputs[0].port_type == "Spectra", block.block_id
+
+
+def _subclasses(cls: type[Block]) -> list[type[Block]]:
+    return [s for c in cls.__subclasses__() for s in (c, *_subclasses(c))]
