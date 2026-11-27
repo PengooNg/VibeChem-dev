@@ -106,11 +106,14 @@ def test_open_discards_bad_entries_and_leftovers(tmp_path: Path) -> None:
     meta = json.loads((_entry(tmp_path, 4) / "entry.json").read_text())
     meta["files"]["../../outside.txt"] = "0" * 64
     (_entry(tmp_path, 4) / "entry.json").write_text(json.dumps(meta))
+    meta = json.loads((_entry(tmp_path, 3) / "entry.json").read_text())
+    (_entry(tmp_path, 3) / "entry.json").write_text(json.dumps({**meta, "size_bytes": -1}))
+    cache.put(_key(5), _state())
     (tmp_path / "entries" / "not-a-key").mkdir()
     (tmp_path / "tmp" / "half-written" / "arrays").mkdir(parents=True)
     reopened = ResultCache(tmp_path, cap_bytes=10**9)
-    assert _stored(reopened) == {3}
-    assert sorted(p.name for p in (tmp_path / "entries").iterdir()) == [f"{3:064x}"]
+    assert _stored(reopened) == {5}
+    assert sorted(p.name for p in (tmp_path / "entries").iterdir()) == [f"{5:064x}"]
     assert list((tmp_path / "tmp").iterdir()) == []
 
 
@@ -125,6 +128,9 @@ def test_put_existing_key_keeps_entry_clear_frees_all_and_bad_keys_raise(tmp_pat
     assert _stored(cache) == set()
     assert cache.size_bytes == 0
     assert list((tmp_path / "entries").iterdir()) == []
+    (_entry(tmp_path, 3) / "arrays").mkdir(parents=True)  # folder a failed delete left
+    cache.put(_key(3), _state())
+    assert _x0(cache, 3) == 1.0
     with pytest.raises(ValueError, match="result key"):
         cache.get("res_../../etc")
     with pytest.raises(ValueError, match="cap_bytes"):

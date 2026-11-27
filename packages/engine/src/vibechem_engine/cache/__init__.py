@@ -60,6 +60,9 @@ def result_key(
     (port, key, conversion rule; sorted by port, edge order kept within a port), seed,
     fold, part and output. Not hashed: ``task_id``/``node_id`` (a renamed node keeps
     its results). ``ValueError`` for non-JSON params or a bad input key.
+
+    The key only knows what it is given: a source node's params must identify its data
+    content (not just a path), and a block whose results change must bump its version.
     """
     if len(input_keys) != len(task.inputs):
         raise ValueError(f"input_keys has {len(input_keys)} keys for {len(task.inputs)} inputs")
@@ -80,10 +83,23 @@ def result_key(
         "output": output,
     }
     try:
+        _check_str_keys(params)
         text = json.dumps(doc, sort_keys=True, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"params of {block_id} are not JSON: {exc}") from None
     return "res_" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def _check_str_keys(value: object) -> None:
+    """``TypeError`` for a dict key that is not a str (``json.dumps`` would turn 1 into "1")."""
+    if isinstance(value, Mapping):
+        for k, v in cast(Mapping[object, object], value).items():
+            if not isinstance(k, str):
+                raise TypeError(f"dict key {k!r} is not a str")
+            _check_str_keys(v)
+    elif isinstance(value, list | tuple):
+        for v in cast(list[object] | tuple[object, ...], value):
+            _check_str_keys(v)
 
 
 def check_key(key: str) -> str:
@@ -131,6 +147,7 @@ class ResultCache:
             self.size_bytes += entry.size
 
     def __contains__(self, key: str) -> bool:
+        """Whether ``key`` is indexed; only ``get`` checks the entry, so only it is a hit."""
         return check_key(key) in self._index
 
     def __len__(self) -> int:
@@ -143,6 +160,7 @@ class ResultCache:
             return None
         folder = self._folder(key)
         try:
+            # shortcut: files are read twice (hash, then load), upgrade if T2.12 profiling flags it
             for name, digest in entry.files.items():
                 if _sha256(folder / name) != digest:
                     raise ValueError(f"checksum mismatch in {name}")
@@ -174,6 +192,8 @@ class ResultCache:
         size = sum((staging / name).stat().st_size for name in files)
         doc = {"entry_version": ENTRY_VERSION, "key": key, "size_bytes": size, "files": files}
         (staging / "entry.json").write_text(json.dumps(doc, indent=1), encoding="utf-8")
+        if self._folder(key).exists():  # left behind by a failed delete
+            _remove(self._folder(key))
         staging.replace(self._folder(key))
         self._index[key] = _Entry(size, files)
         self.size_bytes += size
@@ -223,6 +243,7 @@ def _read_entry(folder: Path) -> _Entry | None:
         or meta["entry_version"] != ENTRY_VERSION
         or meta["key"] != "res_" + folder.name
         or type(size) is not int
+        or size < 0
         or not isinstance(files, dict)
         or "state.json" not in files
         or not all(

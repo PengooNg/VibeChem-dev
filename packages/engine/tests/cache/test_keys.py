@@ -81,6 +81,8 @@ def test_rejects_non_json_params_and_bad_input_keys() -> None:
         _key(params={"x": float("nan")})
     with pytest.raises(ValueError, match="JSON"):
         _key(params={"x": object()})
+    with pytest.raises(ValueError, match="JSON"):
+        _key(params={"x": {1: "a"}})  # would hash like {"1": "a"}
     with pytest.raises(ValueError, match="input_keys"):
         _key(input_keys=[])
     with pytest.raises(ValueError, match="result key"):

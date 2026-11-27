@@ -1,6 +1,7 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.7 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.8 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> v0.8: §6.6 cache key and cache folder layout (T2.06).
 > v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
 > v0.6: §6 file formats drafted (T2.03): common rules, `project.json`, pipeline file, `.vcm` model package, migrations; codes `PIPELINE_FILE_INVALID`, `PROJECT_FILE_INVALID` proposed in §7.
 > v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
@@ -803,7 +804,16 @@ Reading refuses (code `MODEL_PACKAGE_INVALID`): not a zip / corrupt / truncated 
 `vibechem_engine.formats.migrations`: `CURRENT_VERSIONS` (`pipeline`, `project`, `model`: all 1) and one function per step, registered with `@migration(kind, from_version)`, that takes the parsed JSON of version n and returns version n + 1 (it must set `format_version`). Loading runs the chain up to the current version, then validates. A file newer than the app, or with no path, → `reason: version`. Example (in `tests/formats/test_pipeline.py`): a format 2 that renames node `label` to `title`. Block versions (`block_version`) are separate: a block's own parameter changes are handled by the block (later step), not by the file format.
 
 ### 6.6 `.vcz` project archive and cache index
-`.vcz` = zip of the project folder (`cache/` left out unless `include_cache`), to be read with entry checks like §6.4; built and specified in detail by the export step. The cache index format is defined by T2.06.
+`.vcz` = zip of the project folder (`cache/` left out unless `include_cache`), to be read with entry checks like §6.4; built and specified in detail by the export step.
+
+**Cache folder `cache/` (T2.06, `vibechem_engine.cache`).** Key: `result_key` = `res_` + SHA-256 of the canonical JSON (sorted keys, `","`/`":"` separators, ASCII, no NaN) of `{key_version: 1, kind, block_id, block_version, params, inputs: [[port_id, input result key, rule], …] (sorted by port, edge order kept within a port), seed, fold, part, output}`, one key per task output. Task and node ids are not hashed.
+```
+cache/entries/<64 hex>/state.json       one State, layout of save_state (§6.4)
+cache/entries/<64 hex>/arrays/<j>.npy
+cache/entries/<64 hex>/entry.json       {"entry_version": 1, "key": "res_…", "size_bytes": int, "files": {"state.json": "<sha256>", "arrays/0.npy": "<sha256>", …}}
+cache/tmp/                              staging; an entry is written here and renamed into entries/
+```
+There is no global index file: the index is the set of `entry.json` files, read when the cache is opened (`tmp/` is emptied then). `size_bytes` = the data files (not `entry.json`); recency (LRU) = the `entry.json` modification time, set on every put and hit. After a put, least recently used entries are deleted until the total is ≤ `cache_cap_bytes` (§2.2 settings), never the entry just written; the freed bytes are the `cache.evicted` event's `freed_bytes`. An entry whose `entry.json` is invalid, whose folder name differs from its key, or whose file fails its checksum or `load_state` is deleted and counts as a miss (recompute, ARCHITECTURE §3.6).
 
 ## 7. Error codes catalogue
 Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5). This table is the single registry of codes, errors and warnings alike (ARCHITECTURE.md ADR-010). Rows marked *warning* use the translation key `warnings.<area>.<name>` instead of `errors.<area>.<name>`; a block warning (*warning (node)*) is raised as `VibeChemWarning` and does not stop the node.
