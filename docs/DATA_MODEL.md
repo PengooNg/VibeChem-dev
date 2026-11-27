@@ -608,6 +608,7 @@ Core: `vibechem_core.data.FoldSet` with `Fold(fold, repeat, train, validation)` 
 | `details` | JSON object | Block-specific (e.g. LV curve, permutation distribution) |
 
 Summary `content` = the `metrics`, `y_unit`, `leakage_safe` object already shown in §2.8, plus `kind`.
+Core: `vibechem_core.data.Results` (same fields; `predictions` and `candidates` are column name → NumPy array mappings like every core table) *(proposed T2.10a)*. Classification metric names: METHODS.md §8 (N22, proposed T2.10a).
 
 **`ImageCube`** (P2; the type is fixed now so imaging blocks need no format change)
 | Field | Type | Notes |
@@ -662,6 +663,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 | Domain adaptation (di-PLS) | `source: Spectra` (`requires: ["y"]`) · `target: Spectra` (`axis_match: source`, Y not needed) | `model: Model` |
 | Prediction map (`imaging.predict_map`) | `cube: ImageCube` · `model: Model` | `map: ImageCube` (one band per predicted Y column / class score) |
 | PLS regression (`model.pls`) *(accepted, Quan 2026-11-26)* | `spectra: Spectra` (`requires: ["y"]`) · `y_transform: Transform` (optional; a y scaling fitted with `target = y`, kept in the model state so every prediction is mapped back to original Y units, METHODS.md §1) | `predictions: Table` (`row_index`, `sample_id`, `y_pred_<col>` with all fitted LVs) · `model: Model` (`kind: regression`; state holds means, W, P, Q, R, T, B, explained variance and the `algorithm` (`nipals` / `simpls`; for SIMPLS, W = R with unit columns, METHODS.md#simpls); LV sweep and VIP from the state (VIP, algorithm: decided, Quan 2026-11-26)) |
+| Cross-validation (`validate.cv`) *(proposed T2.10a)* | `model: Model` (`refit_per_fold: true`; PLS1 in T2.10a) · `folds: Folds` | `results: Results` (`kind: cv`, METHODS.md#cv; LV curve in `details`). The `model` output (refit at the chosen LV count) comes with nested CV (T2.10b). The engine runner hands the block the per-fold states and validation spectra |
 | Refold (`imaging.refold`) | `spectra: Spectra` (`requires: ["spatial"]`) | `cube: ImageCube` |
 | ROI / mask (`imaging.roi`) | `cube: ImageCube` | `cube: ImageCube` (with `mask`) · `mean_spectra: Spectra` (one row per ROI) |
 
@@ -847,7 +849,8 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `PIPELINE_FILE_INVALID` | 422 | `engine/formats` | A pipeline file breaks §6.3 (`params.reason`, §6.1) *(proposed T2.03)* |
 | `PROJECT_FILE_INVALID` | 422 | `engine/formats` | `project.json` breaks §6.2 (`params.reason`, §6.1) *(proposed T2.03)* |
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
-| `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
+| `VALIDATION_GROUPS_IGNORED` | warning | `core/blocks/validate` | Groups exist but CV ignores them (`params.n_groups`); raised by `validate.cv` when its `Folds` have `groups_respected = false` *(moved from `engine/graph`, T2.10a; hold-out splits still open, R25)* |
+| `VALIDATION_FOLDS_INVALID` | node error | `core/blocks/validate` | CV `Folds` are not a partition: a row is predicted twice (`params.reason` = `duplicate_prediction`) or never (`missing_prediction`) in repeat `params.repeat` (METHODS.md N23) *(proposed T2.10a)* |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
 | `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |
 | `BLOCK_AXIS_NOT_UNIFORM` | warning (node) | `core/blocks/preprocess` | Savitzky–Golay: the axis steps deviate by more than 1 % from the mean step, so derivatives are taken per point (`params.max_deviation`: largest relative deviation, e.g. `0.46`) *(proposed T1.08)* |

@@ -13,6 +13,7 @@
 - [6. PLS regression](#6-pls-regression): [PLS (NIPALS)](#pls) · [LV sweep](#pls-lv-sweep) · [SIMPLS](#simpls) · [VIP](#vip)
 - [7. PLS-DA](#plsda)
 - [8. Metrics](#8-metrics): [regression](#regression-metrics) · [RMSECV aggregation](#rmsecv) · [classification](#classification-metrics)
+- [9. Validation](#9-validation): [cross-validation](#cv) · [LV-number rules](#lv-rules)
 
 ---
 
@@ -53,6 +54,14 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 | N13 | SPXY with all y equal | node error, proposed code `BLOCK_CONSTANT_RESPONSE` | max d_y = 0 makes the y term undefined; a silent fall-back to Kennard–Stone would hide it. |
 | N14 | New codes | **Decided:** errors `BLOCK_MSC_SLOPE_INVALID` (N11), `BLOCK_CONSTANT_RESPONSE` (N13) and the guard error `BLOCK_MISSING_VALUES` (N1); warnings `DATA_MISSING_VALUES_REMOVED` (N1) and `BLOCK_AXIS_NOT_UNIFORM` (N4). All are **proposals**; each implementing step adds its code to DATA_MODEL.md §7 in its own PR | CLAUDE.md#hard-rules: codes are added to DATA_MODEL.md first, not invented in code. This PR changes DATA_MODEL.md only for the metric names (N15). |
 | N15 | Metric names in `Results.metrics` | **Decided:** every metric is computed and stored **for every set** (calibration `c`, cross-validation `cv`, prediction `p`): `rmsec/rmsecv/rmsep`, `r2c/r2cv/r2p`, `sec/secv/sep`, `bias_c/bias_cv/bias_p`, `slope_c/slope_cv/slope_p`, `intercept_c/intercept_cv/intercept_p`, `rpd_c/rpd_cv/rpd_p`, `rpiq_c/rpiq_cv/rpiq_p`, `rss_c/press/rss_p`; `n_lv` | Chemometric names per set (SEC/SECV/SEP). PRESS is the CV sum by definition; for calibration and test the same sum is a residual sum of squares. DATA_MODEL.md §2.8 example updated. |
+| N17 | LV counts an LV rule may choose (T2.10a) | **a = 1 … A**; a = 0 (training mean) is in the CV curve but never chosen | A PLS model needs at least one component (`n_components ≥ 1`); same as pengoo. A curve whose minimum is at a = 0 shows that the model does not beat the mean |
+| N18 | Default LV rule of `validate.cv` | **`global_min`** | pengoo default; the other rules are options in the parameter panel |
+| N19 | 1-SE rule with repeated CV | SE over **all r · k folds** of all repeats: SE = SD(RMSE_f, ddof 1) / √(r·k) | Every LV count is scored on the same folds, so the r·k fold errors are the sample the rule needs; with one repeat this is the §8 SE |
+| N20 | Paired t-test rule | pengoo's **forward stepping**: from a = 1, add an LV while the two-sided paired t-test of the fold RMSEs of a and a + 1 gives p < α **and** RMSECV falls; α a parameter, default 0.05 (pengoo fixed 0.05) | Port of the rule pengoo users know. No paper found for this exact variant (Quan to confirm or name one); Haaland–Thomas F-test and van der Voet's randomisation test are other variants, not built |
+| N21 | Wold R threshold | **0.95**, parameter; R(a) = PRESS(a)/PRESS(a−1) from a = 2 | pengoo value. Wold 1978 states the ratio criterion; the threshold value in the paper is for Quan to check |
+| N22 | Classification metric names in `Results.metrics` (R36) | `accuracy_c/cv/p`, `auc_c/cv/p`, `sensitivity_c/cv/p` and `specificity_c/cv/p` = **unweighted mean over classes**; per-class values in `details.per_class` (`{class: {sensitivity, specificity}}`) | Class labels are user text, so they stay out of metric names; the macro mean matches the macro AUC. Computed in T2.10b (CV of PLS-DA), names fixed now |
+| N23 | Fold sets that are not a partition, in CV | node error `VALIDATION_FOLDS_INVALID` (new, `params.reason` ∈ `duplicate_prediction`, `missing_prediction`; `params.repeat`) | One out-of-fold prediction per row per repeat (R41); a `custom` or hold-out `Folds` can break it, and RMSECV would silently count rows twice or skip them |
+| N24 | LV range of a CV curve when folds were capped differently | A = **smallest** fitted component count over the folds | A fold with fewer training rows can be capped lower (n_min = n_train − 1); every LV count of the curve then has a prediction for every row |
 | N16 | PLS component sign | fix after fitting: largest-\|w\| element of each weight vector positive (scores and loadings flipped with it) | Signs from SVD/NIPALS can differ between BLAS builds; predictions do not change, plots and saved states do (ARCHITECTURE.md: same results across OS). |
 
 ---
@@ -394,4 +403,36 @@ All metrics are computed in **original Y units** (inverse Y scaling first) and p
 - **Reference values.** Hand-computed 3-class confusion matrix; AUC by hand as the fraction of (positive, negative) pairs ranked correctly, ties counting ½ (Fawcett 2006).
 - **Tolerance.** `T-exact`.
 - **Implementation.** scikit-learn `confusion_matrix`, `accuracy_score`, `roc_auc_score` (binary, called per class for one-vs-rest so PLS-DA values outside [0, 1] are accepted).
+- **Names in `Results.metrics`** *(proposed T2.10a, N22)*: `accuracy_c/cv/p`, `auc_c/cv/p`, `sensitivity_c/cv/p`, `specificity_c/cv/p` (unweighted mean over classes); per-class sensitivity and specificity in `details.per_class`.
 - **Reference.** `fawcett2006roc`, `ballabio2013plsda`.
+
+---
+
+## 9. Validation
+*DRAFT (T2.10a): new entries, Quan corrects and approves; choices N17–N24 in §0.*
+
+<a id="cv"></a>
+### Cross-validation (`validate.cv`) · T2.10a
+- **Definition.** For each fold f of each repeat r of the input `Folds`, the subgraph feeding the `model` input is re-fitted on the fold's training rows (compiler fold plan, DATA_MODEL.md §4.6) and the fold's PLS model predicts the fold's validation rows for every LV count a = 0 … A ([LV sweep](#pls-lv-sweep)). The out-of-fold predictions of one repeat are one CV set.
+- **Steps.** 1 per fold: LV sweep of the fold model on its validation rows (rows taken by `row_index`) · 2 per repeat: one out-of-fold prediction for every row of the `Folds` (N23) · 3 per repeat and LV count: PRESS_r(a), RMSECV_r(a) with the chosen [aggregation](#rmsecv), RMSE_f(a) per fold · 4 curve: RMSECV(a) and PRESS(a) = mean over repeats; SD (ddof 1) and SE = SD/√(r·k) of the r·k fold RMSEs (N19) · 5 choose n_lv with the [LV rule](#lv-rules) · 6 §8 CV metrics at n_lv per repeat, then the mean over repeats (N9).
+- **Parameters.** `aggregation` ∈ {`pooled`, `fold_mean`}, default `pooled` (Q6) · `lv_rule` ∈ {`global_min`, `one_se`, `ttest`, `wold`}, default `global_min` (N18) · `alpha` 0.05 (`ttest`, N20) · `wold_threshold` 0.95 (`wold`, N21).
+- **Outputs.** `results: Results`, `kind = cv`: `metrics` = the §8 CV names at n_lv plus `n_lv`; `predictions` = `row_index`, `sample_id`, `fold`, `repeat`, `y_true_<col>`, `y_pred_<col>` at n_lv; `details` = `lv` (0 … A), `rmsecv`, `press`, `rmsecv_fold_sd`, `rmsecv_fold_se` (one value per a), `rmsecv_repeat_sd` (SD over repeats at n_lv, NaN for one repeat), `n_lv_global_min`, `lv_rule`, `aggregation`. The `model` output of DATA_MODEL §4.6 (refit at the chosen LV count) comes with nested CV (T2.10b).
+- **Edge cases.** A = smallest fitted component count over the folds (N24). A row predicted twice or never in a repeat → `VALIDATION_FOLDS_INVALID` (N23; also a hold-out `Folds`, whose validation rows are only the test rows: use the test-set block). `Folds` with `groups_respected = false` → warning `VALIDATION_GROUPS_IGNORED` (N10, `params.n_groups`; R25, R41). One Y column only in T2.10a: PLS2 and PLS-DA models → `BLOCK_INPUT_REQUIREMENT_MISSING` (`requirement` = `y`, `expected` = one regression column) until T2.10b.
+- **Reference values.** `gasoline_nir` rows 1–50 with leave-one-out: RMSECV for 1–10 LV = Mevik & Wehrens 2007 (`rmsep_cv` in `testdata/expected/gasoline_nir_pls.json`, `T-pub`). 5-fold contiguous blocks: RMSECV curve = a hand-written scikit-learn `KFold` + `PLSRegression(scale=False)` loop (`T-lib`). Hand case for repeats and per-fold SD/SE (`T-exact`). Runner on a dataset whose `row_index` is offset from its positions and unsorted.
+- **Implementation.** Block `validate.cv` (core) computes steps 1–6 from the per-fold states and validation spectra the engine runner hands it (`vibechem_engine.runners`); the fold loop is our compiler and scheduler (TECH_STACK.md §11.2: pengoo `calculate_cv_rmse` aggregation ported, loop ours).
+- **Reference.** `stone1974cv`, `martens1989`, `mevik2007pls`.
+
+<a id="lv-rules"></a>
+### LV-number rules (`vibechem_core.lv_rules`) · T2.10a
+Inputs: the CV curve RMSECV(a) and PRESS(a) for a = 0 … A, and the fold RMSEs RMSE_f(a) of all K = r·k folds (every LV count scored on the same folds). Candidates a = 1 … A (N17).
+| Rule | Choice |
+|---|---|
+| `global_min` | a* = argmin over a ≥ 1 of RMSECV(a); ties → smallest a |
+| `one_se` | threshold = RMSECV(a*) + SE(a*), SE(a) = SD(RMSE_f(a), ddof 1)/√K; the smallest a ≥ 1 with RMSECV(a) ≤ threshold |
+| `ttest` | a = 1; while a < A: two-sided paired t-test of RMSE_f(a) against RMSE_f(a + 1) over the K folds; p < α and RMSECV(a + 1) < RMSECV(a) → a + 1, else stop. An undefined p (K < 2, all differences equal) is not significant |
+| `wold` | R(a) = PRESS(a)/PRESS(a − 1) for a = 2 … A; the first a with R(a) ≥ threshold gives a − 1; none → A; PRESS(a − 1) = 0 → a − 1 |
+- **Edge cases.** No candidate (A = 0) or a non-finite curve value → `ValueError` (the CV block never passes either). `one_se` and `ttest` need K ≥ 2.
+- **Reference values.** Hand-built curves per rule, each decision worked out in the test; for `ttest` the t statistic d̄/(s_d/√K) by hand (`T-exact`), p from SciPy (`T-lib`).
+- **Library differences.** pengoo rejects `1se`/`ttest` with pooled RMSECV; here the fold RMSEs are always kept, so every rule works with both aggregations (#rmsecv). pengoo's α is fixed at 0.05; its Wold ratio adds 1e-12 to the denominator (here: the explicit zero rule).
+- **Implementation.** Port of pengoo `select_n_components` and `_wold_r_criterion` (TECH_STACK.md §11.2); SciPy `ttest_rel`.
+- **Reference.** `wold1978cv` (Wold R), `hastie2009esl` §7.10 (one-standard-error rule); `ttest`: pengoo rule, no paper (N20).
