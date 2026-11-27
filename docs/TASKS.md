@@ -34,7 +34,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
-| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.00 CI false-pass guards 👤 |
+| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [x] T2.00 CI false-pass guards 👤 |
 | | [x] T1.00b pengoo port inventory | [ ] T2.01 Port types |
 | [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
 | [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |

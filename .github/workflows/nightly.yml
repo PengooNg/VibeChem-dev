@@ -28,6 +28,7 @@ jobs:
       refs: ${{ steps.pick.outputs.refs }}
     steps:
       - id: pick
+        shell: bash # -eo pipefail: a failed `gh api` must fail the job, not test main only
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
