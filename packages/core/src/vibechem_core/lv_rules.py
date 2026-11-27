@@ -42,8 +42,12 @@ def fold_sd_se(fold_rmse: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.fl
 def randomisation_p(d: ArrayLike, n_randomisations: int, rng: np.random.Generator) -> float:
     """One-sided sign-swap p of mean(d) > 0: (#{T* >= T} + 1/2) / (B + 1), as R pls."""
     diff = np.asarray(d, dtype=np.float64)
-    signs = rng.choice(np.array([-1.0, 1.0]), size=(n_randomisations, diff.size))
-    count = int(np.count_nonzero((signs * diff).mean(axis=1) >= diff.mean()))
+    t = diff.mean()
+    count = 0
+    for start in range(0, n_randomisations, 256):  # chunks keep memory at 256 * n values
+        size = min(256, n_randomisations - start)
+        signs = rng.choice(np.array([-1.0, 1.0]), size=(size, diff.size))
+        count += int(np.count_nonzero((signs * diff).mean(axis=1) >= t))
     return (count + 0.5) / (n_randomisations + 1)
 
 

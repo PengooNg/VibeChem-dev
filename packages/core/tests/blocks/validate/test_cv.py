@@ -205,17 +205,30 @@ def test_haaland_thomas_and_van_der_voet_use_the_row_residuals_averaged_over_rep
             rows[a, at] += (pls.predict(data.X[va]).ravel() - y[va]) ** 2 / 2
     state = PLS().fit(data, parse_params(PLSParams, {"n_components": N_LV}))
     fold_runs = runs(data, folds)
-    for rule in ("haaland_thomas", "van_der_voet"):
-        params = parse_params(CVParams, {"lv_rule": rule})
+
+    def seeded(seed: int | None) -> np.random.Generator | None:
+        return None if seed is None else np.random.default_rng(seed)
+
+    chosen: list[float] = []
+    for values in (
+        {"lv_rule": "haaland_thomas"},
+        {"lv_rule": "van_der_voet"},
+        {"lv_rule": "haaland_thomas", "f_alpha": 1e-6},
+    ):
+        rule = cast(str, values["lv_rule"])
+        params = parse_params(CVParams, values)
         result = CrossValidation().apply(
             state, folds, params, fold_runs, rng=np.random.default_rng(5)
         )
         np.testing.assert_allclose(result.details["press"], rows.sum(axis=1), rtol=1e-10)  # T-lib
         expected = select_lv(
             rule, result.details["rmsecv"], rows.sum(axis=1), np.ones((N_LV + 1, 6)),
-            row_sq_err=rows, rng=np.random.default_rng(5),
+            row_sq_err=rows, rng=seeded(result.details["randomisation_seed"]),
+            f_alpha=params.f_alpha, randomisation_alpha=params.randomisation_alpha,
         )  # fmt: skip
         assert result.metrics["n_lv"] == expected
+        chosen.append(expected)
+    assert chosen[2] < chosen[0]  # a looser test leaves a_min: the a < a_min branch runs
 
 
 def test_pls2_is_not_supported_yet() -> None:

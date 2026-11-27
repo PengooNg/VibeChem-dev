@@ -93,7 +93,7 @@ def test_randomisation_p_matches_the_exact_sign_flip_p() -> None:
     d = np.array([0.9, 1.4, -0.3, 0.6, 2.0, -0.8, 0.5, 1.1, -0.2, 0.7])
     # exact p over all 2^10 sign vectors (the identity included), independent of our code
     t = d.mean()
-    flips = [np.mean(d * np.array(s)) >= t - 1e-12 for s in itertools.product((-1, 1), repeat=10)]
+    flips = [np.mean(d * np.array(s)) >= t for s in itertools.product((-1, 1), repeat=10)]
     exact = float(np.mean(flips))
     b = 4000
     p = randomisation_p(d, b, np.random.default_rng(0))

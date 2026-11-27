@@ -65,7 +65,6 @@ class CVParams:
     n_randomisations: int = Param(
         1000, min=99, max=100000, visible_if=("lv_rule", ("van_der_voet",))
     )
-    seed: int = Param(0, min=0, visible_if=("lv_rule", ("van_der_voet",)))
 
 
 class CrossValidation(Block):
@@ -162,7 +161,13 @@ class CrossValidation(Block):
         row_sq_err = np.mean(row_sq_r, axis=0)
         fold_sd, fold_se = fold_sd_se(fold_rmse)
 
-        # Step 5: LV count chosen by the rule
+        # Step 5: LV count chosen by the rule; the randomisation seed is drawn from the run's
+        # Generator and recorded
+        seed = (
+            int(rng.integers(2**32))
+            if rng is not None and params.lv_rule == "van_der_voet"
+            else None
+        )
         n_lv = select_lv(
             params.lv_rule,
             rmsecv,
@@ -174,7 +179,7 @@ class CrossValidation(Block):
             f_alpha=params.f_alpha,
             randomisation_alpha=params.randomisation_alpha,
             n_randomisations=params.n_randomisations,
-            rng=np.random.default_rng(params.seed) if rng is None else rng,
+            rng=None if seed is None else np.random.default_rng(seed),
         )
 
         # Step 6: METHODS §8 CV metrics at n_lv per repeat, then the mean over repeats (N9)
@@ -216,6 +221,7 @@ class CrossValidation(Block):
                 else float("nan"),
                 "n_lv_global_min": select_lv("global_min", rmsecv, press, fold_rmse),
                 "lv_rule": params.lv_rule,
+                "randomisation_seed": seed,
                 "aggregation": params.aggregation,
             },
         )
