@@ -73,6 +73,7 @@ BLOCKS = {
     "pls": "model.pls",
     "split": "split.random",
     "kfold": "validate.kfold",
+    "sel": "test.select_top_k",  # registered by test_noise.py
 }
 
 type CompileEdges = Callable[..., CompiledPipeline]
@@ -94,6 +95,16 @@ def pipeline_of(
             for i, ((a, ap), (b, bp)) in enumerate(pairs)
         ],
     }
+
+
+@pytest.fixture
+def build_pipeline() -> Callable[..., dict[str, Any]]:
+    return pipeline_of
+
+
+@pytest.fixture
+def registry() -> Registry:
+    return REGISTRY
 
 
 @pytest.fixture
