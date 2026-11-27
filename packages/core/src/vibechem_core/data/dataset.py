@@ -293,3 +293,21 @@ class SpectralDataset:
             else {k: v[idx] for k, v in self.metadata.items()},
             spatial=spatial,
         )
+
+    def rows(self, row_index: ArrayLike) -> SpectralDataset:
+        """Return the rows whose ``row_index`` values are ``row_index`` (in that order).
+
+        The way to select fold rows (``Fold.train``/``validation`` hold ``row_index``
+        values, never positions; RISKS.md R40). A value absent from this dataset raises
+        ``ValueError``.
+        """
+        wanted = index_array("row_index", row_index)
+        if np.unique(wanted).size != wanted.size:
+            raise ValueError("row_index values must be unique")
+        order = np.argsort(self.row_index)
+        known = self.row_index[order]
+        at = np.minimum(np.searchsorted(known, wanted), max(known.size - 1, 0))
+        missing = wanted[known[at] != wanted] if known.size else wanted
+        if missing.size:
+            raise ValueError(f"row_index values not in this dataset: {missing[:5].tolist()}")
+        return self.subset(order[at])

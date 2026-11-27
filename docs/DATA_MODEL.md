@@ -1,11 +1,14 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.5 · Last updated: 2026-11-25 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.8 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> v0.8: §6.6 cache key and cache folder layout (T2.06).
+> v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
+> v0.6: §6 file formats drafted (T2.03): common rules, `project.json`, pipeline file, `.vcm` model package, migrations; codes `PIPELINE_FILE_INVALID`, `PROJECT_FILE_INVALID` proposed in §7.
 > v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
 > v0.3: dev-mode origin rule; temporary skeleton endpoint (§2.12); PDF export only via the desktop app; `EXPORT_FORMAT_UNAVAILABLE`.
 > Source of truth for field names. Claude Code must not invent fields: if something is missing, add it here first (with Quan's approval), then implement.
-> §1–§5 and §7 written (§4, §5 draft); §6 (T2.03) is filled in by that step.
+> §1–§7 written (§4, §5, §6 draft).
 > Based on ARCHITECTURE.md ADR-003 (HTTP + WebSocket on loopback, *Proposed*); changes there update this file.
 
 ## Contents
@@ -666,13 +669,13 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 ### 4.6 Fitted states, folds and validation (leakage)
 - A fitted block has the usual data outputs plus an optional state output (`model: Model` or `transform: Transform`). Inside a pipeline the compiler splits it into fit and apply tasks (ARCHITECTURE.md §3.2); the state port exists so a state can be applied to other data or exported.
 - **Split and fold blocks** take `spectra: Spectra` and output `folds: Folds`. Hold-out splits (random, KS, SPXY) also output `train: Spectra` and `test: Spectra` for convenience; both carry `row_index`, so a later `fit` on `test` rows is still detected.
-- **Validation blocks** (CV, nested CV, permutation, grid search) take `model: Model` with `refit_per_fold: true` and `folds: Folds`, and output `results: Results` and `model: Model` (refit on all training rows). The compiler re-runs the whole upstream subgraph between the dataset node and the `model` port once per fold, with every `fit` task restricted to that fold's `train` rows and `apply` tasks run on train and validation rows. The `Folds` and the model's subgraph must come from the same source dataset → `PIPELINE_FOLDS_SOURCE_MISMATCH`. Nested CV adds an inner `inner_folds: Folds` input or an inner scheme parameter (decided in T2.10).
-- **External test set** (`validate.test_set`): `model: Model` (`refit_per_fold: false`, applied as is) · `spectra: Spectra` (`requires: ["y"]` or `["classes"]`) → `results: Results`. If the test rows overlap `Model.fitted_rows` → `PIPELINE_LEAKAGE`.
+- **Validation blocks** (CV, nested CV, permutation, grid search) take `model: Model` with `refit_per_fold: true` and `folds: Folds`, and output `results: Results` and `model: Model` (refit on all training rows). The compiler re-runs the whole upstream subgraph between the dataset node and the `model` port once per fold, with every `fit` task restricted to that fold's `train` rows and `apply` tasks run on train and validation rows. The `Folds` and the model's subgraph must come from the same source dataset → `PIPELINE_FOLDS_SOURCE_MISMATCH`. Exact scope (compiler, T2.04): the fold source is the `Spectra` stream feeding the block that produced the `folds` input (e.g. a hold-out `train` output when the folds are made on it); the re-fitted subgraph is every node downstream of that stream that feeds the `refit_per_fold` port. A `refit_per_fold` source that is not downstream of the fold source → `PIPELINE_FOLDS_SOURCE_MISMATCH`; a fitted block upstream of the fold source (fitted once on rows that are some fold's validation rows) → `PIPELINE_LEAKAGE` on that node, so fold blocks go on the data before any fitted preprocessing. Fold rows are selected by `row_index` (`SpectralDataset.rows`), never by position. A fitted block upstream of a block whose `train`/`test` output is used is `PIPELINE_LEAKAGE` too (fitted on the test rows). Row provenance (T2.05, `engine/compiler/leakage.py`): every node without input edges is a data source, identified by `block_id` + `params`; an output port named `train` or `test` (hold-out splits) and, inside a fold, the fold source stream narrow the rows a stream holds. The first declared input of a fitted block holds its training rows. Any other fit input from the same source must hold a subset of them, and no fit input may hold `test` rows; inside a fold every fit input from the fold source's dataset must be the fold's `train` rows; otherwise → `PIPELINE_LEAKAGE` on that node and port (e.g. MSC `reference` from the unsplit dataset, a `y_transform` fitted on all rows). Inputs from another source are allowed. Nested CV adds an inner `inner_folds: Folds` input or an inner scheme parameter (decided in T2.10).
+- **External test set** (`validate.test_set`): `model: Model` (`refit_per_fold: false`, applied as is) · `spectra: Spectra` (`requires: ["y"]` or `["classes"]`) → `results: Results`. If the test rows overlap `Model.fitted_rows` → `PIPELINE_LEAKAGE`. Checked statically (T2.05): a `Model`/`Transform` input whose state did not pass the split's `train` output, on a node that also receives that split's `test` rows → `PIPELINE_LEAKAGE` on the state port; the run-time `fitted_rows` check comes with the block.
 - **Container blocks (UI_GUIDE §6).** A nested-CV or grid-search container on the canvas is a drawing of a validation block plus the subgraph feeding its `refit_per_fold` port; it is not a separate port type. How the pipeline file records which nodes sit inside a frame is decided in T2.03 (§6).
 
 ### 4.7 Open points for review
 1. `Transform` shape `diamond_outline` is new — UI_GUIDE §6 lists shapes only for the other six types.
-2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
+2. **Decided (Quan, 2026-11-27): option 1.** Validation via `refit_per_fold` on a `Model` input (above), no explicit container nodes with inner input/output ports. Format v1 stays without frames (§6.3); the per-fold scope is derived from the subgraph feeding `refit_per_fold` (§4.6).
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
 ## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews)*
@@ -731,10 +734,86 @@ In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised whi
 2. One code `BLOCK_PARAM_INVALID` with a `reason` param vs. one code per reason.
 3. `visible_if` with one condition only; `and`/`or` combinations wait for a block that needs them.
 
-## 6. File formats *(filled in by T2.03)*
-To define: `project.json`, `pipelines/*.vcp.json` (JSON Schema), `models/*.vcm` (zip: `manifest.json` + `.npy`), `.vcz` project archive, cache index; versioning and migrations.
+## 6. File formats *(DRAFT, T2.03 — Quan reviews)*
+Code: `vibechem_engine.formats` (pydantic models, `load_*`/`save_*`, `read_model`/`write_model`). JSON Schemas (exported from the models, kept in sync by a test): `packages/engine/src/vibechem_engine/formats/schemas/{pipeline,project,model_manifest}.schema.json`. No pickle anywhere (ADR-007; a test scans `packages/*/src`).
 
-**Fitted block state (T1.02b, proposal for T2.03 to adopt inside `.vcm` or change).** `vibechem_core.block.save_state` writes one directory per state: `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}` and `arrays/<i>.npy` for the i-th array name (files named by position, so names never become paths). `load_state` reads arrays with `allow_pickle=False`, rejects unknown keys, other `state_version`s, non-finite numbers and non-`.npy` files with `ValueError` (the engine reports `MODEL_PACKAGE_INVALID`, §7).
+### 6.1 Common rules
+- UTF-8 JSON, `snake_case` keys, timestamps `YYYY-MM-DDTHH:MM:SS[.fff]Z`. Written with LF line endings, through a temporary file that replaces the target (no half-written file after a crash).
+- Every file carries an integer `format_version`. **Unknown keys are rejected**; any field change bumps `format_version` and ships a migration (§6.5). (The API's "ignore unknown fields" rule, §1, is for HTTP clients, not files.)
+- Values must have their exact JSON type (no `"12"` for `12`, no `true` for `1`); integers are accepted where a number is expected. `NaN`, `Infinity`, numbers that overflow to infinity (e.g. `1e400`) and a key repeated within one object are rejected. Timestamps must be real dates and times in ASCII digits.
+- A JSON file larger than 16 MiB is rejected before parsing.
+- An invalid file raises the format's code (§7) with `params.reason`:
+| `reason` | Extra params | When |
+|---|---|---|
+| `json` | `detail` | Not UTF-8, not JSON, not an object, NaN/Infinity/overflow, repeated key |
+| `too_large` | `limit` (bytes) | Over the size limit |
+| `schema` | `location` (dotted path, e.g. `nodes.1.node_id`; `""` for whole-document rules), `detail` (English) | First field that breaks the schema or a rule below; also a migration that fails on a malformed old file |
+| `version` | `found` (int or null), `supported` | `format_version` missing, newer than this app, or without a migration path |
+| `zip`, `entry`, `state` | see §6.4 | Model packages only |
+
+### 6.2 Project folder and `project.json`
+Folder layout (ARCHITECTURE.md §2.3): `project.json` · `data/<dataset_id>/` (dataset storage: defined by the project/dataset step) · `pipelines/<pipeline_id>.vcp.json` · `cache/` (index and entries: T2.06) · `models/*.vcm` · `reports/`. All references inside the folder are relative (ADR-006).
+
+`project.json` (format 1):
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `project_id` | `prj_…` | |
+| `name` | str, non-empty | |
+| `created_at`, `updated_at` | timestamp | |
+| `datasets` | `ds_…`[] | Unique; order = display order; each is `data/<dataset_id>/` |
+| `pipelines` | `ppl_…`[] | Unique; order = display order; each is `pipelines/<pipeline_id>.vcp.json` |
+No absolute `path`: the API manifest's `path` (§2.4) is where the engine opened the folder. Loading migrates in memory; writing the upgraded file back after the `project.json.bak-{timestamp}` backup (§2.4) is done by project open. Invalid → `PROJECT_FILE_INVALID`.
+
+### 6.3 Pipeline file `pipelines/<pipeline_id>.vcp.json`
+The pipeline document of §2.6, format 1:
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `pipeline_id` | `ppl_…` | |
+| `name` | str, non-empty | |
+| `revision` | int ≥ 0 | §1 concurrency control |
+| `nodes` | node[] | `node_id` unique |
+| `edges` | edge[] | `edge_id` unique; order = order of a `multiple: true` input's edges (§4.4) |
+| `created_at`, `updated_at` | timestamp | |
+
+Node: `node_id` (`nd_…`), `block_id` (as in the block registry), `block_version` (`MAJOR.MINOR.PATCH`), `params` (JSON object, values checked against the block's schema by `parse_params`, §5.3), `position` `{x, y}` (numbers), `label` (str or null). Edge: `edge_id` (`eg_…`), `from_node`, `from_port`, `to_node`, `to_port` (port ids `snake_case`). Ids after the prefix are `[0-9A-Za-z]+` (ULIDs in practice).
+Checked at load beyond the JSON Schema: unique node and edge ids, every edge names existing nodes (RISKS R50). Port names, port types, required inputs and cycles are graph validation (`vibechem_engine.graph`, §4.4), not file validity. Invalid → `PIPELINE_FILE_INVALID`.
+**Container frames (§4.6):** v1 stores no frame. A nested-CV or grid-search frame is derived from the graph: the validation node plus the subgraph feeding its `refit_per_fold` port. §4.7.2 is decided for this (`refit_per_fold`, Quan 2026-11-27).
+
+### 6.4 Model package `models/<name>.vcm`
+A zip (stored or deflate) with exactly these entries:
+```
+manifest.json
+states/<i>/state.json          i = 0 … len(states) − 1
+states/<i>/arrays/<j>.npy      layout of vibechem_core.block.save_state (T1.02b)
+```
+State layout (T1.02b, adopted): `state.json` = `{"state_version": 1, "values": {<JSON>}, "arrays": ["<name>", …]}`, `arrays/<j>.npy` for the j-th name (files named by position, so names never become paths), loaded with `allow_pickle=False`.
+`manifest.json` (format 1):
+| Field | Type | Notes |
+|---|---|---|
+| `format_version` | `1` | |
+| `name` | str, non-empty | §2.10 `model.name` |
+| `vibechem_version` | str | App version that wrote it |
+| `trained_at` | timestamp | |
+| `pipeline` | pipeline document (§6.3) | The nodes needed to apply the model; which nodes, and the applicability-domain content, are defined by the export / predict steps (F-70, F-71) |
+| `states` | `[{node_id, block_id, block_version}]` | One per fitted node; `states[i]` is stored in `states/<i>/`. Each must match a pipeline node's `block_id` and `block_version`, `node_id` unique — so a state can never be given to another block (RISKS R35) |
+Reading refuses (code `MODEL_PACKAGE_INVALID`): not a zip / corrupt / truncated / encrypted or patched entries / other compression → `reason: zip` (`detail`); any other entry name, a repeated entry, a missing `manifest.json`, or a `states/<i>/` with no manifest entry → `reason: entry` (`entry`); more than 10 000 entries, total declared uncompressed size > 2 GiB or `manifest.json` > 16 MiB → `too_large`; state indexes are ASCII without leading zeros, at most 9 digits; a state `load_state` rejects (pickled or object array, bad `state.json`, missing file, an extra array file, a `.npy` header whose shape needs more bytes than the file holds) → `reason: state` (`index`, `detail`); manifest problems → `json` / `schema` / `version` as §6.1. The embedded pipeline is migrated with the pipeline migrations; its `version` error carries `location: "pipeline"`. Unpacking writes only to a temporary folder, under names that passed the entry check.
+
+### 6.5 Versions and migrations
+`vibechem_engine.formats.migrations`: `CURRENT_VERSIONS` (`pipeline`, `project`, `model`: all 1) and one function per step, registered with `@migration(kind, from_version)`, that takes the parsed JSON of version n and returns version n + 1 (it must set `format_version`). Loading runs the chain up to the current version, then validates. A file newer than the app, or with no path, → `reason: version`. Example (in `tests/formats/test_pipeline.py`): a format 2 that renames node `label` to `title`. Block versions (`block_version`) are separate: a block's own parameter changes are handled by the block (later step), not by the file format.
+
+### 6.6 `.vcz` project archive and cache index
+`.vcz` = zip of the project folder (`cache/` left out unless `include_cache`), to be read with entry checks like §6.4; built and specified in detail by the export step.
+
+**Cache folder `cache/` (T2.06, `vibechem_engine.cache`).** Key: `result_key` = `res_` + SHA-256 of the canonical JSON (sorted keys, `","`/`":"` separators, ASCII, no NaN) of `{key_version: 1, kind, block_id, block_version, params, inputs: [[port_id, input result key, rule], …] (sorted by port, edge order kept within a port), seed, fold, part, output}`, one key per task output. Task and node ids are not hashed.
+```
+cache/entries/<64 hex>/state.json       one State, layout of save_state (§6.4)
+cache/entries/<64 hex>/arrays/<j>.npy
+cache/entries/<64 hex>/entry.json       {"entry_version": 1, "key": "res_…", "size_bytes": int, "files": {"state.json": "<sha256>", "arrays/0.npy": "<sha256>", …}}
+cache/tmp/                              staging; an entry is written here and renamed into entries/
+```
+There is no global index file: the index is the set of `entry.json` files, read when the cache is opened (`tmp/` is emptied then). `size_bytes` = the data files (not `entry.json`); recency (LRU) = the `entry.json` modification time, set on every put and hit. After a put, least recently used entries are deleted until the total is ≤ `cache_cap_bytes` (§2.2 settings), never the entry just written; the freed bytes are the `cache.evicted` event's `freed_bytes`. An entry whose `entry.json` is invalid, whose folder name differs from its key, or whose file fails its checksum or `load_state` is deleted and counts as a miss (recompute, ARCHITECTURE §3.6).
 
 ## 7. Error codes catalogue
 Each code is defined in exactly one module (listed), so searching for a code finds its origin (QA.md §5). This table is the single registry of codes, errors and warnings alike (ARCHITECTURE.md ADR-010). Rows marked *warning* use the translation key `warnings.<area>.<name>` instead of `errors.<area>.<name>`; a block warning (*warning (node)*) is raised as `VibeChemWarning` and does not stop the node.
@@ -762,7 +841,9 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `RUN_ALREADY_ACTIVE` | 409 | `engine/scheduler` | Run already active on this pipeline/project |
 | `RESULT_TOO_LARGE_USE_EXPORT` | 413 | `engine/api` | Use export for very large data |
 | `EXPORT_FORMAT_UNAVAILABLE` | 422 | `engine/api` | Format needs the desktop app (e.g. PDF) |
-| `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file |
+| `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file (`params.reason`, §6.4) |
+| `PIPELINE_FILE_INVALID` | 422 | `engine/formats` | A pipeline file breaks §6.3 (`params.reason`, §6.1) *(proposed T2.03)* |
+| `PROJECT_FILE_INVALID` | 422 | `engine/formats` | `project.json` breaks §6.2 (`params.reason`, §6.1) *(proposed T2.03)* |
 | `MODEL_AXIS_MISMATCH` | 422 | `engine/formats` | New data's axis doesn't match the model |
 | `VALIDATION_GROUPS_IGNORED` | warning | `engine/graph` | Groups exist but CV ignores them |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |

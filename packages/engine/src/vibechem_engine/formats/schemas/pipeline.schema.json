@@ -1,0 +1,173 @@
+{
+ "$defs": {
+  "Edge": {
+   "additionalProperties": false,
+   "properties": {
+    "edge_id": {
+     "pattern": "^eg_[0-9A-Za-z]+$",
+     "title": "Edge Id",
+     "type": "string"
+    },
+    "from_node": {
+     "pattern": "^nd_[0-9A-Za-z]+$",
+     "title": "From Node",
+     "type": "string"
+    },
+    "from_port": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "title": "From Port",
+     "type": "string"
+    },
+    "to_node": {
+     "pattern": "^nd_[0-9A-Za-z]+$",
+     "title": "To Node",
+     "type": "string"
+    },
+    "to_port": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "title": "To Port",
+     "type": "string"
+    }
+   },
+   "required": [
+    "edge_id",
+    "from_node",
+    "from_port",
+    "to_node",
+    "to_port"
+   ],
+   "title": "Edge",
+   "type": "object"
+  },
+  "JsonValue": {},
+  "Node": {
+   "additionalProperties": false,
+   "properties": {
+    "node_id": {
+     "pattern": "^nd_[0-9A-Za-z]+$",
+     "title": "Node Id",
+     "type": "string"
+    },
+    "block_id": {
+     "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+     "title": "Block Id",
+     "type": "string"
+    },
+    "block_version": {
+     "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+     "title": "Block Version",
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": {
+      "$ref": "#/$defs/JsonValue"
+     },
+     "title": "Params",
+     "type": "object"
+    },
+    "position": {
+     "$ref": "#/$defs/Position"
+    },
+    "label": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Label"
+    }
+   },
+   "required": [
+    "node_id",
+    "block_id",
+    "block_version",
+    "params",
+    "position",
+    "label"
+   ],
+   "title": "Node",
+   "type": "object"
+  },
+  "Position": {
+   "additionalProperties": false,
+   "properties": {
+    "x": {
+     "title": "X",
+     "type": "number"
+    },
+    "y": {
+     "title": "Y",
+     "type": "number"
+    }
+   },
+   "required": [
+    "x",
+    "y"
+   ],
+   "title": "Position",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "format_version": {
+   "const": 1,
+   "title": "Format Version",
+   "type": "integer"
+  },
+  "pipeline_id": {
+   "pattern": "^ppl_[0-9A-Za-z]+$",
+   "title": "Pipeline Id",
+   "type": "string"
+  },
+  "name": {
+   "minLength": 1,
+   "title": "Name",
+   "type": "string"
+  },
+  "revision": {
+   "minimum": 0,
+   "title": "Revision",
+   "type": "integer"
+  },
+  "nodes": {
+   "items": {
+    "$ref": "#/$defs/Node"
+   },
+   "title": "Nodes",
+   "type": "array"
+  },
+  "edges": {
+   "items": {
+    "$ref": "#/$defs/Edge"
+   },
+   "title": "Edges",
+   "type": "array"
+  },
+  "created_at": {
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+   "title": "Created At",
+   "type": "string"
+  },
+  "updated_at": {
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+   "title": "Updated At",
+   "type": "string"
+  }
+ },
+ "required": [
+  "format_version",
+  "pipeline_id",
+  "name",
+  "revision",
+  "nodes",
+  "edges",
+  "created_at",
+  "updated_at"
+ ],
+ "title": "PipelineFile",
+ "type": "object"
+}

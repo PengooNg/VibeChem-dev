@@ -61,7 +61,7 @@ jobs:
         run: |
           cmake -S packages/native -B build/native-tests -DVIBECHEM_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-tests --config Release --parallel
-          ctest --test-dir build/native-tests -C Release --output-on-failure
+          ctest --test-dir build/native-tests -C Release --output-on-failure --no-tests=error
 
   wheels:
     name: wheels (${{ matrix.name }})
@@ -118,4 +118,4 @@ jobs:
             -DCMAKE_CXX_FLAGS="$SAN_FLAGS" \
             -DCMAKE_EXE_LINKER_FLAGS="$SAN_FLAGS"
           cmake --build build/native-asan --parallel
-          ctest --test-dir build/native-asan --output-on-failure
+          ctest --test-dir build/native-asan --output-on-failure --no-tests=error

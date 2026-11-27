@@ -34,13 +34,13 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
 |---|---|---|
-| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [ ] T2.00 CI false-pass guards 👤 |
-| | [x] T1.00b pengoo port inventory | [ ] T2.01 Port types |
-| [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [ ] T2.02 Pipeline graph |
-| [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [ ] T2.03 Pipeline file format |
-| [x] T0.04 App workspace | [x] T1.02b Block contract: state + sklearn wrapper | [ ] T2.04 Graph compiler |
-| [x] T0.05 Native skeleton | [x] T1.03 Parameter schema | [ ] T2.05 Leakage rules + suite |
-| [x] T0.06 Full CI + rulesets 👤 | [x] T1.04 METHODS.md part 1 👤 | [ ] T2.06 Cache |
+| [x] T0.01 CI smoke 👤 | [x] T1.00 Quasar port inventory 👤 | [x] T2.00 CI false-pass guards 👤 |
+| | [x] T1.00b pengoo port inventory | [x] T2.01 Port types |
+| [x] T0.02 Repo skeleton + legal + labels 👤 | [x] T1.01 SpectralDataset | [x] T2.02 Pipeline graph |
+| [x] T0.03 Python workspace + check.py | [x] T1.02a Block contract: base + registry | [x] T2.03 Pipeline file format |
+| [x] T0.04 App workspace | [x] T1.02b Block contract: state + sklearn wrapper | [x] T2.04 Graph compiler |
+| [x] T0.05 Native skeleton | [x] T1.03 Parameter schema | [x] T2.05 Leakage rules + suite |
+| [x] T0.06 Full CI + rulesets 👤 | [x] T1.04 METHODS.md part 1 👤 | [x] T2.06 Cache |
 | [x] T0.07 QA tooling | [x] T1.05 CSV/Excel readers | [ ] T2.07 Executor + seeds |
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [ ] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [ ] T2.09 Crash recovery |
