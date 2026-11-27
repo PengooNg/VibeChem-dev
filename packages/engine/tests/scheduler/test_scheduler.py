@@ -146,7 +146,9 @@ def test_estimate_memory_is_inputs_plus_one_copy() -> None:
     assert estimate_memory(np.zeros((10, 5)), np.zeros(3, np.float32)) == 2 * (400 + 12)
 
 
-def test_failure_skips_dependants_and_keeps_independent_branches(pool: ThreadExecutor) -> None:
+def test_failure_skips_dependants_and_keeps_independent_branches(
+    pool: ThreadExecutor, caplog: pytest.LogCaptureFixture
+) -> None:
     events = Recorder()
     jobs = [
         Job("a", "nd_a", echo),
@@ -162,6 +164,7 @@ def test_failure_skips_dependants_and_keeps_independent_branches(pool: ThreadExe
     error = {"node_id": "nd_b", "state": "error", "code": "BLOCK_CONSTANT_SPECTRA"}
     assert any(error.items() <= e.items() for e in events.of("node.state"))
     assert events.of("run.progress")[-1]["done_tasks"] == 4
+    assert "task b of node nd_b failed" in caplog.text  # traceback goes to the log
 
 
 def test_cancel_stops_dispatch_and_lets_running_jobs_finish(pool: ThreadExecutor) -> None:
@@ -172,10 +175,12 @@ def test_cancel_stops_dispatch_and_lets_running_jobs_finish(pool: ThreadExecutor
         return "finished"
 
     jobs = [Job("a", "nd_a", first), Job("b", "nd_b", echo, (), ("a",))]
-    run = run_jobs(jobs, pool, root_seed=0, cancel=cancel)
+    events = Recorder()
+    run = run_jobs(jobs, pool, root_seed=0, cancel=cancel, emit=events)
     assert run.status == "cancelled"
     assert run.results == {"a": "finished"}
     assert run.unfinished_nodes == ("nd_b",)
+    assert events.of("run.progress")[-1] == {"done_tasks": 1, "total_tasks": 2, "eta_s": None}
 
 
 def test_node_states_and_throttled_progress(pool: ThreadExecutor) -> None:
@@ -201,3 +206,22 @@ def test_results_identical_on_one_and_three_workers(tmp_path: Path) -> None:
         with ProcessExecutor(workers, tmp_path) as executor:
             runs.append(run_jobs(jobs, executor, root_seed=20261117).results)
     assert runs[0] == runs[1]
+
+
+def test_executor_error_propagates_after_running_jobs_end(pool: ThreadExecutor) -> None:
+    submit, finished, calls = pool.submit, threading.Event(), [0]
+
+    def slow(_seed: int) -> None:
+        time.sleep(0.05)
+        finished.set()
+
+    def second_submit_fails(fn: Callable[..., object], /, *args: object) -> Future[object]:
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("pool broken")
+        return submit(fn, *args)
+
+    pool.submit = second_submit_fails  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="pool broken"):
+        run_jobs([Job("a", "nd_a", slow), Job("b", "nd_b", echo)], pool, root_seed=0)
+    assert finished.is_set()  # job a ran to its end before the error left run_jobs
