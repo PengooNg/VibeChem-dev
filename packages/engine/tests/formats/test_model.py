@@ -113,6 +113,8 @@ def test_hand_built_zip_is_read(tmp_path: Path) -> None:
         "/abs.json",
         "states/0/arrays/x.pkl",
         "states/1/state.json",
+        "states/00/state.json",
+        "states/٣/state.json",
     ],
 )
 def test_rejects_unexpected_entries(tmp_path: Path, entry: str) -> None:
@@ -169,3 +171,8 @@ def test_manifest_states_must_match_nodes(
 def test_package_needs_one_state_per_entry() -> None:
     with pytest.raises(ValueError, match="1 manifest entries"):
         ModelPackage(package().manifest, [])
+
+
+def test_rejects_extra_array_file(tmp_path: Path) -> None:
+    params = params_of(zip_with(tmp_path, {**GOOD_STATE, "states/0/arrays/1.npy": npy(np.ones(1))}))
+    assert params["reason"] == "state"

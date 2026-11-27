@@ -54,7 +54,10 @@ MAX_MODEL_BYTES = 2 * 1024**3
 """Largest total uncompressed size of a model package read (§6.4)."""
 
 _COMPRESSIONS = (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
-_ENTRY = re.compile(r"manifest\.json|states/(?:\d+/(?:state\.json|arrays/(?:\d+\.npy)?)?)?")
+_INDEX = r"(?:0|[1-9][0-9]*)"  # ASCII, no leading zero: one spelling per index
+_ENTRY = re.compile(
+    rf"manifest\.json|states/(?:{_INDEX}/(?:state\.json|arrays/(?:{_INDEX}\.npy)?)?)?"
+)
 
 
 class StateEntry(StrictModel):
@@ -160,7 +163,10 @@ def _read(zf: zipfile.ZipFile) -> ModelPackage:
                 if name.startswith(prefix) and not name.endswith("/"):
                     (root / name.removeprefix(prefix)).write_bytes(zf.read(name))
             try:
-                states.append(load_state(root))
+                state = load_state(root)
             except (ValueError, FileNotFoundError) as exc:
                 raise fail(MODEL_PACKAGE_INVALID, "state", index=i, detail=str(exc)[:200]) from None
+            if len(list((root / "arrays").iterdir())) != len(state.arrays):
+                raise fail(MODEL_PACKAGE_INVALID, "state", index=i, detail="extra array files")
+            states.append(state)
     return ModelPackage(manifest, states)
