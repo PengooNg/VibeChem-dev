@@ -2,11 +2,11 @@
 
 > Status: v0.9 · Last updated: 2026-11-27
 > v0.9: Phase 1 gate (Quan, 2026-11-27) — new first Phase 2 step **T2.00 CI false-pass guards** (R42); leakage and row_index guards in the T2.04, T2.05 and T2.10a "Done when" (R39, R40); Phase 4 outline gains app dependency major upgrades (Dependabot #27).
-> v0.8: tooling v0.5 — K removed from the workflow: the `· K ·` / `· Q ·` area tags are gone from the step headings, Quan reviews everything (CLAUDE.md §10), risks go to `docs/RISKS.md`.
+> v0.8: tooling v0.5 — K removed from the workflow: the `· K ·` / `· Q ·` area tags are gone from the step headings, Quan reviews everything (docs/QA.md#8-review-checklists), risks go to `docs/RISKS.md`.
 > v0.7: T1.00b pengoo port inventory (Quan's request) — Phase 1 and T2.10 reuse lines name the pengoo function to port and the defect to fix (TECH_STACK.md §11.2); Duplex in T1.10 *proposed (T1.00b)*.
 > v0.6: T1.00 Quasar port inventory — Phase 1 and Phase 6 reuse lines name the Quasar/Orange module to port or the library to wrap (TECH_STACK.md §11.1); **T1.06b vendor readers** *proposed (T1.00)* — Quan approves by merging the T1.00 PR, or deletes the T1.06b row and block.
-> v0.5: Playwright CLI + design skills installed in T0.04; first Electron e2e test in T0.10; every `app/` step has a visual check (CLAUDE.md §13.1); 👤 glyph-set step added to Phase 4.
-> v0.4: **phase mode** — Quan types `/phase N`; Claude Code runs the steps below in order, each step = one PR merged into branch `phase-N`, until the gate or a stop condition (CLAUDE.md §14). Phases run in numeric order. 👤 steps are prepared by Claude Code and finished/merged by Quan.
+> v0.5: Playwright CLI + design skills installed in T0.04; first Electron e2e test in T0.10; every `app/` step has a visual check (docs/TOOLS.md#51-visual-check-by-step-type); 👤 glyph-set step added to Phase 4.
+> v0.4: **phase mode** — Quan types `/phase N`; Claude Code runs the steps below in order, each step = one PR merged into branch `phase-N`, until the gate or a stop condition (docs/rules/WORKFLOW.md#phase-mode). Phases run in numeric order. 👤 steps are prepared by Claude Code and finished/merged by Quan.
 > Phases 0–2 are detailed. Later phases are outlines, detailed at the previous phase gate.
 > Each step lists **exactly what to read** — Claude Code reads CLAUDE.md (automatic) plus only those sections and files.
 
@@ -27,9 +27,9 @@ A phase starts only after the previous phase's PR is merged into `main`.
 - Whole phase: `/phase 1` · one step: `/step T1.07` (add `wait` to approve its plan first) · continue after a stop: `/resume [your answer]` · progress: `/status` · bug: `/bug <issue>`.
 - A ticked box means "merged into the phase branch". It reaches `main` at the phase gate.
 
-**Size** (planning estimate; Claude Code re-estimates in its plan): **S** = 1–2 checkpoints · **M** = 3–4 checkpoints · **L** = split into a/b steps when starting (CLAUDE.md §12.4).
+**Size** (planning estimate; Claude Code re-estimates in its plan): **S** = 1–2 checkpoints · **M** = 3–4 checkpoints · **L** = split into a/b steps when starting (docs/rules/CODING.md#reuse-first-and-estimate-before-committing (12.4)).
 **Reuse** = candidates to evaluate first (TECH_STACK.md §11). "—" means nothing obvious; still do the §12 search if the step is M.
-Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Quan reviews every step (CLAUDE.md §10); the agents per area are in TOOLS.md §3.
+Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Quan reviews every step (docs/QA.md#8-review-checklists); the agents per area are in TOOLS.md §3.
 
 ## Status overview
 | Phase 0 | Phase 1 | Phase 2 |
@@ -65,12 +65,12 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 ### T0.01 · Verify GitHub Actions 👤 · Size S
 - **Read:** TECH_STACK.md §8
 - **Reuse:** GitHub's starter workflow; `actions/checkout`, `actions/setup-python`
-- **Do:** create `phase-0` from `main` (CLAUDE.md §14.1); add a 3-OS "hello" workflow triggered on pull requests to `main` and `phase-*`; push on a branch; open a PR into `phase-0`. If no run appears: tell Quan to allow Actions (repo Settings → Actions → General).
+- **Do:** create `phase-0` from `main` (docs/rules/WORKFLOW.md#session-preflight); add a 3-OS "hello" workflow triggered on pull requests to `main` and `phase-*`; push on a branch; open a PR into `phase-0`. If no run appears: tell Quan to allow Actions (repo Settings → Actions → General).
 - **Files:** `.github/workflows/ci-smoke.yml`
 - **Done when:** PR shows 3 green jobs (ubuntu, windows, macos). 👤 Quan merges (no merge script yet). The workflow is deleted in T0.06.
 
 ### T0.02 · Repository skeleton, legal files, labels, merge script 👤 · Size M
-- **Read:** TECH_STACK.md §3, §4 (SPDX), §8.1 (branches), §13 (legal and citation files); ARCHITECTURE.md §8 (D-016); CLAUDE.md §14.2
+- **Read:** TECH_STACK.md §3, §4 (SPDX), §8.1 (branches), §13 (legal and citation files); ARCHITECTURE.md §8 (D-016); docs/rules/WORKFLOW.md#merging-a-step
 - **Reuse:** GitHub's GPL-3.0 licence text; Keep-a-Changelog template; GitHub issue-form examples
 - **Do:** folder tree per TECH_STACK §3 (empty packages with README stubs), `docs/handoff/`, `docs/spikes/`, `docs/research/` (with `.gitkeep`), `.gitignore` (incl. `.env`, `.claude/settings.local.json`), `.editorconfig`, `.gitattributes` (LF), `LICENSE`, `CITATION.cff`, `CHANGELOG.md`, `THIRD_PARTY.md`, `CODEOWNERS` (`* @<quan-github-username>` — ask Quan for the username if not in the repo URL), `CONTRIBUTING.md`, PR template (first line `Status: …`; sections from QA.md §7 incl. "Plan as executed", "Reuse decision", "Estimate vs actual"), issue forms (bug with diagnostics, feature, method request). **`scripts/merge_step.py`** (stdlib only, calls `gh`): refuses unless base matches `phase-*`, PR not draft, all checks green (`gh pr checks`), title starts with `[T`, `[BUG` or `[SYNC]`, and the step is not 👤 in TASKS.md; then `gh pr merge --squash --delete-branch` with the PR title; unit tests with a fake `gh`. Labels with `gh label create`: `in-progress`, `paused`, `needs-quan`, `build-installers` (a fourth review label was dropped in tooling v0.5), `S1`, `S2`, `S3`, `S4`, `qa-gate`.
 - **Done when:** tree matches TECH_STACK §3; merge-script tests pass; `gh label list` shows the ten labels. 👤 Quan reviews the legal files and merges.
@@ -121,7 +121,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Read:** UI_GUIDE.md §5–6; DATA_MODEL.md §1, §2.12
 - **Reuse:** React Flow and uPlot examples; `openapi-typescript`
 - **Do:** canvas with two fixed nodes (Dataset → SNV), Run button, uPlot spectra preview; API client generated from OpenAPI.
-- **Do (also):** visual check (CLAUDE.md §13.1); first `@playwright/test` e2e test in Electron mode (launch → Run → spectra visible), added to `nightly.yml`. The SNV glyph is a placeholder until the Phase 4 glyph-set step.
+- **Do (also):** visual check (docs/TOOLS.md#51-visual-check-by-step-type); first `@playwright/test` e2e test in Electron mode (launch → Run → spectra visible), added to `nightly.yml`. The SNV glyph is a placeholder until the Phase 4 glyph-set step.
 - **Done when:** in dev mode, clicking Run shows raw and SNV spectra; e2e test passes locally and in CI; screenshots in the PR.
 
 ### T0.11 · Walking skeleton — shell and installers · Size M (split if > 4 checkpoints)
@@ -149,8 +149,8 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Done when:** draft PR ready. 👤 Quan reviews §4 and merges. No code.
 
 ### T0.15 · Phase 0 gate 👤 · Size S
-- **Read:** CLAUDE.md §14.4; QA.md §9.1; PROGRESS.md
-- **Do:** gate report (CLAUDE.md §14.4); list ADR-003…009 with a recommendation each; estimate-vs-actual for Phase 0 and proposed size changes for Phase 1.
+- **Read:** docs/rules/WORKFLOW.md#phase-end; QA.md §9.1; PROGRESS.md
+- **Do:** gate report (docs/rules/WORKFLOW.md#phase-end); list ADR-003…009 with a recommendation each; estimate-vs-actual for Phase 0 and proposed size changes for Phase 1.
 - **Done when:** gate report merged into `phase-0`, phase PR ready. 👤 Quan: install test on his machine, QA §9.1 items 1–2, risk review, ADR decisions (provisional), merge `phase-0 → main`.
 
 ---
@@ -164,8 +164,8 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Files:** `docs/TECH_STACK.md` (§11.1 inventory + port recipe), `docs/FUNCTION_CATALOG.md` ("Likely source" notes), `docs/TASKS.md` (reuse lines; new steps if any), `THIRD_PARTY.md` (upstream commit pins), `docs/PROGRESS.md`
 - **Do:**
   1. Inventory (TECH_STACK.md §11.1), one row per module: orange-spectroscopy `preprocess/`, `io/`, `irfft.py`, `models/`, and the useful non-Qt parts of Orange3 (preprocessors, PCA/HCA/k-Means, CV and permutation evaluation). Columns: our catalog function + F-ID · decision (port / wrap SciPy or another listed library instead / skip, with reason) · coupling to `Orange.data.Table` or Qt · its own third-party dependencies (e.g. `spectral`, `renishawWiRE`, `lmfit`) · upstream tests and sample data · target step.
-  2. Port recipe (TECH_STACK.md §11): `Orange.data.Table` → NumPy + `SpectralDataset`; source header with upstream path + commit; `THIRD_PARTY.md` row; block template (CLAUDE.md §5).
-  3. Reference-test rule: Quasar's own test values are not an independent reference for code ported from Quasar (CLAUDE.md §4); they are kept as extra regression checks only.
+  2. Port recipe (TECH_STACK.md §11): `Orange.data.Table` → NumPy + `SpectralDataset`; source header with upstream path + commit; `THIRD_PARTY.md` row; block template (docs/rules/CODING.md#block-template-and-comment-style).
+  3. Reference-test rule: Quasar's own test values are not an independent reference for code ported from Quasar (CLAUDE.md#hard-rules); they are kept as extra regression checks only.
   4. Sample data: check the licences of Quasar's test spectra (`datasets/`, `tests/`); list redistributable ones for T1.06 and later reader steps.
   5. Rewrite reuse lines: FUNCTION_CATALOG.md "Likely source", TASKS.md Phase 1 steps (T1.06 first) and the Phase 6 outline. Scope changes (e.g. a new T1.06b vendor-reader step for OPUS/OMNIC/ENVI…, new dependency candidates in the §11 register) are proposed in the PR for Quan to approve.
   6. Pin both upstream commits in `THIRD_PARTY.md`.
@@ -188,7 +188,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ### T1.02a · Block contract: base, ports, metadata, registry · Size M
 *(T1.02 split at the Phase 0 gate; same total scope as the former T1.02.)*
-- **Read:** ARCHITECTURE.md §3.1, §7 ADR-005/007; CLAUDE.md §5 (block template)
+- **Read:** ARCHITECTURE.md §3.1, §7 ADR-005/007; docs/rules/CODING.md#block-template-and-comment-style (block template)
 - **Reuse:** scikit-learn's `fit`/`transform` conventions (so wrapped transformers fit naturally)
 - **Files:** `vibechem_core/block.py`, `registry.py`, `errors.py`
 - **Do:** `Block` base, `Param`, `port()`, metadata (id, version, class, icon, references, fitted, tier), `fit`/`apply` split, error classes with codes, registry.
@@ -236,7 +236,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Done when:** each reader has a test on a sample file with an independently known value (axis range, point count, one intensity read with the vendor's software or a second reader); new dependencies approved in the PR.
 
 ### T1.07 · Preprocessing A: cut, SNV, MSC, detrend · Size M · depends T1.04
-- **Read:** METHODS.md (these entries); CLAUDE.md §5; `block.py`; TECH_STACK.md §11
+- **Read:** METHODS.md (these entries); docs/rules/CODING.md#block-template-and-comment-style; `block.py`; TECH_STACK.md §11
 - **Reuse:** `chemotools` (MSC, detrend, cut); SNV/cut may be simpler as own NumPy code. Quasar: port osp `Cut` (inclusive bounds, several ranges, unsorted axis); osp `Normalize` SNV mode and `EMSC` order 0 (= MSC) serve as behaviour cross-checks only (EMSC itself is ported in Phase 6). Reference values never from Quasar's tests (TECH_STACK.md §11.1 rule 3). pengoo (TECH_STACK.md §11.2, local `pengoo/`): port `snv`, `msc` (fix D1: least-squares fit of a + b·ref; reference learned in `fit`) and the axis-based polynomial detrend; no `+1e-10` guards (constant spectrum → error/NaN)
 - **Files:** `vibechem_core/blocks/preprocess/{cut,snv,msc,detrend}.py`; parameter type `wavelength_ranges` (Quan, 2026-11-26): `vibechem_core/block.py` (`Param`, `parse_params`), `vibechem_core/testing.py` (`DummySchema`), `vibechem_engine/api/schemas.py`, DATA_MODEL.md §5.2/§5.3
 - **Done when:** unit, property and reference tests pass (also for wrapped methods); MSC is `fitted` (reference spectrum learned).
@@ -293,7 +293,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Done when:** each metric has a hand-computed test; values in original Y units.
 
 ### T1.15 · Reproduce a published result + Phase 1 gate 👤 · Size M
-- **Read:** `testdata/datasets/PROVENANCE.md`; QA.md §4, §9.1; CLAUDE.md §14.4
+- **Read:** `testdata/datasets/PROVENANCE.md`; QA.md §4, §9.1; docs/rules/WORKFLOW.md#phase-end
 - **Do:** reference test reproducing the published PLS result; build `vibechem-core` wheel on 3 OS; gate report incl. estimate-vs-actual.
 - **Done when:** reference report shows the published value within tolerance; phase PR ready. 👤 Quan: gate review, merge `phase-1 → main`.
 
@@ -387,7 +387,7 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Done when:** golden test stores per-node hashes + metrics; a deliberate change shows the first divergent node.
 
 ### T2.14 · Phase 2 gate 👤 · Size S
-- **Read:** CLAUDE.md §14.4; QA.md §9.1; PROGRESS.md
+- **Read:** docs/rules/WORKFLOW.md#phase-end; QA.md §9.1; PROGRESS.md
 - **Do:** gate report; detail **Phase 3 and Phase 4** steps in TASKS.md (same format, sizes, reuse lines; Phase 3 kernels chosen from the T2.12 profiling report); propose UI_GUIDE.md updates from research studies S3/S4 if Quan has added findings to `docs/research/`.
 - **Done when:** phase PR ready. 👤 Quan: gate review (QA §9.1 items 2–4), approve the Phase 3–4 detail, freeze format v1, merge `phase-2 → main`.
 

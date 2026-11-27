@@ -4,7 +4,9 @@ disable-model-invocation: true
 allowed-tools: Bash(git fetch *) Bash(git log *) Bash(git show *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh issue list *) Bash(gh run list *) Read
 ---
 
-Read-only. Change nothing.
+Read first: docs/rules/WORKFLOW.md#status-request.
+
+Delegate to the `scribe` subagent (haiku, docs/rules/MODELS.md) with these instructions and relay its answer. Read-only. Change nothing.
 
 1. `git fetch --all --prune`.
 2. Read `docs/TASKS.md` and `docs/PROGRESS.md` **as they are on the active phase branch** (`git show origin/phase-<N>:docs/PROGRESS.md`), not only the local copy.

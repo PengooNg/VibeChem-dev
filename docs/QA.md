@@ -1,8 +1,8 @@
 # VibeChem — Quality Assurance & Testing
 
-> Status: v0.4 · Last updated: 2026-11-26 · Owner: Quan (scientific correctness and test infrastructure; agent lenses per CLAUDE.md §10)
-> v0.4 (tooling v0.5): ponytail's test-amount rule (CLAUDE.md "Precedence"); ponytail-review replaces code-review; K removed; risks in `docs/RISKS.md`.
-> v0.3: phase mode — step PRs merge automatically into `phase-N` when every check passes, so the automated checks and red-flag stops carry more weight; Quan's full review moves to the phase gate. Nightly also runs on the active phase branch. DoD aligned with CLAUDE.md §6.
+> Status: v0.4 · Last updated: 2026-11-26 · Owner: Quan (scientific correctness and test infrastructure; agent lenses per docs/QA.md#8-review-checklists)
+> v0.4 (tooling v0.5): ponytail's test-amount rule (docs/rules/PRECEDENCE.md); ponytail-review replaces code-review; K removed; risks in `docs/RISKS.md`.
+> v0.3: phase mode — step PRs merge automatically into `phase-N` when every check passes, so the automated checks and red-flag stops carry more weight; Quan's full review moves to the phase gate. Nightly also runs on the active phase branch. DoD aligned with docs/QA.md#7-per-step-duties.
 > Purpose: (1) tell Quan, without deep coding knowledge, whether the project is healthy; (2) let Claude Code find and fix bugs inside a small area of the code.
 
 ## 1. What QA protects (in priority order)
@@ -21,7 +21,7 @@
 | **L2 Step PR CI** | Every push to a step PR (base `phase-N`) | `ci.yml` on Windows, macOS, Linux + native wheels + sanitizer; `installers.yml` when packaging paths change. `merge_step.py` merges only when all are green | Automatic |
 | **L2b Phase PR CI** | Every merge into `phase-N` | `ci.yml` on the phase branch (the phase PR shows it) | Quan glances at the phase PR |
 | **L3 Nightly** | Every night on `main` and the active `phase-*` branch | Slow tests, nested-CV benchmark, determinism (1 vs N cores), e2e app tests, installers incl. macOS Intel | Failure opens an `S2` issue automatically |
-| **L4 Phase gate** | End of each phase | Gate report (CLAUDE.md §14.4), manual checklist (§9.1), spot-review of algorithms, risk review (`docs/RISKS.md`: ponytail-audit, ponytail-debt, mle-reviewer, production-audit from Phase 5, infrastructure checklist §8), council go/no-go note, estimate review | Quan |
+| **L4 Phase gate** | End of each phase | Gate report (docs/rules/WORKFLOW.md#phase-end), manual checklist (§9.1), spot-review of algorithms, risk review (`docs/RISKS.md`: ponytail-audit, ponytail-debt, mle-reviewer, production-audit from Phase 5, infrastructure checklist §8), council go/no-go note, estimate review | Quan |
 | **L5 Release** | Before each release | Release checklist (§9.2) on clean machines | Quan |
 
 ## 3. Test types
@@ -37,7 +37,7 @@
 | API contract | Engine responses match DATA_MODEL.md / OpenAPI | `packages/engine/tests/api/` | `/blocks` schema validation |
 | UI unit | Components behave | `app/renderer/src/**/*.test.tsx` | Inspector renders int param with min/max |
 | End-to-end | Real user flows in the desktop app (`@playwright/test`, from T0.10) | `app/e2e/` | Import CSV → build PLS → run → see metrics |
-| Visual check | Changed screens look right in all states and with worst-case data | PR screenshots (not committed) | CLAUDE.md §13.1: Playwright CLI + Impeccable critique/audit + break-ui + accessibility-review |
+| Visual check | Changed screens look right (👁 steps: in all states and with worst-case data) | PR screenshots (not committed) | docs/TOOLS.md#51-visual-check-by-step-type: Playwright CLI screenshots + e2e for new flows; 👁 steps and phase gates add Impeccable critique/audit, break-ui, accessibility-review |
 | Installer smoke | App starts after install | `installers.yml`, nightly | Install, launch, `/health` = ready, quit |
 | Performance | No speed regressions | `scripts/bench.py`, nightly | Preview < 300 ms; speed-up ≥ 4× on 8 cores |
 
@@ -47,7 +47,7 @@
 
 **Coverage targets** (enforced by `check.py` from T0.07; line coverage, floored to whole percent): `vibechem_core` ≥ 90 % · `vibechem_engine` ≥ 85 % · renderer ≥ 70 % · every block has ≥ 1 **reference test against an independent value** (mandatory, regardless of coverage; property tests are optional).
 
-**How many tests** (ponytail, CLAUDE.md "Precedence"): non-trivial logic (a branch, a loop, a parser, numbers, security, data writes, a bug fix) gets one small test that fails when it breaks; trivial changes get none. For an algorithm block that one test is the reference test above. The golden and leakage suites and every existing test stay. The coverage floors above are still enforced by `check.py`.
+**How many tests** (ponytail, docs/rules/PRECEDENCE.md): non-trivial logic (a branch, a loop, a parser, numbers, security, data writes, a bug fix) gets one small test that fails when it breaks; trivial changes get none. For an algorithm block that one test is the reference test above. The golden and leakage suites and every existing test stay. The coverage floors above are still enforced by `check.py`.
 
 ## 4. Health signals and red flags
 `scripts/check.py` prints this summary; Claude Code pastes it into every step PR and the gate report:
@@ -64,7 +64,7 @@ coverage ........... core 93% | engine 87% | app 74%
 ```
 The **reference report** (`reports/reference_report.md`, regenerated by every check) lists: method · dataset · expected value · VibeChem value · difference · tolerance · source of expected value · PASS/FAIL. If a number looks wrong to Quan, it is a bug even if it says PASS.
 
-**Red flags** — in phase mode each one is a stop (`RED_FLAG`, CLAUDE.md §14.3) unless the step's own text requires it:
+**Red flags** — in phase mode each one is a stop (`RED_FLAG`, docs/rules/WORKFLOW.md#stop-conditions) unless the step's own text requires it:
 - A tolerance in a test or METHODS.md was loosened.
 - A test was deleted, skipped, or marked "expected failure".
 - The golden pipeline expected values were regenerated.
@@ -87,25 +87,51 @@ The **reference report** (`reports/reference_report.md`, regenerated by every ch
 | **Last green commit** | Nightly records the last green commit; `git bisect` between it and the failing commit finds the exact change |
 
 ## 6. Bug protocol
-Short form and order of work: CLAUDE.md §7 (`/bug <issue>`). Additional rules:
+Read this when you fix a bug (`/bug <issue>`). A4 applied (docs/rules/CODING.md#a4-goal-driven-execution).
+Use superpowers **systematic-debugging** alongside this protocol; this order wins if they differ. **ponytail's bug rule applies on top:** before editing, grep every caller of the function you touch, and fix the root cause once in the shared code.
+1. **Reproduce**: write the smallest failing test that shows the bug; commit it first. This test is the success criterion.
+2. **Locate**, in this order, and stop at the first that points somewhere:
+   failing test path (tests mirror source paths) → error code origin (DATA_MODEL.md §7 lists the defining module) → `node_id`/`block_id`/`trace_id` in logs → golden test's first divergent node → `git bisect` between the last green commit and now.
+3. **Read only** that module, its package README, its tests and the relevant METHODS.md / DATA_MODEL.md section. If the failure involves a library call, check its documented behaviour for our pinned version with Context7 before assuming a bug.
+4. **Explain** the root cause in 2–3 sentences in the PR before changing code. If the cause is inside a reused library, say so; prefer pinning a version, a documented workaround or an upstream issue over patching vendored code.
+5. **Fix** in the smallest scope (ponytail); no unrelated refactoring.
+6. **Verify**: the new test passes, then the module's tests, then `check.py --fast`. The new test stays as a regression test.
+7. **Report** in the PR: Root cause · Fix · Test added · Possibly affected areas. Bug PR title: `[BUG #<issue>] <short description>`; base = the current phase branch.
+- A bug found **during** a step that is inside the step's scope: fix it in the step. Outside the scope: open an issue, note it in PROGRESS.md, continue the step.
+- A suspected **S1** (silent wrong number, leakage) anywhere: stop (`S1_BUG`) — Quan decides before any further feature work.
+- A bug in your own step that CI keeps showing red: up to **2 fix attempts**, then stop (`CI_RED`).
+
+Additional rules:
 - Bug fixes branch from and merge into the **active phase branch**. A bug that must reach `main` before the gate (e.g. it breaks the last released build) → Quan decides; Claude Code stops with `QUESTION`.
 - If the cause is in a reused library: pin a working version, work around it in our wrapper, and draft an upstream issue for Quan to post — don't patch the library's code inside our repo unless it is vendored.
-- ponytail's bug rule: grep every caller of the touched function and fix the root cause once in the shared code.
 - Scientific logic → Quan; engine/infra/C++/packaging → Quan, with silent-failure-hunter / cpp-reviewer; an open concern → `docs/RISKS.md` row.
 
 **User bug reports** use the GitHub issue form: steps to reproduce, expected vs actual, "Copy diagnostics" output (versions, OS, last errors, run/node IDs — no user data), and optionally the pipeline file.
 
-## 7. Definition of Done (every TASKS.md step) — same list as CLAUDE.md §6
-- [ ] Only the step's files (plus tests, docs, CHANGELOG, TASKS.md tick, PROGRESS.md) changed.
-- [ ] Plan as executed and reuse decision recorded in the PR; TECH_STACK.md §11 updated if a candidate was evaluated.
-- [ ] Non-trivial new/changed logic has one small test; every algorithm block (incl. wrapped libraries) has a reference test against an independent value; bugs have a regression test.
-- [ ] Full `scripts/check.py --fast` PASS locally; CI green on 3 OS.
-- [ ] Docs updated if behaviour, fields or dependencies changed (DATA_MODEL, TECH_STACK, METHODS); `THIRD_PARTY.md` if code was copied; CHANGELOG entry if user-visible.
-- [ ] PR template complete (incl. estimate vs actual checkpoints), health summary pasted, ponytail-review + per-area agents run (+ `/security-review` on 🔒, visual check on 👁).
-- [ ] PROGRESS.md updated (Now, Step log); `docs/RISKS.md` row if a risk stays open.
-- [ ] Handoff note deleted; labels set; merged with `merge_step.py` (👤 steps: Quan merges).
+## 7. Per-step duties
+Quality duties before merging a step (the Definition of Done for every TASKS.md step). Read this when you finish a step.
+1. Tests follow ponytail (Precedence table): non-trivial logic gets one small test in the mirrored test file; trivial changes get none. Every algorithm block (including wrapped libraries) has a **reference test against an independent value**. Bugs get a regression test.
+2. Run the **full** `uv run python scripts/check.py --fast` until everything is PASS.
+3. Regenerate `reports/reference_report.md` (done by `check.py`) and check that new methods appear in it.
+4. Paste the **health summary** printed by `check.py` into the PR description.
+5. Fill every section of the PR template: TASKS step, files changed, tests added, docs updated, **plan as executed**, **reuse decision** (docs/rules/CODING.md#reuse-first-and-estimate-before-committing), **tools used** (docs/TOOLS.md#5-rules-for-the-tools), estimate vs actual checkpoints, assumptions, anything you were unsure about (including ponytail's "skipped / risk" lines), unrelated issues noticed but not touched.
+6. **Diff self-review:** run **ponytail-review** on the branch diff, plus the ECC agents for the areas touched (TOOLS.md §3: silent-failure-hunter, cpp-reviewer, mle-reviewer); for steps marked 🔒 also run **`/security-review`**; for steps that change `app/` also do the **visual check for the step type** (docs/TOOLS.md#51-visual-check-by-step-type: screenshots + e2e for plain `app/` steps, the full set for 👁 steps). Fix what is in scope and list the rest. Then check the red flags in §4. Any red flag you cannot undo → stop (`RED_FLAG`).
+7. If a dependency was added: update TECH_STACK.md §1 and §11 and `THIRD_PARTY.md` (if code was copied) in the same PR. Update `CHANGELOG.md` if behaviour changed.
+8. Tick the step in `docs/TASKS.md` (status overview) in the same PR.
+9. **Update `docs/PROGRESS.md`** in the same PR: "Now" table and one Step-log row. If a review finding, dependency or ADR leaves a risk open, add a row to **`docs/RISKS.md`**.
+10. Delete `docs/handoff/<step-id>.md`, set the Status line to `Status: complete — merging`, remove `in-progress`/`paused` labels, mark the PR **ready for review**.
+11. Done also means: only the step's files (plus tests, docs, CHANGELOG, TASKS.md tick, PROGRESS.md) changed; CI green on 3 OS; merged with `merge_step.py` (👤 steps: Quan merges).
 
 ## 8. Review checklists
+**Who reviews what**
+Quan is the only human reviewer: everything goes to him (CODEOWNERS), and he spot-checks merged steps and reviews fully at the phase gate. The agent lenses cover what a second reviewer would:
+- Every code change → **ponytail-review**.
+- Engine, core, native, scripts (formats, API, scheduler, ports, error handling) → **silent-failure-hunter**.
+- C++ and native build → **cpp-reviewer** (plus TECH_STACK.md §5 rules).
+- Leakage, splits, metrics, reproducibility → **mle-reviewer** (T2.05 and gates).
+- CI, packaging, installers, dependencies → `/security-review` on 🔒 steps, and the gate audits (ponytail-audit, production-audit from Phase 5).
+Open findings from any of these go into `docs/RISKS.md`.
+
 **Quan — algorithm spot-check (at the phase gate, or any time on a merged step PR)**
 1. Do the `# Step N:` comments match the method in the cited paper / METHODS.md?
 2. If a library is wrapped: does its definition match METHODS.md (e.g. MSC reference = mean spectrum, SG edge mode)?
@@ -124,7 +150,8 @@ A problem found after merge → open an issue (`S1` if a number is wrong) and `/
 6. New dependency: licence, maintenance, wheels for all OS on Python 3.14, size impact; was reuse actually considered?
 
 ## 9. Manual QA checklists
-### 9.1 Phase gate (≈ 30 minutes, on Quan's own machine)
+### 9.1 Phase gate
+_(≈ 30 minutes, on Quan's own machine)_
 Use the items that exist at that phase:
 | Item | From phase |
 |---|---|
@@ -138,6 +165,7 @@ Use the items that exist at that phase:
 | 8. Close and reopen the project; everything is restored | 4 |
 | 9. Switch language EN → JA → VI; no missing strings | 4 |
 | 10. Export a report; numbers and references are correct | 6 |
+UI review at the gate (every phase that changed `app/`): one Impeccable `audit` + `accessibility-review` over every screen changed in the phase; findings → `docs/RISKS.md` or new steps (docs/TOOLS.md#51-visual-check-by-step-type).
 Write findings as GitHub issues labelled `qa-gate`. S1/S2 findings block the phase merge. `docs/RISKS.md` updated (new rows from the gate audits; reviewed rows get a new "Last reviewed" date).
 
 ### 9.2 Release (on clean machines/VMs for each OS)

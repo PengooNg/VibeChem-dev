@@ -4,6 +4,10 @@
 .claude/settings.local.json
 # Agent worktrees
 .claude/worktrees/
+# Full test/check logs from the quiet-test hook
+.cache/
+# pengoo sources (Quan's private code, read for ports only; the dev repo is public)
+pengoo/
 
 # Python
 __pycache__/

@@ -72,7 +72,11 @@ def test_all_pass_prints_summary_only_and_writes_log(
 ) -> None:
     assert check.main(["--fast"], runner=FakeRunner()) == 0
     out = capsys.readouterr().out
-    assert out.startswith("VibeChem health summary\nformat/lint ........ PASS\n")
+    assert out.startswith(
+        "=== HEALTH SUMMARY ===\nVibeChem health summary\nformat/lint ........ PASS\n"
+    )
+    assert "=== END HEALTH SUMMARY ===" in out
+    assert "doc refs ........... PASS" in out
     assert "tests .............. PASS  (3 passed, 0 failed)" in out
     assert "boundaries ......... PASS" in out
     assert "----" not in out  # no command output on success

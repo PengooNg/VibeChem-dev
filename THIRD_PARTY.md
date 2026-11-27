@@ -1,6 +1,6 @@
 # Third-party code and assets
 
-VibeChem is licensed under GPL-3.0-or-later (see `LICENSE`). This file lists code and assets in this repository that come from other projects: ported code, vendored code and bundled assets. Each entry gives the source, the licence and where the files live. Ported source files also keep their original copyright notice and carry a source header (CLAUDE.md §4).
+VibeChem is licensed under GPL-3.0-or-later (see `LICENSE`). This file lists code and assets in this repository that come from other projects: ported code, vendored code and bundled assets. Each entry gives the source, the licence and where the files live. Ported source files also keep their original copyright notice and carry a source header (CLAUDE.md#hard-rules).
 
 Libraries installed as dependencies (PyPI, npm) are not listed here; they are declared in the package manifests and in `docs/TECH_STACK.md`.
 
