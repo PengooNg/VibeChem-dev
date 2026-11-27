@@ -1,6 +1,7 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.8 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.9 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> v0.9: §3 `native.fallback` `reason` value `worker_crashed`; §7 `RUN_OUT_OF_MEMORY` proposed (T2.09).
 > v0.8: §6.6 cache key and cache folder layout (T2.06).
 > v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
 > v0.6: §6 file formats drafted (T2.03): common rules, `project.json`, pipeline file, `.vcm` model package, migrations; codes `PIPELINE_FILE_INVALID`, `PROJECT_FILE_INVALID` proposed in §7.
@@ -511,7 +512,7 @@ Axis mismatch the model can't handle → `422 MODEL_AXIS_MISMATCH` with `params.
 | `run.progress` | `done_tasks`, `total_tasks`, `eta_s` | Whole run |
 | `run.finished` | `status`, `duration_s`, `failed_nodes[]` | Run ends |
 | `log` | `level` (`debug\|info\|warning\|error`), `message`, `node_id?`, `block_id?`, `trace_id?` | Engine/block logs |
-| `native.fallback` | `block_id`, `kernel`, `reason` | C++ kernel failed → Python reference used |
+| `native.fallback` | `block_id`, `kernel`, `reason` | C++ kernel failed → Python reference used (`reason`: `worker_crashed` *(proposed T2.09)*) |
 | `memory.throttled` | `old_workers`, `new_workers` | Memory guard reduced concurrency |
 | `export.finished` | `export_id`, `status`, `output_path?` | Export done |
 | `prediction.finished` | `prediction_id`, `status` | Prediction done |
@@ -839,6 +840,7 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `PIPELINE_LEAKAGE` | 422 | `engine/compiler` | Fit step would see validation/test data |
 | `PIPELINE_RUNNING` | 409 | `engine/api` | Change blocked during run |
 | `RUN_ALREADY_ACTIVE` | 409 | `engine/scheduler` | Run already active on this pipeline/project |
+| `RUN_OUT_OF_MEMORY` | node error | `engine/scheduler` | A task ran out of memory again after the concurrency was halved and it was retried alone; the message advises fewer cores, a higher memory budget or smaller data *(proposed T2.09)* |
 | `RESULT_TOO_LARGE_USE_EXPORT` | 413 | `engine/api` | Use export for very large data |
 | `EXPORT_FORMAT_UNAVAILABLE` | 422 | `engine/api` | Format needs the desktop app (e.g. PDF) |
 | `MODEL_PACKAGE_INVALID` | 422 | `engine/formats` | Bad or unsafe model file (`params.reason`, §6.4) |

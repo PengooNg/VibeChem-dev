@@ -29,6 +29,7 @@ from typing import Protocol, Self, cast
 
 import loky
 import numpy as np
+from loky.process_executor import TerminatedWorkerError
 from numpy.typing import NDArray
 from threadpoolctl import threadpool_limits
 
@@ -39,6 +40,7 @@ __all__ = [
     "Executor",
     "MappedArray",
     "ProcessExecutor",
+    "TerminatedWorkerError",
     "loky_freeze_support",
     "task_seeds",
 ]

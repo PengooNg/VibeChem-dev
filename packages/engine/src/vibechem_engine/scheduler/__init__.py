@@ -21,7 +21,8 @@ Recovery (§3.6), one retry per job, run alone:
 - a worker dies (native crash; on Linux also an OOM kill): loky fails every running job,
   so the pool is restarted and each of them is retried, with its :class:`Fallback`
   (Python reference, ``native.fallback`` event) if it has one. Which job crashed is
-  unknown, so a bystander with a fallback uses it too (same numbers by the reference tests);
+  unknown, so a bystander with a fallback uses it too (same numbers by the reference tests).
+  Another broken pool (a task or result that cannot be unpickled) is retried without it;
 - a job raises ``MemoryError``: the concurrency cap is halved (``memory.throttled``) and the
   job retried; a second ``MemoryError`` is the node error ``RUN_OUT_OF_MEMORY``.
 
@@ -49,7 +50,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from vibechem_core.errors import VibeChemError
-from vibechem_engine.executor import Executor, task_seeds
+from vibechem_engine.executor import Executor, TerminatedWorkerError, task_seeds
 
 __all__ = [
     "PROGRESS_INTERVAL_S",
@@ -179,14 +180,38 @@ def run_jobs(
             if limit > 1:
                 emit("memory.throttled", {"old_workers": limit, "new_workers": limit // 2})
                 limit //= 2
-        else:
+        elif isinstance(exc, TerminatedWorkerError):  # not e.g. a task that failed to unpickle
             crashed.add(job.task_id)
-            if (fb := job.fallback) is not None:
-                emit(
-                    "native.fallback",
-                    {"block_id": fb.block_id, "kernel": fb.kernel, "reason": "worker_crashed"},
-                )
         ready.insert(0, job.task_id)
+
+    def record(future: Future[object]) -> BrokenExecutor | None:
+        """Record a finished job (or queue its retry); returns the error if it broke the pool."""
+        nonlocal threads_used, memory_used
+        job = running.pop(future)
+        threads_used -= job.threads
+        memory_used -= job.memory_bytes
+        exc = future.exception()
+        if isinstance(exc, BrokenExecutor | MemoryError) and job.task_id not in retried:
+            requeue(job, exc)
+            return exc if isinstance(exc, BrokenExecutor) else None
+        if isinstance(exc, MemoryError):
+            error = VibeChemError(RUN_OUT_OF_MEMORY)
+            error.__cause__ = exc
+            exc = error
+        if exc is None:
+            results[job.task_id] = future.result()
+            node_ok[job.node_id] += 1
+            if node_ok[job.node_id] == node_total[job.node_id]:
+                emit("node.state", {"node_id": job.node_id, "state": "done"})
+        else:
+            errors[job.task_id] = exc
+            _log.error("task %s of node %s failed", job.task_id, job.node_id, exc_info=exc)
+            blocked.add(job.task_id)
+            if job.node_id not in failed:
+                failed[job.node_id] = None
+                emit("node.state", _error_state(job.node_id, exc))
+        settle(job)
+        return exc if isinstance(exc, BrokenExecutor) else None
 
     def progress(key: str | None, event: str, data: dict[str, object], last: bool) -> None:
         now = clock()
@@ -249,8 +274,16 @@ def run_jobs(
                     ready.pop(0)
                     dep_results = [results[d] for d in job.deps]
                     fn = job.fn
-                    if job.fallback is not None and job.task_id in crashed:
-                        fn = job.fallback.fn
+                    if (fb := job.fallback) is not None and job.task_id in crashed:
+                        fn = fb.fn
+                        emit(
+                            "native.fallback",
+                            {
+                                "block_id": fb.block_id,
+                                "kernel": fb.kernel,
+                                "reason": "worker_crashed",
+                            },
+                        )
                     future = executor.submit(fn, seeds[job.task_id], *job.args, *dep_results)
                     running[future] = job
                     threads_used += job.threads
@@ -274,38 +307,16 @@ def run_jobs(
                 executor.restart()
                 running.clear()
                 break
-            broken = False
+            broken: BrokenExecutor | None = None
             for future in finished:
-                job = running.pop(future)
-                threads_used -= job.threads
-                memory_used -= job.memory_bytes
-                exc = future.exception()
-                broken = broken or isinstance(exc, BrokenExecutor)
-                if isinstance(exc, BrokenExecutor | MemoryError) and job.task_id not in retried:
-                    requeue(job, exc)
-                    continue
-                if isinstance(exc, MemoryError):
-                    error = VibeChemError(RUN_OUT_OF_MEMORY)
-                    error.__cause__ = exc
-                    exc = error
-                if exc is None:
-                    results[job.task_id] = future.result()
-                    node_ok[job.node_id] += 1
-                    if node_ok[job.node_id] == node_total[job.node_id]:
-                        emit("node.state", {"node_id": job.node_id, "state": "done"})
-                else:
-                    errors[job.task_id] = exc
-                    _log.error("task %s of node %s failed", job.task_id, job.node_id, exc_info=exc)
-                    blocked.add(job.task_id)
-                    if job.node_id not in failed:
-                        failed[job.node_id] = None
-                        emit("node.state", _error_state(job.node_id, exc))
-                settle(job)
-            if broken:
-                # The pool is dead: running jobs that have not reported yet died with it.
+                broken = record(future) or broken
+            if broken is not None:
+                # The pool is dead: keep results that came in meanwhile, retry the rest.
+                for future in [f for f in running if f.done() and f.exception() is None]:
+                    record(future)
                 executor.restart()
                 for job in running.values():
-                    requeue(job, BrokenExecutor("worker crashed"))
+                    requeue(job, broken)
                 running.clear()
                 threads_used = memory_used = 0
     except BaseException:
