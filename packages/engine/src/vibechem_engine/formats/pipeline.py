@@ -12,18 +12,18 @@ nodes (RISKS.md R50). Ports, types and block parameters are checked by
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue, field_validator, model_validator
 
 from vibechem_engine.formats._files import (
     SEMVER_PATTERN,
-    TIMESTAMP_PATTERN,
     StrictModel,
+    Timestamp,
     dump,
     id_pattern,
     read_json,
+    repeated,
     validate,
     write_atomic,
 )
@@ -43,7 +43,6 @@ PIPELINE_FILE_INVALID = "PIPELINE_FILE_INVALID"
 
 NodeId = Annotated[str, Field(pattern=id_pattern("nd"))]
 PortId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
-Timestamp = Annotated[str, Field(pattern=TIMESTAMP_PATTERN)]
 
 
 class Position(StrictModel):
@@ -66,10 +65,6 @@ class Edge(StrictModel):
     from_port: PortId
     to_node: NodeId
     to_port: PortId
-
-
-def repeated(ids: Sequence[str]) -> list[str]:
-    return sorted({i for i in ids if ids.count(i) > 1})
 
 
 class PipelineFile(StrictModel):

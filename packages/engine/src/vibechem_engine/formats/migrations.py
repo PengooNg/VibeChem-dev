@@ -45,7 +45,12 @@ def migrate(kind: str, doc: dict[str, Any], code: str) -> dict[str, Any]:
     current = CURRENT_VERSIONS[kind]
     version = doc.get("format_version")
     while type(version) is int and version < current and (kind, version) in MIGRATIONS:
-        doc = MIGRATIONS[(kind, version)](doc)
+        try:  # migrations run on unvalidated JSON
+            doc = MIGRATIONS[(kind, version)](doc)
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
+            raise fail(
+                code, "schema", location="", detail=f"{type(exc).__name__}: {exc}"[:200]
+            ) from None
         if doc.get("format_version") != version + 1:
             raise RuntimeError(f"{kind} migration from {version} did not set format_version")
         version += 1

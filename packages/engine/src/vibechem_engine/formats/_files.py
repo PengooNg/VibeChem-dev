@@ -11,12 +11,16 @@ packages, ``zip``, ``entry`` and ``state``. A missing or unreadable file is an
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+from collections import Counter
+from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from vibechem_core.errors import ErrorParam, VibeChemError
 
@@ -24,8 +28,24 @@ MAX_JSON_BYTES = 16 * 1024 * 1024
 """Largest JSON file (pipeline, project, model manifest) read (§6.1)."""
 
 ID_PATTERN = r"[0-9A-Za-z]+"
-TIMESTAMP_PATTERN = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$"
-SEMVER_PATTERN = r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+SEMVER_PATTERN = r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
+
+
+def _real_time(value: str) -> str:
+    datetime.strptime(value.removesuffix("Z").split(".")[0], "%Y-%m-%dT%H:%M:%S")
+    return value
+
+
+# ASCII digits only ([0-9], not \d: the schema regex engine matches any Unicode digit).
+Timestamp = Annotated[
+    str,
+    Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$"),
+    AfterValidator(_real_time),
+]
+
+
+def repeated(ids: Iterable[str]) -> list[str]:
+    return sorted(i for i, n in Counter(ids).items() if n > 1)
 
 
 class FormatError(VibeChemError):
@@ -46,6 +66,13 @@ def _reject_constant(constant: str) -> object:
     raise ValueError(f"{constant} is not JSON")
 
 
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is not a finite number")
+    return value
+
+
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     keys = [k for k, _ in pairs]
     if len(set(keys)) != len(keys):
@@ -61,6 +88,7 @@ def parse_json(data: bytes, code: str) -> dict[str, Any]:
         doc: object = json.loads(
             data.decode("utf-8"),
             parse_constant=_reject_constant,
+            parse_float=_finite_float,
             object_pairs_hook=_no_duplicate_keys,
         )
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
@@ -99,8 +127,14 @@ def write_atomic(path: str | os.PathLike[str], data: bytes) -> None:
     """Write ``data`` to ``path`` through a temporary file, so a crash never leaves half a file."""
     target = Path(path)
     tmp = target.with_name(target.name + ".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(target)
+    try:
+        with tmp.open("wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def id_pattern(prefix: str) -> str:

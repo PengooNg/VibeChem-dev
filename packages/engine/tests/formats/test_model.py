@@ -176,3 +176,35 @@ def test_package_needs_one_state_per_entry() -> None:
 def test_rejects_extra_array_file(tmp_path: Path) -> None:
     params = params_of(zip_with(tmp_path, {**GOOD_STATE, "states/0/arrays/1.npy": npy(np.ones(1))}))
     assert params["reason"] == "state"
+
+
+def test_rejects_array_header_larger_than_data(tmp_path: Path) -> None:
+    buffer = io.BytesIO()
+    header = {"descr": "<f8", "fortran_order": False, "shape": (40_000_000_000,)}
+    np.lib.format.write_array_header_1_0(buffer, header)  # type: ignore[no-untyped-call]
+    entries = {**GOOD_STATE, "states/0/arrays/0.npy": buffer.getvalue() + bytes(8)}
+    params = params_of(zip_with(tmp_path, entries))
+    assert params["reason"] == "state"
+    assert "shape" in str(params["detail"])
+
+
+@pytest.mark.parametrize("flag", [0x20, 0x40])
+def test_rejects_unsupported_zip_flags(tmp_path: Path, flag: int) -> None:
+    path = zip_with(tmp_path, GOOD_STATE)
+    data = bytearray(path.read_bytes())
+    at = data.index(b"PK") + 8  # flag bits of the first central directory entry
+    data[at] |= flag
+    path.write_bytes(bytes(data))
+    assert params_of(path)["reason"] == "zip"
+
+
+def test_rejects_long_state_index(tmp_path: Path) -> None:
+    entry = f"states/{'9' * 5000}/state.json"
+    assert params_of(zip_with(tmp_path, {**GOOD_STATE, entry: b"{}"}))["reason"] == "entry"
+
+
+def test_embedded_pipeline_version_error_names_pipeline(tmp_path: Path) -> None:
+    manifest = copy.deepcopy(MANIFEST)
+    manifest["pipeline"]["format_version"] = 3
+    params = params_of(zip_with(tmp_path, GOOD_STATE, manifest))
+    assert params == {"reason": "version", "found": 3, "supported": 1, "location": "pipeline"}

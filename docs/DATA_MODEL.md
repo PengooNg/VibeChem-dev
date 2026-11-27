@@ -738,14 +738,14 @@ Code: `vibechem_engine.formats` (pydantic models, `load_*`/`save_*`, `read_model
 ### 6.1 Common rules
 - UTF-8 JSON, `snake_case` keys, timestamps `YYYY-MM-DDTHH:MM:SS[.fff]Z`. Written with LF line endings, through a temporary file that replaces the target (no half-written file after a crash).
 - Every file carries an integer `format_version`. **Unknown keys are rejected**; any field change bumps `format_version` and ships a migration (§6.5). (The API's "ignore unknown fields" rule, §1, is for HTTP clients, not files.)
-- Values must have their exact JSON type (no `"12"` for `12`, no `true` for `1`); integers are accepted where a number is expected. `NaN`, `Infinity` and a key repeated within one object are rejected.
+- Values must have their exact JSON type (no `"12"` for `12`, no `true` for `1`); integers are accepted where a number is expected. `NaN`, `Infinity`, numbers that overflow to infinity (e.g. `1e400`) and a key repeated within one object are rejected. Timestamps must be real dates and times in ASCII digits.
 - A JSON file larger than 16 MiB is rejected before parsing.
 - An invalid file raises the format's code (§7) with `params.reason`:
 | `reason` | Extra params | When |
 |---|---|---|
-| `json` | `detail` | Not UTF-8, not JSON, not an object, NaN/Infinity, repeated key |
+| `json` | `detail` | Not UTF-8, not JSON, not an object, NaN/Infinity/overflow, repeated key |
 | `too_large` | `limit` (bytes) | Over the size limit |
-| `schema` | `location` (dotted path, e.g. `nodes.1.node_id`; `""` for whole-document rules), `detail` (English) | First field that breaks the schema or a rule below |
+| `schema` | `location` (dotted path, e.g. `nodes.1.node_id`; `""` for whole-document rules), `detail` (English) | First field that breaks the schema or a rule below; also a migration that fails on a malformed old file |
 | `version` | `found` (int or null), `supported` | `format_version` missing, newer than this app, or without a migration path |
 | `zip`, `entry`, `state` | see §6.4 | Model packages only |
 
@@ -796,7 +796,7 @@ State layout (T1.02b, adopted): `state.json` = `{"state_version": 1, "values": {
 | `trained_at` | timestamp | |
 | `pipeline` | pipeline document (§6.3) | The nodes needed to apply the model; which nodes, and the applicability-domain content, are defined by the export / predict steps (F-70, F-71) |
 | `states` | `[{node_id, block_id, block_version}]` | One per fitted node; `states[i]` is stored in `states/<i>/`. Each must match a pipeline node's `block_id` and `block_version`, `node_id` unique — so a state can never be given to another block (RISKS R35) |
-Reading refuses (code `MODEL_PACKAGE_INVALID`): not a zip / corrupt / encrypted or other compression → `reason: zip` (`detail`); any other entry name, a repeated entry, a missing `manifest.json`, or a `states/<i>/` with no manifest entry → `reason: entry` (`entry`); total declared uncompressed size > 2 GiB → `too_large`; a state `load_state` rejects (pickled or object array, bad `state.json`, missing file) → `reason: state` (`index`, `detail`); manifest problems → `json` / `schema` / `version` as §6.1. The embedded pipeline is migrated with the pipeline migrations. Unpacking writes only to a temporary folder, under names that passed the entry check.
+Reading refuses (code `MODEL_PACKAGE_INVALID`): not a zip / corrupt / truncated / encrypted or patched entries / other compression → `reason: zip` (`detail`); any other entry name, a repeated entry, a missing `manifest.json`, or a `states/<i>/` with no manifest entry → `reason: entry` (`entry`); more than 10 000 entries, total declared uncompressed size > 2 GiB or `manifest.json` > 16 MiB → `too_large`; state indexes are ASCII without leading zeros, at most 9 digits; a state `load_state` rejects (pickled or object array, bad `state.json`, missing file, an extra array file, a `.npy` header whose shape needs more bytes than the file holds) → `reason: state` (`index`, `detail`); manifest problems → `json` / `schema` / `version` as §6.1. The embedded pipeline is migrated with the pipeline migrations; its `version` error carries `location: "pipeline"`. Unpacking writes only to a temporary folder, under names that passed the entry check.
 
 ### 6.5 Versions and migrations
 `vibechem_engine.formats.migrations`: `CURRENT_VERSIONS` (`pipeline`, `project`, `model`: all 1) and one function per step, registered with `@migration(kind, from_version)`, that takes the parsed JSON of version n and returns version n + 1 (it must set `format_version`). Loading runs the chain up to the current version, then validates. A file newer than the app, or with no path, → `reason: version`. Example (in `tests/formats/test_pipeline.py`): a format 2 that renames node `label` to `title`. Block versions (`block_version`) are separate: a block's own parameter changes are handled by the block (later step), not by the file format.

@@ -172,3 +172,32 @@ def test_model_is_immutable() -> None:
     pipeline = PipelineFile.model_validate_json(json.dumps(PIPELINE))
     with pytest.raises(ValueError, match="frozen"):
         pipeline.name = "x"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("number", [b"1e400", b"-1e400"])
+def test_rejects_overflowing_numbers(tmp_path: Path, number: bytes) -> None:
+    path = tmp_path / "p.vcp.json"
+    path.write_bytes(json.dumps(PIPELINE).encode().replace(b'"ddof": 1', b'"ddof": ' + number))
+    assert reason_of(path)["reason"] == "json"
+
+
+FULLWIDTH_2026 = "".join(chr(0xFF10 + int(c)) for c in "2026")
+
+
+@pytest.mark.parametrize("stamp", [FULLWIDTH_2026 + "-11-17T05:45:00Z", "2026-99-99T99:99:99Z"])
+def test_rejects_bad_timestamps(tmp_path: Path, stamp: str) -> None:
+    params = reason_of(write(tmp_path, mutated("created_at", stamp)))
+    assert params["location"] == "created_at"
+
+
+def test_failing_migration_is_a_format_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _needs_nodes(doc: dict[str, Any]) -> dict[str, Any]:
+        doc["format_version"] = 2
+        doc["nodes"][0]["title"] = None
+        return doc
+
+    monkeypatch.setitem(mig.CURRENT_VERSIONS, "example", 2)
+    monkeypatch.setattr(mig, "MIGRATIONS", {("example", 1): _needs_nodes})
+    with pytest.raises(FormatError) as info:
+        mig.migrate("example", {"format_version": 1}, "PIPELINE_FILE_INVALID")
+    assert info.value.params["reason"] == "schema"

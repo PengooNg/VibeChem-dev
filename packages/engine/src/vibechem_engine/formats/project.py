@@ -17,14 +17,15 @@ from pydantic import Field, field_validator
 
 from vibechem_engine.formats._files import (
     StrictModel,
+    Timestamp,
     dump,
     id_pattern,
     read_json,
+    repeated,
     validate,
     write_atomic,
 )
 from vibechem_engine.formats.migrations import migrate
-from vibechem_engine.formats.pipeline import Timestamp, repeated
 
 __all__ = ["PROJECT_FILE_INVALID", "ProjectFile", "load_project", "save_project"]
 
