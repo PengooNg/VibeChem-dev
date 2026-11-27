@@ -8,8 +8,11 @@ license = "GPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.165.0,<0.165.1",
+    "loky>=3.7,<3.8",
+    "numpy>=2.5",
     "pyarrow>=26.0.1",
     "pydantic>=2.13,<2.14",
+    "threadpoolctl>=3.8.0",
     "uvicorn>=0.54.0",
     "vibechem-core",
 ]
