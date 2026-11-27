@@ -1,6 +1,7 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.6 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.7 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
 > v0.6: §6 file formats drafted (T2.03): common rules, `project.json`, pipeline file, `.vcm` model package, migrations; codes `PIPELINE_FILE_INVALID`, `PROJECT_FILE_INVALID` proposed in §7.
 > v0.5: §5 block parameter schema drafted (T1.03): types, units, `visible_if`, constraints, value validation; `/blocks/{id}` fields spelled out in §2.3; new error code `BLOCK_PARAM_INVALID` in §7.
 > v0.4: §4 port types drafted (T0.14): seven types with fields, compatibility rules, port declaration fields, multi-input rules (PDS, ImageCube), fold/refit semantics; five new error codes in §7.
@@ -667,13 +668,13 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 ### 4.6 Fitted states, folds and validation (leakage)
 - A fitted block has the usual data outputs plus an optional state output (`model: Model` or `transform: Transform`). Inside a pipeline the compiler splits it into fit and apply tasks (ARCHITECTURE.md §3.2); the state port exists so a state can be applied to other data or exported.
 - **Split and fold blocks** take `spectra: Spectra` and output `folds: Folds`. Hold-out splits (random, KS, SPXY) also output `train: Spectra` and `test: Spectra` for convenience; both carry `row_index`, so a later `fit` on `test` rows is still detected.
-- **Validation blocks** (CV, nested CV, permutation, grid search) take `model: Model` with `refit_per_fold: true` and `folds: Folds`, and output `results: Results` and `model: Model` (refit on all training rows). The compiler re-runs the whole upstream subgraph between the dataset node and the `model` port once per fold, with every `fit` task restricted to that fold's `train` rows and `apply` tasks run on train and validation rows. The `Folds` and the model's subgraph must come from the same source dataset → `PIPELINE_FOLDS_SOURCE_MISMATCH`. Nested CV adds an inner `inner_folds: Folds` input or an inner scheme parameter (decided in T2.10).
+- **Validation blocks** (CV, nested CV, permutation, grid search) take `model: Model` with `refit_per_fold: true` and `folds: Folds`, and output `results: Results` and `model: Model` (refit on all training rows). The compiler re-runs the whole upstream subgraph between the dataset node and the `model` port once per fold, with every `fit` task restricted to that fold's `train` rows and `apply` tasks run on train and validation rows. The `Folds` and the model's subgraph must come from the same source dataset → `PIPELINE_FOLDS_SOURCE_MISMATCH`. Exact scope (compiler, T2.04): the fold source is the `Spectra` stream feeding the block that produced the `folds` input (e.g. a hold-out `train` output when the folds are made on it); the re-fitted subgraph is every node downstream of that stream that feeds the `refit_per_fold` port. A `refit_per_fold` source that is not downstream of the fold source → `PIPELINE_FOLDS_SOURCE_MISMATCH`; a fitted block upstream of the fold source (fitted once on rows that are some fold's validation rows) → `PIPELINE_LEAKAGE` on that node, so fold blocks go on the data before any fitted preprocessing. Fold rows are selected by `row_index` (`SpectralDataset.rows`), never by position. Nested CV adds an inner `inner_folds: Folds` input or an inner scheme parameter (decided in T2.10).
 - **External test set** (`validate.test_set`): `model: Model` (`refit_per_fold: false`, applied as is) · `spectra: Spectra` (`requires: ["y"]` or `["classes"]`) → `results: Results`. If the test rows overlap `Model.fitted_rows` → `PIPELINE_LEAKAGE`.
 - **Container blocks (UI_GUIDE §6).** A nested-CV or grid-search container on the canvas is a drawing of a validation block plus the subgraph feeding its `refit_per_fold` port; it is not a separate port type. How the pipeline file records which nodes sit inside a frame is decided in T2.03 (§6).
 
 ### 4.7 Open points for review
 1. `Transform` shape `diamond_outline` is new — UI_GUIDE §6 lists shapes only for the other six types.
-2. Validation via `refit_per_fold` on a `Model` input (above) vs. explicit container nodes with inner input/output ports. The first keeps one edge type and matches ARCHITECTURE.md §3.2; the second makes the per-fold scope visible in the file but needs a sub-graph format.
+2. **Decided (Quan, 2026-11-27): option 1.** Validation via `refit_per_fold` on a `Model` input (above), no explicit container nodes with inner input/output ports. Format v1 stays without frames (§6.3); the per-fold scope is derived from the subgraph feeding `refit_per_fold` (§4.6).
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
 
 ## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews)*
@@ -777,7 +778,7 @@ The pipeline document of §2.6, format 1:
 
 Node: `node_id` (`nd_…`), `block_id` (as in the block registry), `block_version` (`MAJOR.MINOR.PATCH`), `params` (JSON object, values checked against the block's schema by `parse_params`, §5.3), `position` `{x, y}` (numbers), `label` (str or null). Edge: `edge_id` (`eg_…`), `from_node`, `from_port`, `to_node`, `to_port` (port ids `snake_case`). Ids after the prefix are `[0-9A-Za-z]+` (ULIDs in practice).
 Checked at load beyond the JSON Schema: unique node and edge ids, every edge names existing nodes (RISKS R50). Port names, port types, required inputs and cycles are graph validation (`vibechem_engine.graph`, §4.4), not file validity. Invalid → `PIPELINE_FILE_INVALID`.
-**Container frames (§4.6):** v1 stores no frame. A nested-CV or grid-search frame is derived from the graph: the validation node plus the subgraph feeding its `refit_per_fold` port. If §4.7.2 is decided for explicit container nodes instead, that is format 2 with a migration.
+**Container frames (§4.6):** v1 stores no frame. A nested-CV or grid-search frame is derived from the graph: the validation node plus the subgraph feeding its `refit_per_fold` port. §4.7.2 is decided for this (`refit_per_fold`, Quan 2026-11-27).
 
 ### 6.4 Model package `models/<name>.vcm`
 A zip (stored or deflate) with exactly these entries:

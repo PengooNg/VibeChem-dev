@@ -261,6 +261,26 @@ def test_subset_rejects_invalid_indices(indices: list[Any], match: str) -> None:
         make_dataset(n=4).subset(indices)
 
 
+# --- rows (by row_index, R40) --------------------------------------------------
+
+
+def test_rows_selects_by_row_index_not_position() -> None:
+    ds = make_dataset(n=4).subset([2, 0, 3, 1])  # row_index 12, 10, 13, 11: offset and shuffled
+    sub = ds.rows([13, 10])
+    np.testing.assert_array_equal(sub.row_index, [13, 10])
+    assert sub.sample_ids == ("S003", "S000")
+    assert ds.rows([]).n_samples == 0
+
+
+@pytest.mark.parametrize(
+    ("row_index", "match"),
+    [([1], r"not in this dataset: \[1\]"), ([10, 10], "unique"), ([10.0], "integers")],
+)
+def test_rows_rejects_unknown_or_repeated_values(row_index: list[Any], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        make_dataset(n=4).rows(row_index)
+
+
 # --- properties (hypothesis) --------------------------------------------------
 
 
