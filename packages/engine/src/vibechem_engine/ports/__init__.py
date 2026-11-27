@@ -70,19 +70,24 @@ def _check_name(port_type: str) -> None:
         raise ValueError(f"unknown port type {port_type!r}; one of {sorted(PORT_TYPES)}")
 
 
-def edge_rule(from_type: str, to_type: str) -> RuleName | None:
-    """Conversion rule for a valid edge between different types; ``None`` otherwise.
+def is_compatible(from_type: str, to_type: str) -> bool:
+    """True when an output of ``from_type`` may feed an input of ``to_type`` (§4.4).
 
     Raises ``ValueError`` for a name outside §4.1 (a caller bug, never a user's edge).
     """
     _check_name(from_type)
     _check_name(to_type)
+    return from_type == to_type or (from_type, to_type) in _RULES
+
+
+def edge_rule(from_type: str, to_type: str) -> RuleName | None:
+    """Conversion rule of a valid edge; ``None`` when the types are equal (no conversion).
+
+    Raises ``ValueError`` for an incompatible pair, so ``None`` always means "valid".
+    """
+    if not is_compatible(from_type, to_type):
+        raise ValueError(f"port type {from_type!r} cannot feed {to_type!r} (DATA_MODEL §4.4)")
     return _RULES.get((from_type, to_type))
-
-
-def is_compatible(from_type: str, to_type: str) -> bool:
-    """True when an output of ``from_type`` may feed an input of ``to_type`` (§4.4)."""
-    return edge_rule(from_type, to_type) is not None or from_type == to_type
 
 
 def port_types_payload() -> dict[str, list[dict[str, str]]]:

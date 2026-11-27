@@ -25,11 +25,23 @@ ALLOWED = {
     ("ImageCube", "Spectra"): "implicit_unfold",
 }
 
+# §4.1 table: name -> (description_key, shape_icon).
+REGISTRY = {
+    "Spectra": ("ports.spectra", "circle"),
+    "Table": ("ports.table", "circle"),
+    "Model": ("ports.model", "diamond"),
+    "Transform": ("ports.transform", "diamond_outline"),
+    "Folds": ("ports.folds", "triangle"),
+    "Results": ("ports.results", "square"),
+    "ImageCube": ("ports.image_cube", "hexagon"),
+}
 
-def test_registry_matches_core_type_names() -> None:
-    names = [t.name for t in PORT_TYPE_REGISTRY]
-    assert len(names) == len(set(names))
-    assert set(names) == PORT_TYPES
+
+def test_registry_matches_doc_and_core_type_names() -> None:
+    assert [(t.name, (t.description_key, t.shape_icon)) for t in PORT_TYPE_REGISTRY] == list(
+        REGISTRY.items()
+    )
+    assert set(REGISTRY) == PORT_TYPES
 
 
 @pytest.mark.parametrize("pair", sorted(ALLOWED))
@@ -51,7 +63,8 @@ def test_every_other_pair_is_rejected() -> None:
     assert len(rejected) == 7 * 6 - len(ALLOWED)
     for a, b in rejected:
         assert not is_compatible(a, b), (a, b)
-        assert edge_rule(a, b) is None
+        with pytest.raises(ValueError, match="cannot feed"):
+            edge_rule(a, b)
 
 
 @pytest.mark.parametrize(
@@ -76,6 +89,8 @@ def test_named_refusals(pair: tuple[str, str]) -> None:
 def test_unknown_names_raise(pair: tuple[str, str]) -> None:
     with pytest.raises(ValueError, match="unknown port type"):
         is_compatible(*pair)
+    with pytest.raises(ValueError, match="unknown port type"):
+        edge_rule(*pair)
 
 
 def test_payload_shape() -> None:
@@ -84,10 +99,6 @@ def test_payload_shape() -> None:
         {"from": a, "to": b, "rule": r} for (a, b), r in ALLOWED.items()
     ]
     assert len(COMPATIBILITY) == len(ALLOWED)
-    by_name = {t["name"]: t for t in payload["port_types"]}
-    assert by_name["Transform"] == {
-        "name": "Transform",
-        "description_key": "ports.transform",
-        "shape_icon": "diamond_outline",
-    }
-    assert by_name["ImageCube"]["description_key"] == "ports.image_cube"
+    assert payload["port_types"] == [
+        {"name": n, "description_key": k, "shape_icon": s} for n, (k, s) in REGISTRY.items()
+    ]
