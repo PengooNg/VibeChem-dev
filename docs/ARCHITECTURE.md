@@ -217,7 +217,7 @@ Format: Status · Date · Context · Options · Decision · Consequences · Acti
 **Actions:** reuse register in TECH_STACK.md §11; reuse scan + estimate in every plan; reuse ratio and estimate accuracy reviewed at each phase gate; Quasar port inventory (TASKS.md T1.00).
 
 ### ADR-010 Coded warnings from blocks; where error and warning definitions live
-**Status:** Proposed (Quan approved the direction for T1.08; to accept at the Phase 1 gate) · 2026-11-26
+**Status:** Accepted · 2026-11-27, Phase 1 gate (proposed 2026-11-26; Quan approved the direction for T1.08)
 **Context:** METHODS.md N4 needs a block to report a non-fatal, coded condition (`BLOCK_AXIS_NOT_UNIFORM`) while still returning its output; T1.09 (N3) and later blocks need the same. Until now `Block.apply` returns outputs only and `vibechem_core.errors` defines exceptions only. Readers report warnings as return data (`TableImport.warnings`, DATA_MODEL.md §2.5), which a block cannot do without changing the block contract. A second question came with it (Quan): should error and warning definitions for all modules live in one central place, or be grouped per module / block family?
 **Options — channel:** A. stdlib `warnings.warn` with a coded `VibeChemWarning(UserWarning)`; the engine records them · B. a `warnings` list in the block's return value (changes the block contract and every block) · C. a context object or logger passed into `apply` (new contract argument; logging has no `code`/`params`).
 **Options — placement** (what is defined where: classes, code constants, the registry of codes, message keys):
@@ -234,8 +234,9 @@ Format: Status · Date · Context · Options · Decision · Consequences · Acti
 ## 8. Technical decision log (one line each, newest first)
 | ID | Date | Decision |
 |---|---|---|
+| D-025 | 2026-11-27 | Phase 1 gate: ADR-010 accepted; `METRIC_UNDEFINED`, `METRIC_FEW_SAMPLES` and the RPD/RPIQ = NaN rule on RMSE 0 accepted; SIMPLS PLS2 and VIP stay provisional until Quan's R values arrive (R32); gasoline data (Kalivas 1997) kept as a test benchmark; T1.00b catalog rows and the PyWavelets candidate approved |
 | D-024 | 2026-11-26 | Tooling v0.5: K removed from the workflow; reviews = Quan + agents (ponytail-review, silent-failure-hunter, cpp-reviewer, mle-reviewer; CLAUDE.md §10); caveman / ponytail / ECC take precedence over the project rules where they conflict (CLAUDE.md "Precedence", D1–D6); the K review backlog became `docs/RISKS.md`; ADR-003…009 `Accepted` |
-| D-023 | 2026-11-26 | Coded block warnings via `warnings.warn(VibeChemWarning)`; error/warning classes central in `errors.py`, code constants in the raising module, DATA_MODEL §7 the single registry (ADR-010, provisional) |
+| D-023 | 2026-11-26 | Coded block warnings via `warnings.warn(VibeChemWarning)`; error/warning classes central in `errors.py`, code constants in the raising module, DATA_MODEL §7 the single registry (ADR-010, accepted at the Phase 1 gate 2026-11-27) |
 | D-022 | 2026-11-24 | Phase 0 gate: ADR-003…009 accepted (provisional — K to confirm); ADR-007 allows in-memory pickling to loky workers only; Quasar port-max under ADR-009 (port, never depend); Phase 1 sizes revised (T1.02, T1.12 split; T1.03, T1.15 → M); new step T1.00 Quasar port inventory |
 | D-021 | 2026-11-18 | Reuse first, build last (ADR-009, proposed); every step has a size (S/M/L) and reuse line in TASKS.md; PDF reports produced only by the desktop app |
 | D-020 | 2026-11-17 | Docs consolidated: ARCHITECTURE (incl. ADRs), TECH_STACK, DATA_MODEL, UI_GUIDE, QA, TASKS for building; PROJECT for planning |
@@ -249,4 +250,4 @@ Format: Status · Date · Context · Options · Decision · Consequences · Acti
 | D-010 | 2026-11-16 | Multi-port typed blocks; pipelines are DAGs |
 | D-005 | 2026-11-16 | Local desktop app; UI and engine separable for a later web Lite |
 
-**Pending sign-off by Quan:** ADR-010 (Phase 1 gate).
+**Pending sign-off by Quan:** none.

@@ -217,7 +217,7 @@ Hold-out split blocks output `folds: Folds` (one train/test hold-out) plus `trai
 - **Reference.** `galvao2005spxy`.
 
 <a id="duplex"></a>
-### Duplex (`split.duplex`) · T1.10 *(proposed (T1.00b) addition)*
+### Duplex (`split.duplex`) · T1.10 *(T1.00b addition, approved at the Phase 1 gate)*
 - **Definition.** Build training and test sets that both cover the X space: the two most distant samples go to training, the next two most distant (of the rest) to test, then the sets alternately take the remaining sample farthest from their own members.
 - **Steps.** 1 distance matrix (as KS) · 2 farthest pair → training · 3 farthest remaining pair → test · 4 alternate: each set takes the remaining sample with the largest min-distance to that set · 5 when the test set reaches n_test, the rest go to training.
 - **Edge cases.** As Kennard–Stone. Unequal set sizes: alternation stops for the full set.

@@ -88,6 +88,13 @@ jobs:
           CIBW_ARCHS: auto64
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: pytest {package}/tests/python -p no:cacheprovider
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - name: Build and smoke-test the vibechem-core wheel
+        shell: bash
+        run: |
+          uv build --package vibechem-core --wheel --out-dir wheelhouse
+          uv run --isolated --no-project --python 3.14 --with wheelhouse/vibechem_core-*.whl \
+            python -I scripts/smoke_core_wheel.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheels-${{ matrix.name }}

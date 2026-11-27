@@ -1,7 +1,7 @@
 # VibeChem — Function Catalog & Priority List
 
 > Status: v0.5 · Last updated: 2026-11-25
-> v0.5: T1.00b pengoo port inventory — "Likely source" notes name the pengoo function to port (per-function decisions and defects to fix in TECH_STACK.md §11.2); rows marked *proposed (T1.00b)* await Quan's approval.
+> v0.5: T1.00b pengoo port inventory — "Likely source" notes name the pengoo function to port (per-function decisions and defects to fix in TECH_STACK.md §11.2); rows marked *proposed (T1.00b)* were approved at the Phase 1 gate (2026-11-27), including Duplex in the Kennard–Stone / SPXY row.
 > v0.4: T1.00 Quasar port inventory — "Likely source" notes name the Quasar/Orange module to port or the library to wrap instead (osp = orange-spectroscopy, o3 = Orange3, commits and per-module decisions in TECH_STACK.md §11.1); rows marked *proposed (T1.00)* await Quan's approval.
 > v0.3: pengoo wording ("ported from pengoo"); reuse sources per class; PDF via desktop app.
 > Goal: include every function that serves chemometrics, vibrational & hyperspectral data, conventional statistics and plotting. Nothing is cut; everything is **ordered**.
@@ -72,8 +72,8 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Normalisation: vector, min-max, area, by peak/attribute, by reference | P0 |
 | Band integration: area, height, peak position *(proposed (T1.00); PRD Appendix A "Integrate" parity)* | P0 |
 | Spike/cosmic-ray removal | P0 |
-| Baseline: SNIP (pybaselines) *(proposed (T1.00b); used in pengoo's grid search)* | P0 |
-| Median-filter smoothing *(proposed (T1.00b); pengoo `median_denoise`)* | P0 |
+| Baseline: SNIP (pybaselines) *(approved at the Phase 1 gate (T1.00b); used in pengoo's grid search)* | P0 |
+| Median-filter smoothing *(approved at the Phase 1 gate (T1.00b); pengoo `median_denoise`)* | P0 |
 | Mean-centring, autoscaling, Pareto, range scaling | P0 |
 | Transmittance↔absorbance, log(1/R), Kubelka–Munk | P0 |
 | PCA denoising | P0 |
@@ -91,7 +91,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 |---|---|
 | Random, Y-stratified, by group, user column | P0 |
 | Kennard–Stone, SPXY, Duplex | P0 |
-| Rank-rotate split with protected y-extremes *(proposed (T1.00b); pengoo `split_cal_test`)* | P1 |
+| Rank-rotate split with protected y-extremes *(approved at the Phase 1 gate (T1.00b); pengoo `split_cal_test`)* | P1 |
 | Puchwein, D-optimal | P2 |
 
 ## 6. Validation
@@ -123,7 +123,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | iPLS (forward/backward), CARS, SPA | P0 |
 | Selection inside CV + stability map | P0 |
 | GA-PLS, UVE / MC-UVE, siPLS, sPLS, ACO, SWSR | P1 |
-| MW-PLS (moving-window PLS) *(proposed (T1.00b); pengoo `moving_window_pls`)* | P1 |
+| MW-PLS (moving-window PLS) *(approved at the Phase 1 gate (T1.00b); pengoo `moving_window_pls`)* | P1 |
 | CAKE (owner's method) | P1 |
 | VCPA, IRIV, Boruta / RF importance | P2 |
 
@@ -181,7 +181,7 @@ Within a tier, build in table order. Owner may promote any item. If v1.0 runs la
 | Mann–Whitney, Wilcoxon signed-rank, Kruskal–Wallis | P0 |
 | Pearson / Spearman correlation | P0 |
 | Model comparison: paired tests on CV errors, randomisation t-test (van der Voet) | P0 |
-| Bias and slope significance tests on a test set (ISO 12099) *(proposed (T1.00b); pengoo `validate_models`)* | P0 |
+| Bias and slope significance tests on a test set (ISO 12099) *(approved at the Phase 1 gate (T1.00b); pengoo `validate_models`)* | P0 |
 | Multiple-testing correction (Bonferroni, Holm, BH-FDR) | P1 |
 | Bland–Altman, equivalence tests, bootstrap CIs | P1 |
 | MANOVA, ASCA (designed experiments) | P2 |
