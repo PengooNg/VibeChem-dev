@@ -123,8 +123,9 @@ def digest(results: Results) -> str:
     h = hashlib.sha256(json.dumps(sorted(results.metrics.items()), sort_keys=True).encode())
     for table in (results.predictions, results.candidates):
         for key in sorted(table or {}):
-            h.update(key.encode())
-            h.update(np.ascontiguousarray((table or {})[key]).tobytes())
+            array = np.ascontiguousarray((table or {})[key])
+            h.update(f"|{key}|{array.dtype}|{array.shape}|".encode())
+            h.update(array.tobytes())
     return h.hexdigest()
 
 
@@ -132,8 +133,13 @@ def warm_pool(workers: int, spill_dir: Path) -> tuple[ProcessExecutor, float]:
     """A pool whose ``workers`` processes are up and have imported NumPy; also its start-up s."""
     start = time.perf_counter()
     pool = ProcessExecutor(workers, spill_dir)
-    for future in [pool.submit(_ready, i) for i in range(workers * 4)]:
-        future.result()
+    try:
+        pids = {f.result() for f in [pool.submit(_ready, i) for i in range(workers * 4)]}
+        if len(pids) < workers:  # a worker still to start would add its start-up to a timed run
+            raise RuntimeError(f"only {len(pids)} of {workers} workers started")
+    except BaseException:
+        pool.shutdown(kill=True)
+        raise
     return pool, time.perf_counter() - start
 
 
@@ -163,7 +169,7 @@ class InlineExecutor:
         future: Future[Any] = Future()
         try:
             future.set_result(fn(*args))
-        except BaseException as exc:  # noqa: BLE001 (handed to the caller through the future)
+        except Exception as exc:  # noqa: BLE001 (handed to the caller through the future)
             future.set_exception(exc)
         return future
 
@@ -259,11 +265,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     print(f"determinism (all worker counts, all repeats): {'PASS' if deterministic else 'FAIL'}")
 
+    missed = False
     target = next((c for c in configs if c.workers == TARGET_WORKERS), None)
     if target is None or cpus < TARGET_WORKERS:
         verdict = f"not judged (needs {TARGET_WORKERS} workers on >= {TARGET_WORKERS} CPUs; this machine has {cpus})"
     else:
         ok = (target.speedup or 0) >= TARGET_SPEEDUP
+        missed = not ok
         verdict = f"{'PASS' if ok else 'FAIL'} ({target.speedup:.2f}x at {TARGET_WORKERS} workers, target {TARGET_SPEEDUP}x)"
     print(f"speed-up target: {verdict}")
 
@@ -289,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         with Path(args.json).open("w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=2)
-    return 0 if deterministic and not verdict.startswith("FAIL") else 1
+    return 0 if deterministic and not missed else 1
 
 
 if __name__ == "__main__":

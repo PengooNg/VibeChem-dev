@@ -143,7 +143,6 @@ jobs:
       - name: bench.py (speed-up and determinism)
         shell: bash
         run: |
-          if [ ! -f scripts/bench.py ]; then echo "no scripts/bench.py on this branch yet"; exit 0; fi
           uv run --no-sync python scripts/bench.py --workers 1,2,4 --repeats 2 --rows 400 --cols 600             --outer 6 --inner 4 --profile --json bench.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   report:

@@ -21,17 +21,17 @@ Machine: Windows 11, 24 logical CPUs, Python 3.14.10 (laptop). **CI runners have
 Determinism: PASS (one hash for every worker count and repeat). The curve flattens at 4 workers: a serial part dominates.
 
 ### Why: the parent process is the bottleneck
-Probing the 1-worker and 8-worker runs (timing each task inside the worker, `cProfile` in the parent):
+Manual one-off probes (not part of `bench.py`; throwaway scripts that wrap the executor to time each task inside the worker, count the cloudpickle size of each task's arguments, and run `cProfile` in the parent; the same applies to the block timings and the PLS NIPALS vs SIMPLS timing below, made with `PLS().fit` and `Block.apply` on the same synthetic data). Repeat them before acting on the exact figures:
 
 | | 1 worker | 8 workers |
 |---|---|---|
-| Wall | 26.7 s | 10.4 s |
+| Wall (this probe, timing wrapper on) | 26.7 s | 10.4 s |
 | Time inside tasks (sum) | 11.1 s | 16.5 s (workers compete for memory bandwidth and SMT) |
 | Ideal wall (sum / workers) | 11.1 s | 2.1 s |
 | Parent: `Pickler.dump` | | 4.5 s of 11.4 s, 3.8 ms per task |
 
 - 1,173 tasks send 5,202 MB in total (median 4.9 MB, maximum 6.8 MB per task, dataset 6.4 MB): every task carries a full or partial `SpectralDataset` inside a task dependency, so `ProcessExecutor.share()` (memory map for top-level arrays only) never applies.
-- The same pipeline in this process with an inline executor takes 12.4 s: faster than 8 workers (BLAS threads are not limited there).
+- The same pipeline in this process with an inline executor takes 12.4 s: faster than 8 workers (BLAS threads are not limited there). Against that in-process baseline the 8-worker speed-up is only about 1.2x; the 1-worker pool baseline is slower because it pays the pickling cost too.
 - Task overhead is the next layer: scheduling, result `unpickle`, pipe I/O (about 13 ms per task with 1 worker).
 
 ## Profile of the compute (one run in this process, `cProfile`, 13.3 s of own time)
@@ -66,7 +66,7 @@ Block timings at 1,000 variables (one call, this machine):
 ## Findings for Phase 3 and for earlier fixes
 **Pure-Python and NumPy fixes (no kernel; do first):**
 1. **Task transfer (blocks the 4× target).** Send datasets once as memory-mapped arrays and let tasks pass row indices, or share the `X` array of a `SpectralDataset` before it enters a task spec; expect most of the 4.5 s of pickling and the 5.2 GB to go. Needs a design decision (scheduler / runner, ADR-004 follow-up); proposed as an extra Phase 2 step before the gate.
-2. **PLS default algorithm.** `algorithm: simpls` (own NumPy) is 2.8× faster than scikit-learn NIPALS on this size, and the PLS fit with `np.outer` deflation is 25–45 % of compute. Changing the default changes numbers within the METHODS.md tolerance: a decision for Quan; not changed here.
+2. **PLS default algorithm.** `algorithm: simpls` (own NumPy) is 2.8× faster than scikit-learn NIPALS on this size, and the PLS fit (scikit-learn `fit`, `np.outer` deflation and the power method together) is about 50 % of compute. Changing the default changes numbers within the METHODS.md tolerance: a decision for Quan; not changed here.
 3. `SpectralDataset.subset` and `numpy.array` copies (8 %) per fold: views or index arrays.
 4. Kennard–Stone and SPXY keep a full n × n matrix (`shortcut:` in the code, 200 MB at n = 5,000). An incremental O(n) minimum-distance update removes the matrix; test this in NumPy before writing C++.
 
