@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "BlockDetail",
+    "BlockRefParam",
     "BoolParam",
     "EnumParam",
     "FloatParam",
@@ -176,6 +177,13 @@ class SearchSpaceParam(_Param):
     ]
 
 
+class BlockRefParam(_Param):
+    """``{"block_id", "params"}`` of one registered block (§5.2, proposed T2.10d)."""
+
+    type: Literal["block_ref"]
+    default: SearchOption
+
+
 ParamEntry = Annotated[
     IntParam
     | FloatParam
@@ -183,7 +191,8 @@ ParamEntry = Annotated[
     | EnumParam
     | StringParam
     | WavelengthRangesParam
-    | SearchSpaceParam,
+    | SearchSpaceParam
+    | BlockRefParam,
     Field(discriminator="type"),
 ]
 """One entry of ``params`` (§5.1, implemented types of §5.2)."""

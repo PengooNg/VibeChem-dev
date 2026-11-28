@@ -34,6 +34,7 @@ from vibechem_core.blocks.validate.folds import (
     VenetianBlinds,
 )
 from vibechem_core.blocks.validate.grid_search import GridSearch
+from vibechem_core.blocks.validate.nested_cv import NestedCV
 from vibechem_core.testing import DummyCenter, DummyOffset, DummySchema
 from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, WavelengthRangesParam
 
@@ -48,6 +49,7 @@ from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, Wavele
         PLSDA,
         CrossValidation,
         GridSearch,  # search_space parameter (T2.10c)
+        NestedCV,  # block_ref parameter (T2.10d)
     ],
 )
 def test_block_detail_is_valid_and_round_trips(block: type[Block]) -> None:
@@ -169,6 +171,7 @@ def test_json_schema_has_one_entry_per_param_type() -> None:
         "string",
         "wavelength_ranges",
         "search_space",
+        "block_ref",
     }
     json.dumps(schema)
 
