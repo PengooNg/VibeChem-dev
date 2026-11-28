@@ -1,13 +1,14 @@
 # VibeChem — Tasks
 
-> Status: v0.9 · Last updated: 2026-11-27
+> Status: v1.0 · Last updated: 2026-11-28
+> v1.0: Phase 2 gate (T2.14, *proposed* until Quan approves the gate PR) — **T2.15 dataset transfer by memory map** *proposed (T2.14)* before `phase-2 → main` (R65); Phases 3 and 4 detailed (Phase 3 kernels from the T2.12 profiling report: Kennard–Stone/SPXY only, NumPy fix first, kernel conditional).
 > v0.9: Phase 1 gate (Quan, 2026-11-27) — new first Phase 2 step **T2.00 CI false-pass guards** (R42); leakage and row_index guards in the T2.04, T2.05 and T2.10a "Done when" (R39, R40); Phase 4 outline gains app dependency major upgrades (Dependabot #27).
 > v0.8: tooling v0.5 — K removed from the workflow: the `· K ·` / `· Q ·` area tags are gone from the step headings, Quan reviews everything (docs/QA.md#8-review-checklists), risks go to `docs/RISKS.md`.
 > v0.7: T1.00b pengoo port inventory (Quan's request) — Phase 1 and T2.10 reuse lines name the pengoo function to port and the defect to fix (TECH_STACK.md §11.2); Duplex in T1.10 *proposed (T1.00b)*.
 > v0.6: T1.00 Quasar port inventory — Phase 1 and Phase 6 reuse lines name the Quasar/Orange module to port or the library to wrap (TECH_STACK.md §11.1); **T1.06b vendor readers** *proposed (T1.00)* — Quan approves by merging the T1.00 PR, or deletes the T1.06b row and block.
 > v0.5: Playwright CLI + design skills installed in T0.04; first Electron e2e test in T0.10; every `app/` step has a visual check (docs/TOOLS.md#51-visual-check-by-step-type); 👤 glyph-set step added to Phase 4.
 > v0.4: **phase mode** — Quan types `/phase N`; Claude Code runs the steps below in order, each step = one PR merged into branch `phase-N`, until the gate or a stop condition (docs/rules/WORKFLOW.md#phase-mode). Phases run in numeric order. 👤 steps are prepared by Claude Code and finished/merged by Quan.
-> Phases 0–2 are detailed. Later phases are outlines, detailed at the previous phase gate.
+> Phases 0–4 are detailed. Later phases are outlines, detailed at the previous phase gate.
 > Each step lists **exactly what to read** — Claude Code reads CLAUDE.md (automatic) plus only those sections and files.
 
 ## Run order
@@ -51,14 +52,32 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [x] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [x] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [x] T2.13 Golden pipeline |
-| [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
-| [x] T0.15 Phase gate 👤 | [x] T1.12a PLS: NIPALS wrap + LV sweep | |
+| [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.15 Dataset transfer by memory map *(proposed)* |
+| [x] T0.15 Phase gate 👤 | [x] T1.12a PLS: NIPALS wrap + LV sweep | [x] T2.14 Phase gate 👤 (report; Quan's gate open) |
 | | [x] T1.12b PLS: SIMPLS + VIP | |
 | | [x] T1.13 PLS-DA | |
 | | [x] T1.14 Metrics | |
 | | [x] T1.15 Reproduce published result + gate 👤 | |
 
-Phases 3–7: outlines at the end of this file; their status rows are added when they are detailed.
+| Phase 3 | Phase 4 |
+|---|---|
+| [ ] T3.01 Native template hardening | [ ] T4.01a Engine server: system, blocks, projects |
+| [ ] T3.02 Native CI gating 👤 | [ ] T4.01b Engine server: imports, datasets, pipelines |
+| [ ] T3.03 KS/SPXY without the n × n matrix | [ ] T4.02 Runs, results, cache, WebSocket events |
+| [ ] T3.04 KS/SPXY native kernel *(conditional)* | [ ] T4.03 OpenAPI → TypeScript client |
+| [ ] T3.05 Phase gate 👤 | [ ] T4.04 Preview service |
+| | [ ] T4.04g Glyph set and block widget 👤 |
+| | [ ] T4.05 Block library panel |
+| | [ ] T4.06 Canvas with typed ports and states |
+| | [ ] T4.07 Auto-generated inspector |
+| | [ ] T4.08 Spectra viewer |
+| | [ ] T4.09 Jobs panel |
+| | [ ] T4.10 i18n completeness |
+| | [ ] T4.11 Engine restart handling |
+| | [ ] T4.11b App dependency major upgrades |
+| | [ ] T4.12 Phase gate 👤 |
+
+Phases 5–7: outlines at the end of this file; their status rows are added when they are detailed.
 
 ---
 
@@ -411,6 +430,14 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Reuse:** golden-file helper from T0.07
 - **Done when:** golden test stores per-node hashes + metrics; a deliberate change shows the first divergent node.
 
+### T2.15 · Dataset transfer by memory map · Size M · *proposed (T2.14)*
+*(Proposed at the Phase 2 gate for R65: the ≥ 4× exit criterion is not met. Runs on `phase-2` after the gate PR, before `phase-2 → main`. Approve by merging the gate PR; to reject, delete this block and its status row and record the accepted speed-up in PROGRESS.md.)*
+- **Read:** `docs/spikes/profiling.md`; ARCHITECTURE.md §3.4, ADR-004; RISKS.md R57, R65, R69 (b, c), R71 (a, d, g); `vibechem_engine/executor/`, `scheduler/`, `runners/`, `pipeline.py`; `scripts/bench.py`
+- **Reuse:** `ProcessExecutor.share()` (T2.07, `np.load(mmap_mode="r")`), `SpectralDataset.rows(row_index)` (T2.04); no new dependency
+- **Files:** `vibechem_engine/executor/`, `runners/`, `pipeline.py` (default worker count); ARCHITECTURE.md §3.4 (+ D-row: how datasets reach workers); `scripts/bench.py` only if its output must change
+- **Do:** each source dataset's arrays are shared once per run (memory-mapped file, keyed per array) and fold and select tasks carry row indices instead of datasets; `share()` gets a `release()` so spill files do not grow (R57 b); default worker count reviewed against physical cores (profiling: SMT adds little); the Ctrl-C wait and traceback of R71 (a) fixed; a pipeline-level test that 1 and 4 workers give identical nested-CV and grid-search results (R69 c).
+- **Done when:** `scripts/bench.py --workers 1,8` on a machine with ≥ 8 cores shows ≥ 4× at 8 workers with one result hash, numbers and core count in the PR (if below 4×: the remaining gap measured and named, and Quan decides); bytes sent per task (probe in the PR) at most a few kB for fold tasks; spill folder empty after a run; golden test unchanged (no node hash changes); determinism tests still bit-identical.
+
 ### T2.14 · Phase 2 gate 👤 · Size S
 - **Read:** docs/rules/WORKFLOW.md#phase-end; QA.md §9.1; PROGRESS.md
 - **Do:** gate report; detail **Phase 3 and Phase 4** steps in TASKS.md (same format, sizes, reuse lines; Phase 3 kernels chosen from the T2.12 profiling report); propose UI_GUIDE.md updates from research studies S3/S4 if Quan has added findings to `docs/research/`.
@@ -418,11 +445,147 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 
 ---
 
-## Phase 3 — Native kernels (outline; detailed at the Phase 2 gate)
-T3.01 production native build hardening · T3.02 sanitizer + clang-tidy gating · T3.03–T3.06 one step per hotspot kernel from the T2.12 profiling report (likely KS/SPXY, CARS, SPA, PDS windows), each with a Python reference, equivalence tests and automatic fallback — **only if no existing fast implementation can be reused** and NumPy/SciPy vectorisation is not enough · every step gets a cpp-reviewer pass (TOOLS.md §3) · T3.07 phase gate 👤.
+## Phase 3 — Native kernels
+*(Detailed at the Phase 2 gate, T2.14. The T2.12 profiling report measured one kernel candidate, Kennard–Stone/SPXY; everything else is under 0.1 s per call at v1 sizes, and CARS, SPA and PDS do not exist yet — their kernels are judged when their Phase 6 steps profile them. The planned T3.03–T3.06 "one step per hotspot" therefore shrink to T3.03–T3.04.)*
+**Exit:** the native template is safe to copy (R45 closed); native CI gates sanitizers incl. TSan, clang-tidy and clang-format; a 5,000-row Kennard–Stone/SPXY split takes ≤ 1 s, in NumPy or with a kernel that has a Python reference, equivalence tests and an automatic fallback; `vibechem-native` 0.1 wheels build on 3 OS.
 
-## Phase 4 — Engine API + UI (outline; detailed at the Phase 2 gate)
-T4.01 full engine server (DATA_MODEL §2; remove the skeleton endpoint) · T4.02 WebSocket events (§3) · T4.03 OpenAPI → TS client · T4.04 preview service (decimation, density) · **T4.04g glyph set and block widget 👤** (Claude Code drafts glyphs for all P0 blocks and the block node at three zoom levels per UI_GUIDE §4/§6 and Quan's preferences in §4.0, as a contact-sheet page with variants via `prototype`; S3 recognition study 👤; Quan picks, UI_GUIDE §4 loses its *draft* mark) · T4.05 block library panel · T4.06 canvas with typed ports and states · T4.07 auto-generated inspector (evaluate JSON-schema form libraries first) · T4.08 spectra viewer QoL · T4.09 jobs panel · T4.10 i18n completeness check (+ break-ui with long JA/VI strings) · T4.11 engine restart handling in UI · T4.11b app dependency major upgrades (TypeScript 7, ESLint 10, Vite 8, Vitest 5, electron-vite 6, React 19.3; R11, Dependabot #27 closed by Quan) · T4.12 phase gate 👤 (details Phase 5).
+### T3.01 · Native template hardening · Size S
+- **Read:** RISKS.md R45; TECH_STACK.md §5; `packages/native/README.md`; `packages/native/bindings/`, `src/`, `python/vibechem_native/`
+- **Reuse:** nanobind `.noconvert()` and `nb::call_guard<nb::gil_scoped_release>`; `std::exception_ptr` to carry worker exceptions; no new dependency
+- **Files:** `packages/native/` (bindings, `src/`, `CMakeLists.txt`, `tests/`)
+- **Do:** `out` arrays bound with `.noconvert()`; exceptions inside `std::jthread` workers captured and rethrown in the calling thread; `_GLIBCXX_ASSERTIONS` in debug and sanitizer builds; Catch2 fetched by commit SHA; repo `.clang-format` and `.clang-tidy` configs (checks run in T3.02).
+- **Done when:** a float32 or strided `out` raises `TypeError` instead of writing into a copy (pytest); an exception thrown in a worker thread reaches Python as an exception, not `std::terminate` (Catch2 + pytest); Catch2 pinned by SHA; cpp-reviewer pass with no open *Must fix*; R45 closed or its rest named.
+
+### T3.02 · Native CI gating: TSan, clang-tidy, clang-format 👤 · Size S · depends T3.01
+- **Read:** `.github/workflows/ci.yml` (`sanitizer` job), TECH_STACK.md §5, §8; RISKS.md R42 (`REQUIRED_CHECKS` note)
+- **Reuse:** the existing `sanitizer` job; clang-tidy / clang-format from the runner image or a SHA-pinned action
+- **Files:** `.github/workflows/ci.yml`, `packages/native/.clang-tidy`, `.clang-format`
+- **Do:** a TSan job that runs the native tests with `n_threads > 1`; clang-tidy and clang-format checks with warnings as errors; ASan/UBSan job unchanged.
+- **Done when:** each new check fails on a deliberate violation (shown in a throwaway commit, then reverted) and passes on the branch; the new job names are listed in the PR. 👤 Quan: add the new jobs to the ruleset's required checks and to `REQUIRED_CHECKS` in `merge_step.py` (Quan-only files and settings), merge.
+
+### T3.03 · Kennard–Stone and SPXY without the n × n matrix · Size S
+- **Read:** METHODS.md (Kennard–Stone, SPXY); `vibechem_core/blocks/split/kennard_stone.py`, `spxy.py` (their `shortcut:` markers); `docs/spikes/profiling.md`
+- **Reuse:** NumPy incremental max–min update (one distance row per selected sample, running minimum per candidate); `kennard-stone` package (§11 candidate) as a cross-check only
+- **Files:** `blocks/split/kennard_stone.py`, `spxy.py`, their tests; `docs/spikes/profiling.md` (new timings)
+- **Do:** replace the full distance matrices by the incremental update (memory O(n·p) instead of O(n²)); keep the selection rule, tie handling and group means of METHODS.md; remove the two `shortcut:` markers.
+- **Done when:** selections identical to the current code on the reference datasets and on property cases (random data, ties, groups); 5,000 × 1,000 timing recorded before/after (target ≤ 1 s on the laptop); peak memory for 5,000 rows below 50 MB (was ≈ 300 MB); reference tests unchanged.
+
+### T3.04 · Kennard–Stone / SPXY native kernel · Size M · depends T3.01, T3.03 · *conditional*
+*(Runs only if T3.03 misses ≤ 1 s at 5,000 × 1,000 or the 5,000 × 4,000 time is still above 3 s. Otherwise the step is closed with the T3.03 numbers in PROGRESS.md and Quan's agreement at the Phase 3 gate.)*
+- **Read:** TECH_STACK.md §5; `packages/native/README.md`; T3.03 code (the Python reference); ARCHITECTURE.md §3.4 (core budget: a kernel with `n_threads > 1` is one wide task)
+- **Reuse:** Eigen (§1.4) for the distance rows; the T3.01 template and the existing fallback dispatch (`vibechem_native.BACKEND`)
+- **Files:** `packages/native/` (kernel, binding, wrapper, tests); `blocks/split/kennard_stone.py`, `spxy.py` (dispatch)
+- **Do:** max–min selection kernel with `n_threads`, GIL released; the blocks call it when `BACKEND == "native"` and fall back to the T3.03 NumPy code otherwise or when the kernel raises (fallback recorded in the block log).
+- **Done when:** equivalence tests (same selection order) against the Python reference on reference data and property cases; fallback test with the extension hidden; sanitizer jobs (ASan/UBSan, TSan) clean; timing in the PR; cpp-reviewer pass, open findings in RISKS.md.
+
+### T3.05 · Phase 3 gate 👤 · Size S
+- **Read:** docs/rules/WORKFLOW.md#phase-end; QA.md §9.1; PROGRESS.md
+- **Do:** gate report (cpp-reviewer over `packages/native`, ponytail-audit, ponytail-debt, mle-reviewer on the split change); `vibechem-native` 0.1 wheels on 3 OS (cibuildwheel job); check Phase 4 detail still holds.
+- **Done when:** phase PR ready. 👤 Quan: gate review, merge `phase-3 → main`.
+
+---
+
+## Phase 4 — Engine API + UI
+*(Detailed at the Phase 2 gate, T2.14, from PRD F-01…F-08, F-42, F-83, F-84 and DATA_MODEL §2–§3. Every `app/` step has its visual check (docs/TOOLS.md#51-visual-check-by-step-type).)*
+**Exit:** a dev build of the app: import a CSV, build a nested-CV pipeline on the canvas, run it on all cores with live states and progress, inspect any block, cancel, close and reopen the project; QA §9.1 items 5–9 pass.
+
+### T4.01a · Engine server: system, settings, blocks, port types, projects · Size M
+- **Read:** DATA_MODEL.md §1, §2.1–§2.4, §6.2, §7; ARCHITECTURE.md §3.6–§3.7; RISKS.md R43, R46, R50, R56; `vibechem_engine/api/`
+- **Reuse:** FastAPI + pydantic (installed), the block registry and `parameter_schema` export (T1.03), `formats/` project loaders (T2.03)
+- **Files:** `vibechem_engine/api/` (routes, error handlers), `packages/engine/tests/api/`
+- **Do:** `/health`, `/system`, `/settings`, `/blocks`, `/blocks/{id}`, `/port-types`, project create/open/get/close; problem+json handlers for `RequestValidationError`, `VibeChemError`, `Exception` (R43); `__main__` exits non-zero when start-up fails; R46 clean-up (drop the duplicate validators in `api/schemas.py`, delete `wrap.TransformerBlock` and its test, spike workflows → `workflow_dispatch`).
+- **Done when:** one test per route against the DATA_MODEL §2 examples; every error body carries `code` and `message_key`; R43 closed; R46 closed except the skeleton SNV (goes in T4.01b).
+
+### T4.01b · Engine server: imports, datasets, pipelines, validate · Size M · depends T4.01a
+- **Read:** DATA_MODEL.md §2.5–§2.6, §4.4, §6.3, §7; RISKS.md R44, R47, R50, R71 (b, c); `vibechem_core/io/`, `vibechem_engine/formats/`, `pipeline.py`
+- **Reuse:** core readers and role detection (T1.05–T1.06b), `vibechem.Pipeline.validate`, `formats.load_pipeline`/`save`
+- **Files:** `vibechem_engine/api/`, `packages/engine/tests/api/`; DATA_MODEL §7 (proposed codes)
+- **Do:** two-step import (inspect → commit), dataset list/get/delete, pipeline CRUD + `validate` (graph, types, leakage, implicit conversions reported until executed — R71 b), `block_version` compared with the installed block (code proposed in DATA_MODEL §7 first — R71 c), codes for unknown `block_id`/port (R50); remove `/skeleton/run`, the skeleton SNV and `testdata/` from `extraResources` (R48).
+- **Done when:** import → commit → pipeline → validate round trip tested on the gasoline CSV; a leaky pipeline gives `PIPELINE_LEAKAGE` with `node_id`/`port_id` through `validate`; an edge needing an implicit conversion is an error issue, not "valid"; skeleton endpoint and its e2e test replaced.
+
+### T4.02 · Runs, results, cache and WebSocket events · Size M · depends T4.01b
+- **Read:** DATA_MODEL.md §2.7–§2.8, §2.11, §3; ARCHITECTURE.md §3.3–§3.6; RISKS.md R55, R58, R60 (b), R70, R71 (e, f); `scheduler/`, `cache/`, `runners/`
+- **Reuse:** `run_pipeline` + scheduler progress events (T2.08), `ResultCache` (T2.06), FastAPI WebSocket
+- **Files:** `vibechem_engine/api/`, `runners/` (cache and memory budget wiring), `packages/engine/tests/api/`
+- **Do:** start/list/get/cancel runs; results summary and data; `/events` with `run.*`, `node.state`, `progress`, warnings merged into the node log (R60 b); the result cache wired into the run path and a memory budget with per-job estimates (R70); `node.state` `idle`/`stale` after cancel and failed dependants (R58 a); cache endpoints.
+- **Done when:** a second identical run starts zero tasks (cache test); changing one parameter re-runs only that node and its dependants (F-04, QA §9.1 item 6 automated); cancel leaves no `queued`/`running` node state; event sequence for one run matches DATA_MODEL §3 (recorded test); R70 closed.
+
+### T4.03 · OpenAPI → TypeScript client · Size S · depends T4.02
+- **Read:** TECH_STACK.md §1.5, §6; `app/renderer/src/api/`
+- **Reuse:** `openapi-typescript` (approved, T0.10) + the small typed `fetch` client already in `api/`; TanStack Query
+- **Files:** `app/renderer/src/api/`, `scripts/` (schema export), CI check
+- **Do:** export the engine's OpenAPI schema; generate TS types; typed client and WebSocket event types; a check that fails when the generated file is stale.
+- **Done when:** the renderer compiles against generated types only (no hand-written API types left); the stale-schema check fails on a deliberate route change.
+
+### T4.04 · Preview service · Size M · depends T4.02
+- **Read:** DATA_MODEL.md §2.8 (`/preview`); ARCHITECTURE.md §1.2 (preview < 300 ms, redraw < 100 ms); `vibechem_engine/api/arrow.py`
+- **Reuse:** pyarrow IPC (engine, approved), NumPy min/max decimation; density mode as a 2-D histogram (`numpy.histogram2d`)
+- **Files:** `vibechem_engine/api/` (preview), `packages/engine/tests/api/`
+- **Do:** plot-ready previews per port type (spectra: decimated lines or density, tables, metrics); size caps.
+- **Done when:** 2,000 × 2,000 spectra preview in < 300 ms on the laptop (timed test, marked slow); decimation keeps every local min/max per pixel bin (property test).
+
+### T4.04g · Glyph set and block widget 👤 · Size M
+- **Read:** UI_GUIDE.md §2, §4 (incl. §4.0 Quan's preferences), §6, §6.1; FUNCTION_CATALOG.md (P0 blocks)
+- **Reuse:** Impeccable `prototype`/`critique`; existing `app/renderer/src/canvas/` node
+- **Files:** `app/renderer/src/canvas/glyphs/`, a contact-sheet page, UI_GUIDE.md §4/§6
+- **Do:** glyphs for all P0 blocks and the block node at three zoom levels as a contact sheet with variants; S3 recognition study 👤; decide DATA_MODEL §4.7.1 (`Transform` shape).
+- **Done when:** contact sheet renders (screenshots in the PR); 👤 Quan picks the variants and runs S3; UI_GUIDE §4 loses its *draft* mark; §4.7.1 decided.
+
+### T4.05 · Block library panel · Size S · depends T4.03, T4.04g
+- **Read:** UI_GUIDE.md §5, §6, §7; PRD F-01, F-08; `app/renderer/src/library/`
+- **Reuse:** `/blocks` metadata (class, icon, references, tier); shadcn components already in the app
+- **Files:** `app/renderer/src/library/`
+- **Done when:** blocks grouped by class with search; drag onto the canvas creates a node; tooltip text from i18n keys (F-08); visual check + e2e drag test.
+
+### T4.06 · Canvas with typed ports and run states · Size M · depends T4.05
+- **Read:** PRD F-01, F-02, F-07, F-42; DATA_MODEL.md §4.3–§4.4; UI_GUIDE.md §2.3, §6, §8; `app/renderer/src/canvas/`
+- **Reuse:** `@xyflow/react` (approved); `/port-types` compatibility from the engine (no rules duplicated in TS); zustand store
+- **Files:** `app/renderer/src/canvas/`, `state/`
+- **Do:** typed multi-port nodes, connection checks with the refusal reason, node states `idle · queued · running · done · stale · error` from events, "data here" marker, "Leakage-safe ✓" badge from `validate` (and not shown when `VALIDATION_GROUPS_IGNORED` is raised, R69 d).
+- **Done when:** an incompatible connection is refused with the engine's reason (e2e); states follow a recorded event stream (unit test); pipeline saved and reloaded unchanged (e2e).
+
+### T4.07 · Auto-generated inspector · Size M · depends T4.06
+- **Read:** DATA_MODEL.md §5 (parameter schema, `visible_if`, `search_space`, `block_ref`, `wavelength_ranges`); ADR-005; PRD F-03; `app/renderer/src/inspector/`
+- **Reuse:** evaluate JSON-schema form libraries first (e.g. `@rjsf/core`, JSON Forms) against our §5 schema in the plan — add a §11 row either way; own small form only if none fits §5 without heavy adapters
+- **Files:** `app/renderer/src/inspector/`; TECH_STACK.md §11 (row)
+- **Do:** form from `/blocks/{id}` schema with units, constraints, `visible_if`; output preview of the selected node (T4.04); parameter errors from `validate` shown on the field.
+- **Done when:** every P0 block's parameters render and validate (generated test over the registry); `visible_if` hides/shows fields (unit test); a bad value shows the engine's `BLOCK_PARAM_INVALID` reason on its field.
+
+### T4.08 · Spectra viewer · Size S · depends T4.04
+- **Read:** UI_GUIDE.md §2.4, §8; ARCHITECTURE.md §1.2; `app/renderer/src/plots/`
+- **Reuse:** uPlot (approved) + Arrow decoding (`apache-arrow`)
+- **Files:** `app/renderer/src/plots/`
+- **Done when:** 2,000 spectra redraw in < 100 ms (timed in the visual check); zoom, hover read-out with axis unit, density mode switch; screenshots in the PR.
+
+### T4.09 · Jobs panel · Size S · depends T4.02
+- **Read:** PRD F-83; DATA_MODEL.md §3 (progress events); `app/renderer/src/jobs/`
+- **Reuse:** TanStack Query + the WebSocket store
+- **Files:** `app/renderer/src/jobs/`
+- **Done when:** running jobs show progress and ETA from events; cancel works and the app stays responsive (QA §9.1 item 7 as an e2e test); "CPU cores to use" setting (default all but one) sent to `/settings`.
+
+### T4.10 · i18n completeness · Size S
+- **Read:** UI_GUIDE.md §7; PRD F-80; `app/renderer/src/i18n/`
+- **Reuse:** i18next; `break-ui` skill with long JA/VI strings
+- **Files:** `app/renderer/src/i18n/`, a check script in `app/scripts/`
+- **Done when:** a check fails on a missing or unused key in EN/JA/VI and on literal UI strings; break-ui findings fixed or in RISKS.md; QA §9.1 item 9 passes.
+
+### T4.11 · Engine restart handling · Size S · depends T4.02
+- **Read:** PRD F-84; ARCHITECTURE.md §3.6; `app/main/engine.ts`
+- **Reuse:** existing engine supervisor in `app/main`; `/projects/open` (T4.01a)
+- **Files:** `app/main/`, `app/renderer/src/state/`
+- **Done when:** killing the engine process during a run shows a notice, restarts the engine and reopens the project with the pipeline intact (e2e); QA §9.1 item 8 passes.
+
+### T4.11b · App dependency major upgrades · Size M
+- **Read:** TECH_STACK.md §1.5–§1.6; RISKS.md R11; `app/package.json`
+- **Reuse:** each tool's migration guide (Context7)
+- **Files:** `app/package.json`, `pnpm-lock.yaml`, config files; TECH_STACK.md §1.5–§1.6
+- **Do:** TypeScript 7, ESLint 10, Vite 8, Vitest 5, electron-vite 6, React 19.3 (Dependabot #27 closed by Quan), one tool per checkpoint.
+- **Done when:** `check.py --fast --only app` and the e2e tests pass after each upgrade; TECH_STACK pins updated; R11 closed.
+
+### T4.12 · Phase 4 gate 👤 · Size S
+- **Read:** docs/rules/WORKFLOW.md#phase-end; QA.md §9.1; PROGRESS.md
+- **Do:** gate report; UI review (Impeccable `audit` + `accessibility-review` over every changed screen); ADR-005 review; detail Phase 5 in TASKS.md.
+- **Done when:** phase PR ready. 👤 Quan: QA §9.1 items 1–9, approve the Phase 5 detail, merge `phase-4 → main`.
 
 ## Phase 5 — Desktop hardening · Alpha (outline; detailed at the Phase 4 gate)
 T5.01 production Electron shell + supervision · T5.02 engine bundle size budget · T5.03 installers + first-launch guide (EN/JA/VI) · T5.04 update check + diagnostics · T5.05 e2e tests (Playwright) for core flows · T5.06 S5 usability test 👤 · T5.07 phase gate 👤 (= Alpha; details Phase 6).
