@@ -105,6 +105,81 @@
 ## Phase gates
 <!-- Gate report per docs/rules/WORKFLOW.md#phase-end: exit criteria + evidence, health summary, estimate accuracy, reuse ratio, ADR recommendations, QA §9.1 items, open issues, Quan's decision. -->
 
+### Phase 2 gate — Pipeline engine (prepared 2026-11-28, T2.14)
+**Quan's decision:** open. Recommendation: **no-go for `phase-2 → main` until two items are closed** (speed-up R65 and nightly S2 #84, both below); go for the Phase 3–4 detail and the format v1 freeze.
+
+**Exit criteria and evidence**
+| Criterion | Evidence | Met |
+|---|---|---|
+| Nested-CV pipeline runs from the CLI | `vibechem run` on a nested-CV file (gasoline NIR, 60 × 401; `data.dataset` → `validate.kfold` k = 5 and `model.pls` 8 LV → `validate.nested_cv` with search space none / SNV / MSC, inner 5-fold), seed 7: exit 0, RMSECV 0.22428 (T2.14 run on `phase-2` @ `52b6d90`, file `.cache/gate/nested.vcp.json` on the laptop). Tests: `packages/engine/tests/cli/test_cli.py` (LOO CV through the CLI = published RMSECV), `packages/engine/tests/runners/test_nested.py` (nested CV = hand-written scikit-learn nested CV) | yes |
+| Identical results on 1 and 8 cores | The same CLI run with `--workers 1` and `--workers 8`: byte-identical JSON metrics. `scripts/bench.py` (T2.12): one result hash for 1, 2, 4, 8, 16 workers and repeats; `test_results_identical_on_1_and_3_workers_and_in_process` in every `check.py`. **But** nightly run 46095913399 (2026-11-28, `full check (phase-2, macos-intel)`) failed that test and `test_process_pool_gives_the_same_curve`: pool and in-process results differ in the last bits on macOS Intel → S2 issue #84 open, R67 | yes on Windows, Linux, macOS arm64; **no on macOS Intel** |
+| ≥ 4× speed-up on 8 cores | `scripts/bench.py`, nested CV 10 × 5 folds, 3 chains, 800 × 1,000, Windows laptop with 24 logical CPUs: **2.37× at 8 workers** (2.43× at 16). Cause measured: the parent pickles about 5 MB of dataset into each of 1,173 tasks (5.2 GB, 4.5 s of 10.4 s); `docs/spikes/profiling.md`, R65. CI runners (3–4 cores) cannot judge the target | **no** |
+| Leakage suite passes | `packages/engine/tests/leakage/` (10 leaky and 5 safe wirings, noise-data no-inflation tests) passes inside `tests` (1,286 passed). The CLI blocks a leaky file: MSC `reference` from the unsplit dataset → `Error: PIPELINE_LEAKAGE at nd_m.reference`, exit 1 (`.cache/gate/leaky.vcp.json`). The `check.py` summary still prints `leakage suite ... SKIP (arrives in T2.05)` (R54, Quan-only file; patch below) | yes (summary line stale) |
+| Pipeline format v1 frozen | `vibechem_engine/formats/` v1 + JSON Schema + migration framework (T2.03, #69); §4.7.2 decided (`refit_per_fold`, R51 closed); no format change since T2.03 except new parameter types inside `params` (`search_space`, `block_ref`), which v1 already stores as JSON. Freezing is Quan's act at this gate (DATA_MODEL §6 loses its *DRAFT* mark) | ready to freeze |
+
+**Health summary** (`uv run python scripts/check.py --fast` on `t2-14-phase-gate` = `phase-2` @ `52b6d90`, Windows laptop, 2026-11-28)
+```
+VibeChem health summary
+format/lint ........ PASS
+types .............. PASS
+boundaries ......... PASS
+tests .............. PASS  (1286 passed, 0 failed) (app: 29 passed, 0 failed)
+reference report ... PASS  (280/280 within tolerance)
+leakage suite ...... SKIP  (arrives in T2.05)
+golden pipeline .... PASS  (no node changed)
+coverage ........... PASS  core 98% | engine 96% | native 87%
+doc refs ........... PASS
+```
+
+**Health metrics (QA.md §11)**
+| Metric | Phase 2 value |
+|---|---|
+| Tests passing on 3 OS | yes in the CI `check` jobs of every step PR (Linux, Windows, macOS arm64); nightly macOS Intel red once (#84) |
+| Coverage | core 98 % · engine 96 % (99 % at the Phase 1 gate; the new runners and CLI error paths) · native 87 % · app not measured |
+| Blocks with reference tests / total | 19 / 19 Phase 1 method blocks, plus `validate.cv` (published LOO RMSECV), `validate.grid_search` and `validate.nested_cv` (scikit-learn loops as independent references); reference report 280/280 (252 at the Phase 1 gate) |
+| Open S1/S2 bugs | S1: 0. S2: 1 — #84 (nightly red, macOS Intel pool vs in-process bits) |
+| Nightly pass rate | 3 of 4 nightly runs since Phase 2 started (2026-11-25 to 2026-11-27 green, 2026-11-28 red: #84) |
+| Speed-up | 2.37× at 8 workers (target 4×), Windows, 24 logical CPUs; nightly `bench` (1/2/4 workers) records determinism only |
+| Installer size | unchanged from Phase 0 (no packaging change) |
+| Estimate accuracy | 13/17 steps inside their size band; 4 above: T2.00 S → 3, T2.10a M → 8 (extra checkpoints approved by Quan), T2.10c M → 5 (Quan's review and answer), T2.11 S → 3. T2.10a is the only one over 1.5×, and the split of T2.10 into a/b/c/d (Quan, 2026-11-28) followed it |
+| Reuse ratio | 12/17 steps reuse, wrap or port (71 %): T2.00, T2.02, T2.03, T2.06, T2.07, T2.09, T2.10a (port pengoo LV rules), T2.10b, T2.10c (port pengoo search order), T2.10d, T2.11, T2.13. 5 build: T2.01 port registry, T2.04 compiler, T2.05 leakage rules, T2.08 scheduler (ADR-004: own scheduler on stdlib), T2.12 bench (stdlib `cProfile`) |
+| Stops by code | HUMAN_STEP 5 (T2.00, T2.10a, T2.10b, T2.10c, T2.10d) · QUESTION 2 (T2.04 §4.7.2, T2.10b Q4) · RED_FLAG 1 (T2.08, macOS warm-worker test) · none of S1_BUG, CI_RED, ESTIMATE, CONTEXT |
+
+**Estimate vs actual (checkpoints)**
+| Step | Size | Actual cp | Step | Size | Actual cp |
+|---|---|---|---|---|---|
+| T2.00 | S | 3 | T2.09 | S | 2 |
+| T2.01 | S | 2 | T2.10a | M | 8 |
+| T2.02 | M | 2 | T2.10b | M | 3 |
+| T2.03 | M | 4 | T2.10c | M | 5 |
+| T2.04 | M | 3 | T2.10d | M | 4 |
+| T2.05 | M | 4 | T2.11 | S | 3 |
+| T2.06 | M | 3 | T2.12 | S | 2 |
+| T2.07 | M | 3 | T2.13 | S | 2 |
+| T2.08 | M | 4 | T2.14 | S | 3 |
+
+Pattern: the plain engine steps (T2.01–T2.09) landed inside their band; the overruns are the 👤 METHODS steps, where Quan's review answers added checkpoints after the plan (T2.10a, T2.10c). Lesson for Phase 3–4: a step that writes a new METHODS entry for Quan gets one review checkpoint in its estimate.
+
+**ADRs**
+No new ADR in Phase 2. ADR-004 (own scheduler over a process pool) gains D-026 (nested sub-runs share the scheduler, ARCHITECTURE §3.4) and needs a follow-up decision for R65 (how datasets reach the workers); ADR-005 is reviewed again at the Phase 4 gate. ADR-001…010 stay `Accepted`.
+
+**For Quan's gate review (decisions)**
+1. **R65 — speed-up 2.37× vs 4× (exit criterion not met).** Recommended: approve the proposed extra step **T2.15 Dataset transfer by memory map** (TASKS.md, *proposed (T2.14)*): datasets are shared once per run as memory-mapped arrays and tasks carry row indices; `scripts/bench.py` re-run on an 8-core machine; exit when ≥ 4× or when the remaining gap is measured and explained. Run it on `phase-2` before `phase-2 → main`. Alternative: accept 2.4× for now and move the step to the head of Phase 3 (the exit criterion stays open, PRD §7 item 4 needs it for v1.0). The PLS default algorithm (SIMPLS 2.8× faster than NIPALS, numbers change within METHODS tolerance) is a separate choice; recommended: keep `nipals` as the default until T2.15 has measured the transfer fix, then decide with numbers.
+2. **R66 — golden hashes across OS.** CI ran the golden test green on Linux, Windows and macOS arm64 in #91 and in this PR. Recommended: keep R66 `watching`; if a hash flips, follow its rule (name the node, lower `GOLDEN_BITS` or hash summary statistics for that node, never loosen the metric check) in a `[BUG]` PR with Quan's approval (a golden change is a red flag).
+3. **S2 #84 / R67 — macOS Intel nightly: pool and in-process results differ.** S2 blocks the phase merge (QA §9.1). Recommended: a `[BUG #84]` PR on `phase-2` before the merge: find why a 1-worker pool differs from the in-process run with BLAS limited to 1 on macOS Intel (suspects: `threadpoolctl` not limiting that NumPy's BLAS, or memory-mapped vs in-memory array alignment choosing another SIMD path); fix the cause, do not loosen the bit-identity tests.
+4. **`leakage suite` SKIP line in `scripts/check.py`** (R54, Quan-only file). Patch prepared (`check-leakage-line.patch`, attached to the gate PR; `git apply --check` clean, not run in place): `LATER_CHECKS = ()` and a `leakage suite` section next to `golden pipeline` that runs `packages/engine/tests/leakage`; `scripts/tests/test_check.py` needs no change (no test asserts the SKIP line). Recommended: apply it together with the two T2.00 patches of issue #64.
+5. **Freeze pipeline format v1** (TASKS T2.14 "Done when"): recommended yes — remove the *DRAFT* mark of DATA_MODEL §6 and treat any later change as format 2 with a migration.
+6. **Phase 3 and Phase 4 detail** (TASKS.md v1.0): approve or correct. Phase 3 is small: the profiling report names one kernel candidate (Kennard–Stone / SPXY), and the NumPy fix comes first, so the kernel step is conditional.
+7. **Pending approvals of merged 👤 steps:** T2.10a–T2.10d were merged by Quan, so their METHODS entries (§9, N17–N32), the codes `VALIDATION_CLASS_MISSING_IN_FOLD`, `VALIDATION_Y_SCALES_DIFFER`, `VALIDATION_SEARCH_PARALLEL_ONLY`, `METRIC_CLASSES_SEVERELY_UNBALANCED` and the parameter types `search_space`, `block_ref` are taken as approved; their "Needs you" lines moved to Stops. Correct this if any was merged without approval.
+8. Carried over, still open: issue #64 (T2.00 patches), R42 `REQUIRED_CHECKS` hand copy, DATA_MODEL §4.7.1 (`Transform` shape) and §4.7.3 (`transfer_samples` type), #29 macOS runner cancellations, R15 branch `PengooNg-patch-1`, R48 gasoline licence before any released installer.
+
+**QA.md §9.1 items for this phase (Quan, on his machine)**
+2. **Reference pipeline from the CLI:** `uv run pytest packages/engine/tests/cli/test_cli.py -q` passes (LOO PLS 3 LV RMSECV = Mevik & Wehrens 2007); `uv run pytest packages/engine/tests/golden -q` passes.
+3. **1 core vs all cores:** `uv run vibechem run <nested.vcp.json> --data gas=testdata/datasets/gasoline_nir.csv --seed 7 --workers 1 --json` and the same with `--workers 8`: identical output. The file is the nested-CV pipeline of the exit-criteria table (on the laptop: `.cache/gate/nested.vcp.json`; on another machine copy it from the gate PR comment). Optional: `uv run python scripts/bench.py --workers 1,8` on an 8-core machine.
+4. **Leaky pipeline:** `uv run vibechem validate <leaky.vcp.json>` prints `Error: PIPELINE_LEAKAGE at nd_m.reference` and exits 1 (file in the gate PR comment; on the laptop `.cache/gate/leaky.vcp.json`). Spot-check the leakage test design: `packages/engine/tests/leakage/test_rules.py` (`LEAKY` / `SAFE` tables).
+
+Item 1 (installer) is unchanged since Phase 0; items 5–10 arrive in later phases. No `app/` change in Phase 2, so no UI review at this gate.
+
 ### Phase 1 gate — Core library (prepared 2026-11-26, T1.15)
 **Quan's decision:** go (chat, 2026-11-27) — every item below decided; S1 #58 fixed in #59; R values for item 7 delivered and #60 (NIPALS PLS2 under-convergence) fixed in #61. Left for Quan: QA §9.1 item 2, merge #57, then `phase-1 → main` (#32).
 
