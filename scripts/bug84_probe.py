@@ -31,6 +31,10 @@ def ops(x: np.ndarray, y: np.ndarray) -> dict[str, str]:
         "dot": digest(np.array(x[:, 0] @ x[:, 1])),
         "lstsq": digest(np.linalg.lstsq(x, y, rcond=None)[0]),
         "svd_s": digest(s),
+        "sum_rows": digest(x.sum(axis=1)),
+        "sum_all": digest(np.array(x.sum())),
+        "std_rows": digest(x.std(axis=1)),
+        "norm": digest(np.array(np.linalg.norm(x[0]))),
     }
 
 
