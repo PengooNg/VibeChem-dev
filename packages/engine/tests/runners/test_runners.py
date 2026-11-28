@@ -428,9 +428,13 @@ def test_each_validation_node_gets_its_own_seed(gasoline: SpectralDataset) -> No
     doc["nodes"][3]["params"] = {"lv_rule": "van_der_voet", "n_randomisations": 99}
     doc["nodes"].append({**doc["nodes"][3], "node_id": "cv2"})
     doc["edges"] += [
-        {**e, "edge_id": f"{e['edge_id']}b", "to_node": "cv2"} for e in doc["edges"] if e["to_node"] == "cv"
+        {**e, "edge_id": f"{e['edge_id']}b", "to_node": "cv2"}
+        for e in doc["edges"]
+        if e["to_node"] == "cv"
     ]
     out = run(doc, gasoline, ThreadExecutor())
     assert out.status == "succeeded", out.errors
-    first, second = (cast(Results, out.output(n, "results")).details["randomisation_seed"] for n in ("cv", "cv2"))
+    first, second = (
+        cast(Results, out.output(n, "results")).details["randomisation_seed"] for n in ("cv", "cv2")
+    )
     assert first != second

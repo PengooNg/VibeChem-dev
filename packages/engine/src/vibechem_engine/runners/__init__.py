@@ -154,7 +154,7 @@ def execute_task(seed: int, spec: _Spec, *deps: TaskOutput) -> TaskOutput:
     method = block.fit if spec.kind == "fit" else block.apply
     if "rng" in inspect.signature(method).parameters:
         # a block's own ``seed`` parameter (fold and split blocks) must still change the draw
-        own: object = getattr(params, "seed", None)
+        own: object = getattr(cast(object, params), "seed", None)
         entropy = seed if own is None else [seed, cast(int, own)]
         kwargs["rng"] = np.random.default_rng(np.random.SeedSequence(entropy))
     with warnings.catch_warnings(record=True) as caught:
