@@ -16,7 +16,7 @@ jobs:
       - run: uv sync --locked
       - run: VECLIB_MAXIMUM_THREADS=1 uv run --no-sync python scripts/bug84_probe.py
       # Option A: target macOS 13, so the OpenBLAS wheels (macosx_10_15_x86_64) are installed
-      - run: uv sync --locked --python-platform x86_64-apple-darwin
+      - run: MACOSX_DEPLOYMENT_TARGET=13.0 uv sync --locked --python-platform x86_64-apple-darwin
       - run: uv run --no-sync python scripts/bug84_probe.py
       - name: the nightly failures, 3 repeats, on OpenBLAS wheels
         run: |
