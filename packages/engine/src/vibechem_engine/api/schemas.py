@@ -26,6 +26,8 @@ __all__ = [
     "IntParam",
     "OutputPort",
     "ParamEntry",
+    "SearchOption",
+    "SearchSpaceParam",
     "StringParam",
     "VisibleIf",
     "WavelengthRangesParam",
@@ -158,8 +160,30 @@ class WavelengthRangesParam(_Param):
     default: Annotated[list[RangePair], Field(min_length=1)]
 
 
+class SearchOption(_Model):
+    """One option of a ``search_space`` slot (§5.2): a block id and its parameter values."""
+
+    block_id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")]
+    params: dict[str, object]
+
+
+class SearchSpaceParam(_Param):
+    """Ordered slots of options, ``null`` = skip the slot (§5.2, proposed T2.10c)."""
+
+    type: Literal["search_space"]
+    default: Annotated[
+        list[Annotated[list[SearchOption | None], Field(min_length=1)]], Field(min_length=1)
+    ]
+
+
 ParamEntry = Annotated[
-    IntParam | FloatParam | BoolParam | EnumParam | StringParam | WavelengthRangesParam,
+    IntParam
+    | FloatParam
+    | BoolParam
+    | EnumParam
+    | StringParam
+    | WavelengthRangesParam
+    | SearchSpaceParam,
     Field(discriminator="type"),
 ]
 """One entry of ``params`` (§5.1, implemented types of §5.2)."""
