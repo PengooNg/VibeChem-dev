@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from vibechem_core.block import BLOCK_INPUT_REQUIREMENT_MISSING
 from vibechem_core.data import SpectralDataset
 from vibechem_core.errors import BlockInputError
+from vibechem_core.registry import Registry
 
 
 def group_codes(spectra: SpectralDataset) -> NDArray[np.intp]:
@@ -25,3 +26,11 @@ def group_codes(spectra: SpectralDataset) -> NDArray[np.intp]:
             BLOCK_INPUT_REQUIREMENT_MISSING, {"port_id": "spectra", "requirement": "groups"}
         )
     return np.unique(np.asarray(labels), return_inverse=True)[1]
+
+
+def default_registry() -> Registry:
+    """A new registry holding every built-in block."""
+    # Imported here: the block modules import this package for ``group_codes``.
+    from vibechem_core.blocks._builtin import build_registry  # noqa: PLC0415
+
+    return build_registry()
