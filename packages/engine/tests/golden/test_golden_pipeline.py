@@ -112,12 +112,17 @@ def _numbers(value: object) -> Iterator[tuple[str, NDArray[np.float64]]]:
 
 def _array_hash(arr: NDArray[np.float64], *, summary: bool) -> str:
     """Hash of one array: every element at ``GOLDEN_BITS``, or (``summary``) its shape plus the
-    1-norm, 2-norm and largest magnitude at ``SUMMARY_BITS``, which no BLAS build can move."""
+    1-norm, 2-norm, largest magnitude and a ramp-weighted signed sum (so a sign flip or a
+    reordering changes it), all at ``SUMMARY_BITS``. Noise on small entries cannot move these."""
     if not summary:
         return node_hash(arr, significant_bits=GOLDEN_BITS)
-    magnitude = np.abs(arr)
-    stats = np.array([magnitude.sum(), np.sqrt((arr**2).sum()), magnitude.max()])
-    return f"{arr.shape}{node_hash(stats, significant_bits=SUMMARY_BITS)}"
+    assert np.isfinite(arr).all(), "golden pipeline output holds NaN or inf"
+    flat = arr.ravel()
+    magnitude = np.abs(flat)
+    ramp = float(np.sum(flat * np.arange(1, flat.size + 1)) / max(magnitude.sum() * flat.size, 1e-300))
+    stats = np.array([magnitude.sum(), np.sqrt((flat**2).sum()), magnitude.max()])
+    signed = np.rint(ramp * 2**SUMMARY_BITS)  # fixed grid: the value itself can be near zero
+    return f"{arr.shape}{node_hash(stats, significant_bits=SUMMARY_BITS)}{int(signed)}"
 
 
 def _node_hashes(run: PipelineRun, pipeline: Pipeline) -> dict[str, str]:
@@ -192,8 +197,8 @@ def test_summary_hash_ignores_noise_on_small_entries_but_sees_a_real_change() ->
     noisy[3, 2] *= 1 + 1e-4  # a 3e-9 absolute shift: BLAS-sized next to the array's scale
     assert _array_hash(base, summary=False) != _array_hash(noisy, summary=False)
     assert _array_hash(base, summary=True) == _array_hash(noisy, summary=True)
-    changed = base * 1.001
-    assert _array_hash(base, summary=True) != _array_hash(changed, summary=True)
+    for changed in (base * 1.001, -base, base[::-1], base[:, ::-1]):  # scale, sign, order
+        assert _array_hash(base, summary=True) != _array_hash(changed, summary=True)
 
 
 def test_a_deliberate_change_names_the_first_divergent_node(
