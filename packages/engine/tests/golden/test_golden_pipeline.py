@@ -40,6 +40,11 @@ SEED = 3
 METRICS_RTOL = 1e-9
 METRICS_ATOL = 1e-12
 GOLDEN_BITS = 28  # mantissa bits kept per array (about 8 digits): survives BLAS last-bit noise
+# Nodes hashed by summary statistics instead of element by element (R66): a PLS fit holds
+# means, loadings and rotations whose small entries come from cancellation, so their relative
+# error is far above BLAS last-bit noise and flips an element hash on one Linux runner.
+SUMMARY_NODES = frozenset({"nd_pls"})
+SUMMARY_BITS = 20  # about 6 digits: far above the noise, far below any real change
 
 
 def _node(node_id: str, block_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -105,6 +110,16 @@ def _numbers(value: object) -> Iterator[tuple[str, NDArray[np.float64]]]:
         raise TypeError(f"golden pipeline cannot hash a {type(value).__name__}")
 
 
+def _array_hash(arr: NDArray[np.float64], *, summary: bool) -> str:
+    """Hash of one array: every element at ``GOLDEN_BITS``, or (``summary``) its shape plus the
+    1-norm, 2-norm and largest magnitude at ``SUMMARY_BITS``, which no BLAS build can move."""
+    if not summary:
+        return node_hash(arr, significant_bits=GOLDEN_BITS)
+    magnitude = np.abs(arr)
+    stats = np.array([magnitude.sum(), np.sqrt((arr**2).sum()), magnitude.max()])
+    return f"{arr.shape}{node_hash(stats, significant_bits=SUMMARY_BITS)}"
+
+
 def _node_hashes(run: PipelineRun, pipeline: Pipeline) -> dict[str, str]:
     """One hash per node over its top-level outputs, in the pipeline's node order.
 
@@ -115,7 +130,7 @@ def _node_hashes(run: PipelineRun, pipeline: Pipeline) -> dict[str, str]:
     for node in pipeline.document["nodes"]:
         node_id = node["node_id"]
         parts = [
-            f"{task_id}/{name}/{label}:{node_hash(arr, significant_bits=GOLDEN_BITS)}"
+            f"{task_id}/{name}/{label}:{_array_hash(arr, summary=node_id in SUMMARY_NODES)}"
             for task_id, out in sorted(run.outputs.items())  # completion order varies
             if task_id.rsplit(":", 1)[0] == node_id  # skips the per-fold ``@`` tasks
             for name in sorted(out.values)
@@ -166,6 +181,19 @@ def test_every_node_output_and_the_metrics_are_unchanged(
     assert list(metrics) == list(expected)
     assert_close(list(metrics.values()), list(expected.values()),
                  rtol=METRICS_RTOL, atol=METRICS_ATOL, name="golden CV metrics")  # fmt: skip
+
+
+def test_summary_hash_ignores_noise_on_small_entries_but_sees_a_real_change() -> None:
+    """R66: noise on a near-zero entry flips the element hash, not the summary."""
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=(40, 6))
+    base[3, 2] = 3.1e-5  # small entry left over from cancellation
+    noisy = base.copy()
+    noisy[3, 2] *= 1 + 1e-4  # a 3e-9 absolute shift: BLAS-sized next to the array's scale
+    assert _array_hash(base, summary=False) != _array_hash(noisy, summary=False)
+    assert _array_hash(base, summary=True) == _array_hash(noisy, summary=True)
+    changed = base * 1.001
+    assert _array_hash(base, summary=True) != _array_hash(changed, summary=True)
 
 
 def test_a_deliberate_change_names_the_first_divergent_node(
