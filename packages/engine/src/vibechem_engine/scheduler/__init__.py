@@ -11,7 +11,8 @@
   alone. When only memory holds a ready job back, ``memory.throttled`` is emitted.
 
 Seeds: job *i* of the list gets seed *i* of :func:`~vibechem_engine.executor.task_seeds`,
-so the dispatch order never changes a job's seed or its result. A job runs in a worker as
+so the dispatch order never changes a job's seed or its result. Ready jobs start in list
+order (a retry first), whenever they became ready: the list order is the priority. A job runs in a worker as
 ``fn(seed, *args, *dependency results)``. A failed job's dependants are not run;
 independent branches go on. Setting ``cancel`` stops dispatching; running jobs finish, and
 workers still busy ``cancel_timeout_s`` later are killed and replaced (``executor.restart``).
@@ -36,6 +37,7 @@ from the returned :class:`RunResult`.
 
 from __future__ import annotations
 
+import bisect
 import graphlib
 import logging
 import threading
@@ -161,7 +163,7 @@ def run_jobs(
     results: dict[str, object] = {}
     errors: dict[str, BaseException] = {}
     blocked: set[str] = set()  # failed jobs and the jobs that depend on them
-    ready: list[str] = []
+    ready: list[str] = []  # by (not a retry, list position): retries first, then list order
     running: dict[Future[object], Job] = {}
     threads_used = memory_used = 0
     settled = 0
@@ -171,6 +173,9 @@ def run_jobs(
     retried: set[str] = set()  # jobs that used their one retry (a retry runs alone)
     crashed: set[str] = set()  # retried after a worker crash: run the fallback
     cancelled_at: float | None = None
+
+    def order(task_id: str) -> tuple[bool, int]:
+        return task_id not in retried, position[task_id]
 
     def requeue(job: Job, exc: BaseException) -> None:
         nonlocal limit
@@ -182,7 +187,7 @@ def run_jobs(
                 limit //= 2
         elif isinstance(exc, TerminatedWorkerError):  # not e.g. a task that failed to unpickle
             crashed.add(job.task_id)
-        ready.insert(0, job.task_id)
+        bisect.insort(ready, job.task_id, key=order)
 
     def record(future: Future[object]) -> BrokenExecutor | None:
         """Record a finished job (or queue its retry); returns the error if it broke the pool."""
@@ -250,7 +255,7 @@ def run_jobs(
                         blocked.add(tid)
                         settle(by_id[tid])
                     else:
-                        ready.append(tid)
+                        bisect.insort(ready, tid, key=order)
                 if not ready and not running:
                     continue  # settling skipped jobs made others ready
                 # Step 2: start ready jobs in list order while the budgets allow (no overtaking).

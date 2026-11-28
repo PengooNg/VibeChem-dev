@@ -12,12 +12,13 @@ a pipeline's parameters is ``vibechem_core.block.parse_params`` (§5.3).
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "BlockDetail",
+    "BlockRefParam",
     "BoolParam",
     "EnumParam",
     "FloatParam",
@@ -176,6 +177,13 @@ class SearchSpaceParam(_Param):
     ]
 
 
+class BlockRefParam(_Param):
+    """``{"block_id", "params"}`` of one registered block (§5.2, proposed T2.10d)."""
+
+    type: Literal["block_ref"]
+    default: SearchOption
+
+
 ParamEntry = Annotated[
     IntParam
     | FloatParam
@@ -183,7 +191,8 @@ ParamEntry = Annotated[
     | EnumParam
     | StringParam
     | WavelengthRangesParam
-    | SearchSpaceParam,
+    | SearchSpaceParam
+    | BlockRefParam,
     Field(discriminator="type"),
 ]
 """One entry of ``params`` (§5.1, implemented types of §5.2)."""
@@ -261,6 +270,6 @@ class BlockDetail(_Model):
             if isinstance(p, IntParam | FloatParam) and p.constraint is not None:
                 _, op, right = p.constraint.split(" ")
                 other = defaults[right] if right[0].isalpha() else float(right)
-                if not _COMPARE[op](p.default, other):
+                if not _COMPARE[op](p.default, cast(float, other)):
                     raise ValueError(f"{p.param_id}: defaults break {p.constraint!r}")
         return self

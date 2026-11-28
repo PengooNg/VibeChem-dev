@@ -10,18 +10,20 @@ inputs), then a ``validate.cv`` node with the search's CV params on the search's
 like any other validation node, so a candidate's results are those of a separate
 ``validate.cv`` run of its chain. Generated node ids start with ``<S>.c<i>``.
 
-It also sets the search's workers w = min(``effective_jobs(n_jobs)``, executor workers)
+A ``validate.nested_cv`` node is expanded the same way (its outer folds run on these
+branches, METHODS.md#nested-cv). It also sets the search's workers w = min(``effective_jobs(n_jobs)``, executor workers)
 and checks the serial limit (METHODS.md N31, decision by Quan: option A).
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from vibechem_core.block import parse_params
-from vibechem_core.blocks.validate.cv import CrossValidation
+from vibechem_core.blocks.validate.cv import CrossValidation, CVParams
 from vibechem_core.blocks.validate.grid_search import (
     Chain,
     GridSearch,
@@ -38,6 +40,7 @@ from vibechem_core.registry import Registry
 __all__ = ["GRID_SEARCH", "Search", "expand_search"]
 
 GRID_SEARCH = GridSearch.block_id
+_CV_PARAMS = frozenset(f.name for f in dataclasses.fields(CVParams))
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +62,8 @@ def expand_search(
     max_workers: int,
     cpu_count: int,
 ) -> tuple[dict[str, Any], Search]:
-    """``pipeline`` with the candidate branches of search node ``node_id``, and the
-    :class:`Search` (``max_workers`` = the executor's workers).
+    """``pipeline`` with the candidate branches of search node ``node_id`` (any block with
+    ``GridSearchParams``), and the :class:`Search` (``max_workers`` = the executor's workers).
 
     Raises ``ParamError`` (``BLOCK_PARAM_INVALID``) for bad search params, a search
     above the N31 caps or above the serial limit with one worker (checked before any
@@ -74,7 +77,7 @@ def expand_search(
     by_id = {n["node_id"]: n for n in nodes}
     search = by_id[node_id]
     raw: Mapping[str, Any] = search.get("params", {})
-    params = parse_params(GridSearchParams, raw)
+    params = cast(GridSearchParams, parse_params(registry.get(search["block_id"]).params_type, raw))
     chains = candidate_chains(params.search_space, registry)
 
     def into(node: str, port: str) -> dict[str, Any]:
@@ -92,7 +95,7 @@ def expand_search(
     first = registry.meta(model["block_id"]).inputs[0].port_id
     feed = into(model["node_id"], first)
     others = [e for e in edges if e["to_node"] == model["node_id"] and e["to_port"] != first]
-    cv_params = {k: v for k, v in raw.items() if k not in ("search_space", "n_jobs")}
+    cv_params = {k: v for k, v in raw.items() if k in _CV_PARAMS}
 
     branches: list[tuple[Chain, str]] = []
     for i, chain in enumerate(chains):

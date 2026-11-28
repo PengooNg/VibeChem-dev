@@ -68,7 +68,8 @@ type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValu
 
 @dataclass(frozen=True)
 class SearchOption:
-    """One option of a ``search_space`` slot: a block and its parameter values."""
+    """One option of a ``search_space`` slot, or a ``block_ref`` value: a block and its
+    parameter values."""
 
     block_id: str
     params: Mapping[str, JSONValue] = field(default_factory=dict[str, JSONValue])
@@ -89,7 +90,7 @@ class SearchSpace:
         ]
 
 
-type ParamDefault = ParamValue | WavelengthRanges | SearchSpace
+type ParamDefault = ParamValue | WavelengthRanges | SearchSpace | SearchOption
 
 
 # ---- Parameters ---------------------------------------------------------------------
@@ -134,6 +135,8 @@ class ParamSpec:
             return "wavelength_ranges"
         if isinstance(self.default, SearchSpace):
             return "search_space"
+        if isinstance(self.default, SearchOption):
+            return "block_ref"
         return _TYPE_NAMES[type(self.default)]
 
     def to_dict(self, param_id: str, block_id: str) -> dict[str, JSONValue]:
@@ -143,6 +146,8 @@ class ParamSpec:
         default = self.default
         if isinstance(default, SearchSpace):
             out["default"] = cast(JSONValue, default.to_json())
+        elif isinstance(default, SearchOption):
+            out["default"] = _ref_json(default)
         elif isinstance(default, tuple):
             out["default"] = [list(pair) for pair in default]
         else:
@@ -190,7 +195,8 @@ def Param[T: ParamDefault](
     makes a ``wavelength_ranges`` parameter (``ranges: WavelengthRanges =
     Param(((1100.0, 2500.0),))``): pairs in either order, stored as ``(min, max)``, in
     the unit of the input axis, checked against the axis by the block at run time.
-    A :class:`SearchSpace` default makes a ``search_space`` parameter (T2.10c).
+    A :class:`SearchSpace` default makes a ``search_space`` parameter (T2.10c), a
+    :class:`SearchOption` default a ``block_ref`` parameter (T2.10d).
     ``constraint`` (``"polyorder < window"``)
     and ``visible_if`` (``("method", ("a", "b"))``) name other parameters; they are
     checked by :func:`param_specs`.
@@ -205,6 +211,9 @@ def Param[T: ParamDefault](
     elif isinstance(default, SearchSpace):
         if choices is not None or search_space_value(default.to_json()) != default:
             raise ValueError(f"default {default!r} must be a valid search space without choices")
+    elif isinstance(default, SearchOption):
+        if choices is not None or block_ref_value(_ref_json(default)) != default:
+            raise ValueError(f"default {default!r} must be a valid block_ref without choices")
     elif type(default) not in _TYPE_NAMES:
         raise TypeError(
             f"default must be an int, float, bool or str (or a tuple of pairs), got {default!r}"
@@ -351,22 +360,33 @@ def search_space_value(value: object) -> SearchSpace | None:
             return None
         options: list[SearchOption | None] = []
         for item in cast(list[object], slot):
-            if item is None:
-                options.append(None)
-                continue
-            if not isinstance(item, dict):
+            option = None if item is None else block_ref_value(item)
+            if item is not None and option is None:
                 return None
-            entry = cast(dict[object, object], item)
-            block_id, params = entry.get("block_id"), entry.get("params", {})
-            if set(entry) - {"block_id", "params"} or not isinstance(block_id, str):
-                return None
-            if not isinstance(params, dict):
-                return None
-            if not all(isinstance(k, str) for k in cast(dict[object, object], params)):
-                return None
-            options.append(SearchOption(block_id, cast(dict[str, JSONValue], params)))
+            options.append(option)
         slots.append(tuple(options))
     return SearchSpace(tuple(slots))
+
+
+def block_ref_value(value: object) -> SearchOption | None:
+    """``value`` as a :class:`SearchOption`, or ``None`` if it is not
+    ``{"block_id": str, "params"?: object}`` (a ``search_space`` option, a ``block_ref``
+    value). The block id and params are checked against the registry where it is used."""
+    if not isinstance(value, dict):
+        return None
+    entry = cast(dict[object, object], value)
+    block_id, params = entry.get("block_id"), entry.get("params", {})
+    if set(entry) - {"block_id", "params"} or not isinstance(block_id, str):
+        return None
+    if not isinstance(params, dict):
+        return None
+    if not all(isinstance(k, str) for k in cast(dict[object, object], params)):
+        return None
+    return SearchOption(block_id, cast(dict[str, JSONValue], params))
+
+
+def _ref_json(ref: SearchOption) -> dict[str, JSONValue]:
+    return {"block_id": ref.block_id, "params": dict(ref.params)}
 
 
 def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamDefault]:
@@ -381,6 +401,11 @@ def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamDef
             return None, value
         space = search_space_value(value)
         return ("type", None) if space is None else (None, space)
+    if kind == "block_ref":
+        if isinstance(value, SearchOption):  # the default
+            return None, value
+        ref = block_ref_value(value)
+        return ("type", None) if ref is None else (None, ref)
     if kind == "enum":
         choices = cast(tuple[ParamValue, ...], spec.choices)
         if type(choices[0]) is float and type(value) is int:
