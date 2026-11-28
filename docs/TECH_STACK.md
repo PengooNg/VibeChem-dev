@@ -107,7 +107,7 @@ GitHub Actions standard runners (`ubuntu-latest`, `windows-latest`, `macos-lates
 4. Install **Claude Code** (official installer) and sign in.
 5. Clone the repo, then from the repo root (after T0.04 also `pnpm --dir app exec playwright install chromium`):
    - `uv python install 3.14`
-   - `uv sync` (creates `.venv`, installs all Python packages incl. native build)
+   - `uv sync` (creates `.venv`, installs all Python packages incl. native build) [macOS: `bash scripts/uv_sync.sh` instead, then `uv run --no-sync …` (or `export UV_NO_SYNC=1`): it installs the NumPy/SciPy wheels with OpenBLAS via `MACOSX_DEPLOYMENT_TARGET=13.0 uv sync --locked --python-platform <arch>-apple-darwin`, because Accelerate breaks bit-identity (BUG #84, R67); a plain `uv run` may sync back to the Accelerate wheels. CI, nightly and the installer builds use the same script.]
    - `pnpm --dir app install`
 6. Verify: `uv run python scripts/check.py --fast` → all PASS.
 Environment variables per machine: `VIBECHEM_MACHINE` (e.g. `work-pc`, `laptop`; shown in PR status lines).
