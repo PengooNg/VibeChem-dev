@@ -12,6 +12,8 @@ files; doing that in a PR is a red flag (QA.md §4).
 
 from __future__ import annotations
 
+import hashlib
+import shutil
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -33,10 +35,11 @@ TESTDATA = Path(__file__).parents[4] / "testdata"
 HASHES = TESTDATA / "expected" / "golden_pipeline_hashes.yml"
 METRICS = TESTDATA / "expected" / "golden_pipeline_metrics.yml"
 SEED = 3
-METRICS_RTOL = (
-    1e-9  # same machine class differs only by BLAS last bits; METHODS.md has no looser need
-)
+# CI runs three OS / BLAS builds: they differ in the last bits of float64 only, so these are
+# generous for the metrics (about 1e-15 relative) and tight enough to catch a real change.
+METRICS_RTOL = 1e-9
 METRICS_ATOL = 1e-12
+GOLDEN_BITS = 28  # mantissa bits kept per array (about 8 digits): survives BLAS last-bit noise
 
 
 def _node(node_id: str, block_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -67,39 +70,60 @@ def _document(savgol_window: int = 15) -> dict[str, Any]:
     }  # fmt: skip
 
 
-def _numbers(value: object) -> Iterator[NDArray[np.float64]]:
-    """Every numeric array inside a node output, in a fixed order (text columns are skipped)."""
+def _numbers(value: object) -> Iterator[tuple[str, NDArray[np.float64]]]:
+    """Every numeric array inside a node output as ``(label, values)``, in a fixed order.
+
+    Text arrays (sample ids) are skipped on purpose; an unknown type raises, so a new output
+    kind cannot slip out of the hash unnoticed.
+    """
     if isinstance(value, SpectralDataset):
-        yield np.asarray(value.X, dtype=np.float64).ravel()
+        yield "X", np.asarray(value.X, dtype=np.float64)
+        yield "axis", value.axis.values.astype(np.float64)
+        if value.y is not None:
+            yield from _numbers({"y": value.y})
     elif isinstance(value, FoldSet):
         for fold in value.folds:
-            yield fold.train.astype(np.float64)
-            yield fold.validation.astype(np.float64)
+            yield f"train{fold.fold}.{fold.repeat}", fold.train.astype(np.float64)
+            yield f"validation{fold.fold}.{fold.repeat}", fold.validation.astype(np.float64)
     elif isinstance(value, State):
         yield from _numbers(dict(value.arrays))
+        yield from _numbers({"values": dict(value.values)})
     elif isinstance(value, Results):
-        yield np.array(list(value.metrics.values()), dtype=np.float64)
+        yield "metrics", np.array(list(value.metrics.values()), dtype=np.float64)
         yield from _numbers(value.predictions or {})
     elif isinstance(value, Mapping):
         for key in sorted(value):  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
-            yield from _numbers(value[key])  # pyright: ignore[reportUnknownArgumentType]
-    elif isinstance(value, np.ndarray) and np.issubdtype(value.dtype, np.number):  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-        yield value.astype(np.float64).ravel()  # pyright: ignore[reportUnknownMemberType]
+            for label, arr in _numbers(value[key]):  # pyright: ignore[reportUnknownArgumentType]
+                yield f"{key}/{label}" if label else str(key), arr  # pyright: ignore[reportUnknownArgumentType]
+    elif isinstance(value, bool | int | float):
+        yield "", np.array([value], dtype=np.float64)
+    elif isinstance(value, np.ndarray | list | tuple):
+        array: NDArray[Any] = np.asarray(value)  # pyright: ignore[reportUnknownArgumentType]
+        if array.dtype.kind in "fiub":
+            yield "", array.astype(np.float64)
+    elif value is not None and not isinstance(value, str):
+        raise TypeError(f"golden pipeline cannot hash a {type(value).__name__}")
 
 
 def _node_hashes(run: PipelineRun, pipeline: Pipeline) -> dict[str, str]:
-    """``node_hash`` of every node's top-level outputs, in the pipeline's node order."""
+    """One hash per node over its top-level outputs, in the pipeline's node order.
+
+    Each array is hashed with its task, port and label, then the hashes are combined, so
+    moving values between arrays changes the result.
+    """
     hashes: dict[str, str] = {}
     for node in pipeline.document["nodes"]:
         node_id = node["node_id"]
         parts = [
-            arr
+            f"{task_id}/{name}/{label}:{node_hash(arr, significant_bits=GOLDEN_BITS)}"
             for task_id, out in sorted(run.outputs.items())  # completion order varies
             if task_id.rsplit(":", 1)[0] == node_id  # skips the per-fold ``@`` tasks
             for name in sorted(out.values)
-            for arr in _numbers(out.values[name])
+            for label, arr in _numbers(out.values[name])
+            if arr.size  # an empty array adds nothing (e.g. no y)
         ]
-        hashes[node_id] = node_hash(np.concatenate(parts) if parts else np.empty(0))
+        assert parts, f"node {node_id} produced no numeric output to hash"
+        hashes[node_id] = hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
     return hashes
 
 
@@ -137,14 +161,26 @@ def test_every_node_output_and_the_metrics_are_unchanged(
         if created and not regenerate:
             pytest.fail(f"created {METRICS.name}; run again")
     expected: dict[str, float] = yaml.safe_load(METRICS.read_text(encoding="utf-8"))
+    assert metrics, "the CV node returned no metrics"
+    assert all(np.isfinite(v) for v in metrics.values())
     assert list(metrics) == list(expected)
     assert_close(list(metrics.values()), list(expected.values()),
                  rtol=METRICS_RTOL, atol=METRICS_ATOL, name="golden CV metrics")  # fmt: skip
 
 
 def test_a_deliberate_change_names_the_first_divergent_node(
-    dataset: SpectralDataset, data_regression: DataRegressionFixture
+    dataset: SpectralDataset,
+    golden_run: tuple[dict[str, str], dict[str, float]],
+    data_regression: DataRegressionFixture,
+    tmp_path: Path,
 ) -> None:
     hashes, _ = _run(dataset, savgol_window=17)  # one parameter of the third node
+    assert [n for n in hashes if hashes[n] != golden_run[0][n]] == [
+        "nd_sg",
+        "nd_pls",
+        "nd_cv",
+    ]
+    scratch = tmp_path / "golden.yml"  # never the real golden file: --force-regen would rewrite it
+    shutil.copy(HASHES, scratch)
     with pytest.raises(AssertionError, match=r"first node whose output changed: nd_sg "):
-        check_golden(data_regression, hashes, HASHES)
+        check_golden(data_regression, hashes, scratch)
