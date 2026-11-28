@@ -92,6 +92,13 @@ def test_task_seeds_are_spawned_children_of_the_root_seed() -> None:
     assert task_seeds(20261117, 9)[:4] == seeds  # task i's seed does not depend on n
 
 
+def test_test_process_caps_accelerate_like_the_workers() -> None:
+    # BUG #84: threadpoolctl cannot limit Accelerate (NumPy's BLAS on macOS 14+ wheels), so
+    # an in-process reference is single-threaded only if this was set before NumPy loaded.
+    blas = np.show_config(mode="dicts")["Build Dependencies"]["blas"]["name"]
+    assert os.environ.get("VECLIB_MAXIMUM_THREADS") == "1", f"NumPy BLAS: {blas}"
+
+
 def test_results_identical_on_1_and_3_workers_and_in_process(
     tmp_path: Path, matrix: NDArray[np.float64]
 ) -> None:

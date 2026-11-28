@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "17 19 * * *" # 19:17 UTC = 04:17 JST
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to check instead of main + the newest phase-* (no S2 issue)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -31,7 +36,12 @@ jobs:
         shell: bash # -eo pipefail: a failed `gh api` must fail the job, not test main only
         env:
           GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref }}
         run: |
+          if [ -n "$REF" ]; then
+            echo "refs=[\"$REF\"]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Newest phase-* branch = highest phase number
           phase=$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100" --paginate \
             --jq '.[].name | select(startswith("phase-"))' | sort -V | tail -n 1)
@@ -149,7 +159,7 @@ jobs:
     name: open S2 issue on failure
     needs: [refs, check, e2e, bench]
     # cancelled() alone is only a whole-run cancel; a job that hits timeout-minutes is a cancelled need.
-    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    if: always() && !inputs.ref && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
