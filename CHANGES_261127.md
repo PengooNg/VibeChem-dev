@@ -8,7 +8,7 @@
 1. Base branch `phase-1` → active phase branch (`phase-2`).
 2. No settings `ask` rules: they prompt even when the gate allows (Quan's rule: allow or deny only). Release-repo comment/close and `git tag` are **deny**; Claude drafts and gives Quan the exact `!` command.
 3. The gate does not guard the release repo today (`gh release create`, `gh repo create/clone`, `gh workflow run`, `-R PengooNg/VibeChem` comments all pass). The "never touch the release repo" hard rule moves into Part A; the B7 gate patch must be applied before any release work.
-4. A1 also rewrites the ~90 `CLAUDE.md §N` citations across the repo; `check_doc_refs.py` fails on any left over.
+4. A1 also rewrites the ~90 old section-number citations of CLAUDE.md across the repo; `check_doc_refs.py` fails on any left over.
 5. Part B split: B-2 cleans ~450 existing leak hits in shipped files; `export-check` becomes a required check only after B-2.
 6. `.gitignore` adds `pengoo/` (today only in this machine's `.git/info/exclude`; the dev repo is public).
 7. Router: `scripts/pick_model.py` decides the Opus rule deterministically instead of the main session reading prose.
@@ -78,9 +78,9 @@ Create these files; move text **verbatim** (only headings and cross-reference wo
 
 **Make skills and agents load what they need.** Add a `Read first:` line at the top of each: `phase`, `step`, `resume`, `status`, `bug`, `block-template`, `step-runner.md`, listing exact `file#heading` targets from the table. No skill may rely on text that is no longer in CLAUDE.md without such a line.
 
-**Rewrite old citations.** About 90 `CLAUDE.md §N` citations exist outside CLAUDE.md (TASKS 16, permission_gate.py 11, TOOLS 10, TECH_STACK 9, QA 7, step-runner 6, PROGRESS 5, PR template 4, RISKS 3, ARCHITECTURE 3, skills bug/step/resume/phase/block-template, METHODS 2, FUNCTION_CATALOG, THIRD_PARTY, CODEOWNERS, app/README, `vibechem_core/block.py`, `vibechem_engine/api/app.py`). Rewrite each to the new `file#heading` (`git grep -n "CLAUDE\.md ?§"` lists them). In the two shipped `.py` files point to `docs/METHODS.md` or drop the reference (they must be release-clean anyway). `scripts/permission_gate.py` and `scripts/merge_step.py` are Quan-only → their message text goes in the A5 patch.
+**Rewrite old citations.** About 90 old section-number citations of CLAUDE.md exist outside CLAUDE.md (TASKS 16, permission_gate.py 11, TOOLS 10, TECH_STACK 9, QA 7, step-runner 6, PROGRESS 5, PR template 4, RISKS 3, ARCHITECTURE 3, skills bug/step/resume/phase/block-template, METHODS 2, FUNCTION_CATALOG, THIRD_PARTY, CODEOWNERS, app/README, `vibechem_core/block.py`, `vibechem_engine/api/app.py`). Rewrite each to the new `file#heading` (`git grep -n "CLAUDE\.md ?§"` lists them). In the two shipped `.py` files point to `docs/METHODS.md` or drop the reference (they must be release-clean anyway). `scripts/permission_gate.py` and `scripts/merge_step.py` are Quan-only → their message text goes in the A5 patch.
 
-**Reference check.** `scripts/check_doc_refs.py`: every `docs/...md#anchor` and `.claude/...` path in CLAUDE.md, docs, skills and agents exists (file + heading anchor, GitHub slug rules); no `CLAUDE.md §` citation is left anywhere (except this instruction file, which is not committed); CLAUDE.md ≤ 100 lines (335 today). Add as `check.py` area `docs` (part of `--fast`). One small test.
+**Reference check.** `scripts/check_doc_refs.py`: every `docs/...md#anchor` and `.claude/...` path in CLAUDE.md, docs, skills and agents exists (file + heading anchor, GitHub slug rules); no old section-number citation of CLAUDE.md is left anywhere (except this instruction file, which is not committed); CLAUDE.md ≤ 100 lines (335 today). Add as `check.py` area `docs` (part of `--fast`). One small test.
 
 **PR evidence:** a mapping table *old CLAUDE.md section → new file#heading* covering every section; `diff` showing moved text is unchanged apart from headings.
 
@@ -149,7 +149,7 @@ Record the model in the step-runner DONE block (`Model: sonnet|opus (rule n)`) a
 }
 ```
 Merge into the existing file (keep permissions and the permission-gate hook entry unchanged; hooks run in parallel, order does not matter). No extra allow rule is needed: `Bash(uv *)` already covers the wrapper. Keys checked against the Claude Code docs on 2026-11-27 (`model`, `effortLevel`, `env`, `availableModels`, PreToolUse `updatedInput`); re-check only if Claude Code warns about a key at start. Optionally restrict selectable models to sonnet/opus/haiku/opusplan with `availableModels`.
-Also in this patch: the `CLAUDE.md §N` citations in the message strings of `scripts/permission_gate.py` (11) and `scripts/merge_step.py` (1) → new `file#heading`.
+Also in this patch: the old section-number citations of CLAUDE.md in the message strings of `scripts/permission_gate.py` (11) and `scripts/merge_step.py` (1) → new `file#heading`.
 Test with the gate tests that a denied command can't pass through the wrapper (the wrapper's allowlist is the guard).
 
 ## A6: verify
