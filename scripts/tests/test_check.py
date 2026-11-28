@@ -372,3 +372,15 @@ def test_no_reference_rows_writes_placeholder_report(tmp_path: Path) -> None:
     assert check.main(["--fast"], runner=FakeRunner()) == 0
     report = (tmp_path / "reports" / "reference_report.md").read_text(encoding="utf-8")
     assert report.endswith("No reference tests yet.\n")
+
+
+def test_golden_pipeline_line_runs_with_the_engine_and_fails_on_its_own(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert check.main(["--fast", "--only", "engine"], runner=FakeRunner()) == 0
+    assert "golden pipeline .... PASS  (no node changed)" in capsys.readouterr().out
+    assert (
+        check.main(["--fast", "--only", "engine"], runner=FakeRunner(fail_on=check.GOLDEN_TESTS))
+        == 1
+    )
+    assert "golden pipeline .... FAIL" in capsys.readouterr().out
