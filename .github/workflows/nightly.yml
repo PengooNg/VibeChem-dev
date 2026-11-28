@@ -79,7 +79,7 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - name: Install Python workspace (macOS: OpenBLAS wheels, BUG #84)
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
         shell: bash
         run: bash scripts/uv_sync.sh
       - run: pnpm --dir app install --frozen-lockfile
@@ -113,7 +113,7 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - name: Install Python workspace (macOS: OpenBLAS wheels, BUG #84)
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
         shell: bash
         run: bash scripts/uv_sync.sh
       - run: pnpm --dir app install --frozen-lockfile
@@ -151,7 +151,7 @@ jobs:
         with:
           ref: ${{ matrix.ref }}
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-      - name: Install Python workspace (macOS: OpenBLAS wheels, BUG #84)
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
         shell: bash
         run: bash scripts/uv_sync.sh
       # T2.12: speed-up (judged only on >= 8 CPUs; the runners have 3-4, the count is printed)
