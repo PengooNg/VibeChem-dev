@@ -146,8 +146,12 @@ def cross_validate(
     # training rows has indicator 0 there, so its predicted value is 0 (N29)
     sweeps = [_sweep(r, classes) for r in fold_runs]
     if n_lv_per_fold is not None:
-        if any(not 1 <= n < len(s) for s, n in zip(sweeps, n_lv_per_fold, strict=True)):
-            raise ValueError("n_lv_per_fold must be between 1 and each fold's LV count")
+        for r, s, n in zip(fold_runs, sweeps, n_lv_per_fold, strict=True):
+            if not 1 <= n < len(s):
+                raise ValueError(
+                    f"n_lv_per_fold: fold {r.fold.fold} repeat {r.fold.repeat} asks for {n} LV, "
+                    f"its model has {len(s) - 1}"
+                )
         sweeps = [s[n : n + 1] for s, n in zip(sweeps, n_lv_per_fold, strict=True)]
     n_lv_max = min(len(s) for s in sweeps) - 1
     y_true = [_truth(r.validation, classes) for r in fold_runs]

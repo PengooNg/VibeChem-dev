@@ -49,6 +49,7 @@ import numpy as np
 
 from vibechem_core.block import Block, State, parse_params
 from vibechem_core.blocks.validate.cv import FoldRun
+from vibechem_core.blocks.validate.grid_search import Chain, chain_label
 from vibechem_core.blocks.validate.nested_cv import InnerChoice
 from vibechem_core.data import Fold, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import ParamError
@@ -278,7 +279,14 @@ def run_pipeline(
     for node_id, seed in zip(nested, task_seeds(seeds[4], len(nested)), strict=True):
         try:
             choices[node_id], inner_warnings[node_id] = _inner_runs(
-                node_id, compiled, pipeline, registry, done, executor, seed
+                node_id,
+                compiled,
+                pipeline,
+                registry,
+                done,
+                executor,
+                seed,
+                searches[node_id].branches,
             )
         except Exception as exc:  # noqa: BLE001  (a node error of the nested node)
             _log.exception("inner search of nested node %s failed", node_id)
@@ -361,6 +369,7 @@ def _inner_runs(
     done: Mapping[str, TaskOutput],
     executor: Executor,
     seed: int,
+    branches: list[tuple[Chain, str]],
 ) -> tuple[list[InnerChoice], list[Warning]]:
     """Per outer fold: the inner search's choice, from a sub-run on the fold's training
     rows of the fold source stream (METHODS.md#nested-cv steps 1-2); and the inner
@@ -381,9 +390,15 @@ def _inner_runs(
         sources = {**reused, source[0]: {**reused[source[0]], source[1]: rows}}
         sub = run_pipeline(inner, doc, registry, sources, executor, root_seed=fold_seed)
         if sub.status != "succeeded":
-            raise next(iter(sub.errors.values()), RuntimeError(f"inner run {sub.status}"))
+            exc = next(iter(sub.errors.values()), RuntimeError(f"inner run {sub.status}"))
+            exc.add_note(f"inner search of {node_id}, outer fold {fold.fold} repeat {fold.repeat}")
+            raise exc
         out = sub.outputs[f"{inner_search_id(node_id)}:run"]
-        picked.append(inner_choice(cast(Results, out.values["results"])))
+        choice = inner_choice(cast(Results, out.values["results"]))
+        # the outer branches must be the inner candidates in the same order
+        if choice.chain != chain_label(branches[choice.candidate][0]):
+            raise RuntimeError(f"{node_id}: inner candidate {choice.candidate} is not outer branch {choice.candidate}")  # fmt: skip
+        picked.append(choice)
         found += out.warnings
     return picked, found
 
@@ -402,8 +417,7 @@ def _search_output(
     results = [cast(Results, o.values["results"]) for o in outs]
     candidates = [(chain, r) for (chain, _), r in zip(search.branches, results, strict=True)]
     out = execute_task(seed, replace(spec, values={**spec.values, "candidates": candidates}))
-    first = () if search.warning is None else (search.warning,)
-    unique = {str(w): w for w in (*first, *(w for o in (out, *outs) for w in o.warnings))}
+    unique = {str(w): w for w in (*_first(search), *(w for o in (out, *outs) for w in o.warnings))}
     return TaskOutput(out.values, tuple(unique.values()))
 
 
