@@ -106,8 +106,9 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - name: Install Python workspace (builds the native extension)
-        run: uv sync --locked
+      - name: "Install Python workspace (builds the native extension; macOS: OpenBLAS wheels, BUG #84)"
+        shell: bash
+        run: bash scripts/uv_sync.sh
       - name: Install app dependencies
         run: pnpm --dir app install --frozen-lockfile
       - name: Freeze the engine (PyInstaller one-folder)

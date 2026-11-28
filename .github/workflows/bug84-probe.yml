@@ -1,0 +1,18 @@
+# Temporary BUG #84 probe on macOS arm64 (removed before merge).
+name: bug84-probe
+on:
+  push:
+    branches: [bug-84-macos-intel]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      # Option A: OpenBLAS wheels
+      - run: bash scripts/uv_sync.sh
+      - run: uv run --no-sync python scripts/bug84_probe.py
+      - run: VECLIB_MAXIMUM_THREADS=1 uv run --no-sync python scripts/bug84_probe.py

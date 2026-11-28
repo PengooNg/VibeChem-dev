@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "17 19 * * *" # 19:17 UTC = 04:17 JST
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to check instead of main + the newest phase-* (no S2 issue)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -31,7 +36,12 @@ jobs:
         shell: bash # -eo pipefail: a failed `gh api` must fail the job, not test main only
         env:
           GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref }}
         run: |
+          if [ -n "$REF" ]; then
+            echo "refs=[\"$REF\"]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Newest phase-* branch = highest phase number
           phase=$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100" --paginate \
             --jq '.[].name | select(startswith("phase-"))' | sort -V | tail -n 1)
@@ -69,7 +79,9 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - run: uv sync --locked
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
+        shell: bash
+        run: bash scripts/uv_sync.sh
       - run: pnpm --dir app install --frozen-lockfile
       - name: check.py (full, incl. slow tests)
         run: uv run python scripts/check.py --verbose
@@ -101,7 +113,9 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
-      - run: uv sync --locked
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
+        shell: bash
+        run: bash scripts/uv_sync.sh
       - run: pnpm --dir app install --frozen-lockfile
       - name: Playwright e2e (Electron)
         if: runner.os != 'Linux'
@@ -137,7 +151,9 @@ jobs:
         with:
           ref: ${{ matrix.ref }}
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-      - run: uv sync --locked
+      - name: "Install Python workspace (macOS: OpenBLAS wheels, BUG #84)"
+        shell: bash
+        run: bash scripts/uv_sync.sh
       # T2.12: speed-up (judged only on >= 8 CPUs; the runners have 3-4, the count is printed)
       # and determinism (the same result bits for 1, 2 and 4 workers; a difference fails the job).
       - name: bench.py (speed-up and determinism)
@@ -149,7 +165,7 @@ jobs:
     name: open S2 issue on failure
     needs: [refs, check, e2e, bench]
     # cancelled() alone is only a whole-run cancel; a job that hits timeout-minutes is a cancelled need.
-    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    if: always() && !inputs.ref && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
