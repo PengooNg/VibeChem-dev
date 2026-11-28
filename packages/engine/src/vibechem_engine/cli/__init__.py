@@ -5,7 +5,7 @@
 ``vibechem run FILE --data DATASET_ID=path.csv`` runs a pipeline file and prints the metrics of
 every node that produces ``Results``; ``vibechem validate FILE`` prints the issues found without
 running; ``vibechem blocks list`` prints the registered blocks. Exit code 0 = success,
-1 = invalid pipeline or failed run, 2 = usage error (bad arguments, unreadable file, missing data).
+1 = invalid pipeline file or graph, or a failed run; 2 = usage error (bad arguments, unreadable file, missing data).
 """
 
 from __future__ import annotations
@@ -22,11 +22,15 @@ from vibechem_core.blocks import default_registry
 from vibechem_core.data import SpectralDataset
 from vibechem_core.errors import VibeChemError
 from vibechem_engine.cli.data import dataset_from_file
-from vibechem_engine.pipeline import Pipeline, results_of
+from vibechem_engine.pipeline import DataMismatch, Pipeline, PipelineInvalid, results_of
 
 __all__ = ["main"]
 
 OK, FAILED, USAGE = 0, 1, 2
+
+
+class _Invalid(Exception):
+    """The pipeline file or graph is invalid; exit code 1."""
 
 
 class _Usage(Exception):
@@ -42,6 +46,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(stop.code or 0) if isinstance(stop.code, int) else USAGE
     try:
         return int(args.handler(args))
+    except _Invalid as error:
+        print(f"vibechem: {error}", file=sys.stderr)
+        return FAILED
     except _Usage as error:
         print(f"vibechem: {error}", file=sys.stderr)
         return USAGE
@@ -78,14 +85,14 @@ def _load(path: Path) -> Pipeline:
     except OSError as error:
         raise _Usage(f"cannot read {path}: {error.strerror or error}") from None
     except VibeChemError as error:
-        raise _Usage(f"{path} is not a valid pipeline file: {error}") from None
+        raise _Invalid(f"{path} is not a valid pipeline file: {error}") from None
 
 
 def _issues(pipeline: Pipeline) -> list[dict[str, Any]]:
     try:
         return [i.to_dict() for i in pipeline.validate()]
-    except ValueError as error:
-        raise _Usage(f"invalid pipeline: {error}") from None
+    except PipelineInvalid as error:
+        raise _Invalid(str(error)) from None
 
 
 def _validate(args: argparse.Namespace) -> int:
@@ -118,12 +125,16 @@ def _data(specs: list[str]) -> dict[str, SpectralDataset]:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.workers is not None and args.workers < 1:
+        raise _Usage("--workers must be at least 1")
     pipeline = _load(args.file)
     data = _data(args.data)
     try:
         run = pipeline.run(data, seed=args.seed, max_workers=args.workers)
-    except ValueError as error:
+    except DataMismatch as error:
         raise _Usage(str(error)) from None
+    except PipelineInvalid as error:
+        raise _Invalid(str(error)) from None
     if run.status != "succeeded":
         for task_id, error in run.errors.items():
             print(f"error in {task_id}: {error}", file=sys.stderr)
@@ -138,7 +149,7 @@ def _run(args: argparse.Namespace) -> int:
     else:
         for node_id, values in metrics.items():
             for name, value in values.items():
-                print(f"{node_id}\t{name}\t{value}")
+                print(f"{node_id}\t{name}\t{'nan' if value is None else value}")
         if not metrics:
             print("run succeeded; the pipeline has no node with metrics")
     return OK

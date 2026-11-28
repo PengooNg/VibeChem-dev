@@ -131,6 +131,34 @@ def test_usage_errors_exit_2_and_run_nothing(
     assert "vibechem:" in capsys.readouterr().err
 
 
+def test_invalid_pipelines_exit_1_and_bad_workers_exit_2(
+    tmp_path: Path, table: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cut = _document(edges=[("nd_a", "spectra", "nd_f", "spectra"), ("nd_f", "folds", "nd_c", "folds"),
+                           ("nd_a", "spectra", "nd_p", "spectra")])  # fmt: skip
+    unknown = _document()
+    unknown["nodes"][2]["block_id"] = "model.nope"
+    for doc in (cut, unknown):
+        assert main(["run", str(_write(tmp_path, doc)), "--data", f"gas={table}"]) == 1
+        assert main(["validate", str(_write(tmp_path, doc))]) == 1
+    broken = tmp_path / "broken.vcp.json"
+    broken.write_text("{}", encoding="utf-8")
+    assert main(["validate", str(broken)]) == 1
+    assert main(["run", str(_write(tmp_path, _document())), "--workers", "0"]) == 2
+    assert capsys.readouterr().err.count("vibechem:") == 5
+
+
+def test_empty_spectral_cells_are_refused(tmp_path: Path) -> None:
+    lines = CSV.read_text(encoding="utf-8").splitlines()[:51]
+    cells = lines[2].split(",")
+    cells[10] = ""  # one empty spectral cell
+    lines[2] = ",".join(cells)
+    path = tmp_path / "gap.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty or non-numeric"):
+        dataset_from_file(path, "gas")
+
+
 def test_bad_arguments_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["nonsense"]) == 2
     assert main([]) == 2

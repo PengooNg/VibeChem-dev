@@ -26,10 +26,18 @@ from vibechem_engine.formats import PipelineFile, load_pipeline
 from vibechem_engine.graph import GraphIssue
 from vibechem_engine.runners import PipelineRun, run_pipeline
 
-__all__ = ["DATASET_BLOCK", "Pipeline", "results_of"]
+__all__ = ["DATASET_BLOCK", "DataMismatch", "Pipeline", "PipelineInvalid", "results_of"]
 
 DATASET_BLOCK = "data.dataset"
 """``block_id`` of the data source block (DATA_MODEL.md §2.3)."""
+
+
+class PipelineInvalid(ValueError):
+    """The pipeline has an error issue or names an unknown block; nothing ran."""
+
+
+class DataMismatch(ValueError):
+    """``run`` got data for a ``dataset_id`` no node uses, or none for one a node needs."""
 
 
 class Pipeline:
@@ -59,27 +67,25 @@ class Pipeline:
     def dataset_ids(self) -> tuple[str, ...]:
         """``dataset_id`` of every ``data.dataset`` node, sorted, without repeats."""
         return tuple(
-            sorted({str(n["params"].get("dataset_id", "dataset")) for n in self._sources()})
+            sorted({str(n.get("params", {}).get("dataset_id", "dataset")) for n in self._sources()})
         )
 
     def validate(self) -> list[GraphIssue]:
         """Every problem found without running: parameters, ports, cycles, leakage.
 
-        Raises ``ValueError`` when a node names an unknown block or the document is malformed
-        (as ``compile_pipeline`` does).
+        Raises ``PipelineInvalid`` when a node names an unknown block and ``ValueError`` when
+        the document is malformed (as ``compile_pipeline`` does).
         """
         issues: list[GraphIssue] = []
         for node in self.document["nodes"]:
+            if node["block_id"] not in self.registry:
+                raise PipelineInvalid(f"unknown block_id {node['block_id']!r}")
+            params_type = self.registry.get(node["block_id"]).params_type
             try:
-                params_type = self.registry.get(node["block_id"]).params_type
                 parse_params(params_type, node.get("params", {}))
             except VibeChemError as error:
                 issues.append(GraphIssue(error.code, node["node_id"], params=error.params))
-            except KeyError as error:
-                raise ValueError(str(error.args[0])) from None
-        if not issues:  # a bad parameter would only repeat itself in the compile step
-            issues = list(compile_pipeline(self.document, self.registry).issues)
-        return issues
+        return issues + list(compile_pipeline(self.document, self.registry).issues)
 
     def run(
         self,
@@ -91,8 +97,8 @@ class Pipeline:
     ) -> PipelineRun:
         """Run the pipeline; ``data`` maps each ``dataset_id`` to its dataset.
 
-        Raises ``ValueError`` for a ``dataset_id`` without data, data no node uses, or a
-        pipeline with error issues (``validate``). A failed node does not raise: see
+        Raises ``DataMismatch`` for a ``dataset_id`` without data or data no node uses, and
+        ``PipelineInvalid`` for a pipeline with error issues (``validate``); both are ``ValueError``. A failed node does not raise: see
         ``PipelineRun.status`` and ``PipelineRun.errors``. Without ``executor`` a process
         pool of ``max_workers`` (default: the CPU count) runs the tasks.
         """
@@ -100,13 +106,14 @@ class Pipeline:
         missing = sorted(set(self.dataset_ids) - set(data))
         unused = sorted(set(data) - set(self.dataset_ids))
         if missing or unused:
-            raise ValueError(f"data missing for {missing}, not used by any node: {unused}")
-        compiled = compile_pipeline(self.document, self.registry)
-        errors = [i for i in compiled.issues if i.severity == "error"]
+            raise DataMismatch(f"data missing for {missing}, not used by any node: {unused}")
+        errors = [i for i in self.validate() if i.severity == "error"]
         if errors:
-            raise ValueError("pipeline is invalid: " + ", ".join(sorted({i.code for i in errors})))
+            codes = ", ".join(sorted({i.code for i in errors}))
+            raise PipelineInvalid(f"pipeline is invalid: {codes}")
+        compiled = compile_pipeline(self.document, self.registry)
         sources = {
-            n["node_id"]: {"spectra": data[str(n["params"].get("dataset_id", "dataset"))]}
+            n["node_id"]: {"spectra": data[str(n.get("params", {}).get("dataset_id", "dataset"))]}
             for n in self._sources()
         }
         if executor is not None:

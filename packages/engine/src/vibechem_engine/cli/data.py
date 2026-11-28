@@ -27,7 +27,7 @@ def dataset_from_file(path: str | Path, dataset_id: str) -> SpectralDataset:
 def dataset_from_table(table: TableImport, dataset_id: str) -> SpectralDataset:
     """The suggested roles of ``table`` as a dataset.
 
-    Raises ``ValueError`` when the table has no spectral columns.
+    Raises ``ValueError`` when the table has no spectral columns or empty spectral cells.
     """
     roles = table.suggested_roles
     spectral = roles["spectral_columns"]
@@ -37,6 +37,8 @@ def dataset_from_table(table: TableImport, dataset_id: str) -> SpectralDataset:
     first = names.index(spectral["from"])
     axis_names = names[first : first + spectral["count"]]
     X = np.column_stack([np.asarray(table.columns[n], dtype=np.float64) for n in axis_names])
+    if np.isnan(X).any():
+        raise ValueError("the spectral columns have empty or non-numeric cells")
     unit = spectral["axis_unit"]
     n = table.n_rows
     sample_col = roles["sample_id"]
