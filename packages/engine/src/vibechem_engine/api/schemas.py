@@ -12,7 +12,7 @@ a pipeline's parameters is ``vibechem_core.block.parse_params`` (§5.3).
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -270,6 +270,6 @@ class BlockDetail(_Model):
             if isinstance(p, IntParam | FloatParam) and p.constraint is not None:
                 _, op, right = p.constraint.split(" ")
                 other = defaults[right] if right[0].isalpha() else float(right)
-                if not _COMPARE[op](p.default, other):
+                if not _COMPARE[op](p.default, cast(float, other)):
                     raise ValueError(f"{p.param_id}: defaults break {p.constraint!r}")
         return self

@@ -23,6 +23,13 @@ its branches. An error in a branch is also reported on the search node. A stage 
 holds branch tasks runs on the search's workers as its core budget (the smallest, with
 several searches; METHODS.md N31, decision by Quan: option A).
 
+A ``validate.nested_cv`` node (T2.10d) is expanded the same way, one branch per
+candidate on the outer folds. After stage 1, a sub-run of
+:func:`~vibechem_engine.runners.nested.inner_pipeline` on each outer fold's training rows
+tunes the chain and LV count (an inner grid search on the ``inner_folds``); stage 2
+expands, per outer fold, only the chosen branch, for that fold; stage 3 gives the node
+``fold_runs`` and ``choices``. Its branches' other tasks never run.
+
 A task runs in a worker as :func:`execute_task`; it returns a :class:`TaskOutput` with its
 outputs by port id and the warnings the block raised (ADR-010 node log). Every stage gets
 its own root seed from ``root_seed``. A stage with a failure ends the run.
@@ -42,6 +49,7 @@ import numpy as np
 
 from vibechem_core.block import Block, State, parse_params
 from vibechem_core.blocks.validate.cv import FoldRun
+from vibechem_core.blocks.validate.nested_cv import InnerChoice
 from vibechem_core.data import Fold, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import ParamError
 from vibechem_core.registry import Registry
@@ -55,6 +63,13 @@ from vibechem_engine.compiler import (
     fold_rows,
 )
 from vibechem_engine.executor import Executor, task_seeds
+from vibechem_engine.runners.nested import (
+    NESTED_CV,
+    check_nested,
+    inner_choice,
+    inner_pipeline,
+    inner_search_id,
+)
 from vibechem_engine.runners.search import GRID_SEARCH, Search, expand_search
 from vibechem_engine.scheduler import Job, RunStatus, run_jobs
 
@@ -159,8 +174,13 @@ def run_pipeline(
     if any(i.severity == "error" for i in compiled.issues):
         raise ValueError(f"pipeline has errors: {sorted({i.code for i in compiled.issues})}")
     searches: dict[str, Search] = {}
-    for search_id in [n["node_id"] for n in pipeline["nodes"] if n["block_id"] == GRID_SEARCH]:
+    nested: list[str] = []
+    for node in [n for n in pipeline["nodes"] if n["block_id"] in (GRID_SEARCH, NESTED_CV)]:
+        search_id = node["node_id"]
         try:
+            if node["block_id"] == NESTED_CV:
+                check_nested(node.get("params", {}), registry)
+                nested.append(search_id)
             pipeline, searches[search_id] = expand_search(
                 pipeline,
                 search_id,
@@ -179,7 +199,13 @@ def run_pipeline(
         f"{node_id}:run": TaskOutput(dict(values)) for node_id, values in sources.items()
     }
     errors: dict[str, BaseException] = {}
-    seeds = task_seeds(root_seed, 4)  # one root per stage
+    seeds = task_seeds(root_seed, 5)  # one root per stage, the last for the inner sub-runs
+    # a nested node's branches run only through the folds stage 2 expands for it
+    skip = {
+        t.task_id
+        for t in compiled.tasks
+        if any(_in_branch(t.task_id, _ids(searches[n])) for n in nested)
+    }
 
     def failed(status: RunStatus) -> PipelineRun:
         for search_id, search in searches.items():  # a branch error is the search's too
@@ -242,15 +268,28 @@ def run_pipeline(
     for task in compiled.tasks:
         if any(i.task_id in held for i in task.inputs):
             held.add(task.task_id)
-    first = [t for t in compiled.tasks if t.task_id not in held and t.task_id not in done]
+    first = [t for t in compiled.tasks if t.task_id not in held | skip and t.task_id not in done]
     if (status := run(first, seeds[0])) != "succeeded":
         return failed(status)
+
+    # Stage 1b: the inner search of every nested node on each outer training set
+    choices: dict[str, list[InnerChoice]] = {}
+    inner_warnings: dict[str, list[Warning]] = {}
+    for node_id, seed in zip(nested, task_seeds(seeds[4], len(nested)), strict=True):
+        try:
+            choices[node_id], inner_warnings[node_id] = _inner_runs(
+                node_id, compiled, pipeline, registry, done, executor, seed
+            )
+        except Exception as exc:  # noqa: BLE001  (a node error of the nested node)
+            _log.exception("inner search of nested node %s failed", node_id)
+            errors[f"{node_id}:run"] = exc
+            return failed("failed")
 
     # Stage 2: fold tasks of every validation node (a search's work is in its branches)
     expanded: dict[str, list[tuple[Fold, FoldTasks]]] = {}
     fold_tasks: list[Task] = []
     for node_id, plan in compiled.fold_plans.items():
-        if node_id in searches:
+        if node_id in searches or f"{node_id}:run" in skip:
             continue
         folds: FoldSet = done[plan.folds.task_id].values[plan.folds.output]  # pyright: ignore[reportAssignmentType]
         expanded[node_id] = []
@@ -258,14 +297,35 @@ def run_pipeline(
             ft = plan.expand(fold.fold, fold.repeat)
             expanded[node_id].append((fold, ft))
             fold_tasks += ft.tasks
+    for node_id in nested:  # per outer fold only the branch its inner search chose
+        plan = compiled.fold_plans[node_id]
+        folds = done[plan.folds.task_id].values[plan.folds.output]  # pyright: ignore[reportAssignmentType]
+        expanded[node_id] = []
+        for fold, choice in zip(folds.folds, choices[node_id], strict=True):
+            branch = searches[node_id].branches[choice.candidate][1]
+            ft = compiled.fold_plans[branch].expand(fold.fold, fold.repeat)
+            expanded[node_id].append((fold, ft))
+            fold_tasks += ft.tasks
     if (status := run(fold_tasks, seeds[1])) != "succeeded":
         return failed(status)
 
     # Stage 3: validation nodes, here, with their fold runs; searches after their branches
-    for node_id in [n for n in compiled.fold_plans if n not in searches] + list(searches):
+    validation = [n for n in compiled.fold_plans if n not in searches and f"{n}:run" not in skip]
+    for node_id in validation + list(searches):
         task = next(t for t in compiled.tasks if t.task_id == f"{node_id}:run")
         try:
             s, _ = spec(task, {})
+            if node_id in nested:
+                runs = [
+                    _fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]
+                ]
+                values = {**s.values, "fold_runs": runs, "choices": choices[node_id]}
+                out = execute_task(seeds[2], replace(s, values=values))
+                search = searches[node_id]
+                found = (*_first(search), *inner_warnings[node_id], *out.warnings)
+                unique = tuple({str(w): w for w in found}.values())
+                done[task.task_id] = TaskOutput(out.values, unique)
+                continue
             if node_id in searches:
                 done[task.task_id] = _search_output(seeds[2], s, searches[node_id], done)
                 continue
@@ -279,10 +339,53 @@ def run_pipeline(
             return failed("failed")
 
     # Stage 4: what depends on validation nodes
-    rest = [t for t in compiled.tasks if t.task_id in held and t.task_id not in done]
+    rest = [t for t in compiled.tasks if t.task_id in held - skip and t.task_id not in done]
     if (status := run(rest, seeds[3])) != "succeeded":
         return failed(status)
     return PipelineRun(status, done, errors)
+
+
+def _ids(search: Search) -> list[str]:
+    return [cv for _, cv in search.branches]
+
+
+def _first(search: Search) -> tuple[Warning, ...]:
+    return () if search.warning is None else (search.warning,)
+
+
+def _inner_runs(
+    node_id: str,
+    compiled: CompiledPipeline,
+    pipeline: Mapping[str, Any],
+    registry: Registry,
+    done: Mapping[str, TaskOutput],
+    executor: Executor,
+    seed: int,
+) -> tuple[list[InnerChoice], list[Warning]]:
+    """Per outer fold: the inner search's choice, from a sub-run on the fold's training
+    rows of the fold source stream (METHODS.md#nested-cv steps 1-2); and the inner
+    searches' warnings. Raises the first error of a failed sub-run."""
+    plan = compiled.fold_plans[node_id]
+    source = (plan.source.task_id.split(":", 1)[0], plan.source.output)
+    data: SpectralDataset = done[plan.source.task_id].values[plan.source.output]  # pyright: ignore[reportAssignmentType]
+    folds: FoldSet = done[plan.folds.task_id].values[plan.folds.output]  # pyright: ignore[reportAssignmentType]
+    doc = inner_pipeline(pipeline, node_id, source, registry)
+    inner = compile_pipeline(doc, registry)
+    # upstream outputs are reused; the refit subgraph is re-fitted on the inner rows
+    ids = [n["node_id"] for n in doc["nodes"]]
+    reused = {n: done[f"{n}:run"].values for n in ids if f"{n}:run" in done and n not in plan.nodes}
+    found: list[Warning] = []
+    picked: list[InnerChoice] = []
+    for fold, fold_seed in zip(folds.folds, task_seeds(seed, len(folds.folds)), strict=True):
+        rows = fold_rows(data, fold, "train")
+        sources = {**reused, source[0]: {**reused[source[0]], source[1]: rows}}
+        sub = run_pipeline(inner, doc, registry, sources, executor, root_seed=fold_seed)
+        if sub.status != "succeeded":
+            raise next(iter(sub.errors.values()), RuntimeError(f"inner run {sub.status}"))
+        out = sub.outputs[f"{inner_search_id(node_id)}:run"]
+        picked.append(inner_choice(cast(Results, out.values["results"])))
+        found += out.warnings
+    return picked, found
 
 
 def _in_branch(task_id: str, branches: list[str]) -> bool:
