@@ -30,6 +30,13 @@ tunes the chain and LV count (an inner grid search on the ``inner_folds``); stag
 expands, per outer fold, only the chosen branch, for that fold; stage 3 gives the node
 ``fold_runs`` and ``choices``. Its branches' other tasks never run.
 
+Sub-runs (nested runs) share the scheduler: a run is a generator of scheduler stages
+(:func:`_steps`), and :func:`_together` runs several of them in lockstep, so each stage
+of all sub-runs goes to one :func:`~vibechem_engine.scheduler.run_jobs` call, earlier
+sub-runs first in the job list. Cores that one outer fold's inner tasks leave idle take
+the next outer folds' tasks (decision by Quan, 2026-11-28). Each job keeps the seed its
+own sub-run gives it, so the results equal the sub-runs run one after another.
+
 A task runs in a worker as :func:`execute_task`; it returns a :class:`TaskOutput` with its
 outputs by port id and the warnings the block raised (ADR-010 node log). Every stage gets
 its own root seed from ``root_seed``. A stage with a failure ends the run.
@@ -41,7 +48,7 @@ import inspect
 import logging
 import os
 import warnings
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
@@ -72,12 +79,15 @@ from vibechem_engine.runners.nested import (
     inner_search_id,
 )
 from vibechem_engine.runners.search import GRID_SEARCH, Search, expand_search
-from vibechem_engine.scheduler import Job, RunStatus, run_jobs
+from vibechem_engine.scheduler import Job, RunResult, RunStatus, run_jobs
 
 __all__ = ["PipelineRun", "TaskOutput", "execute_task", "run_pipeline"]
 
 _STATE_TYPES = frozenset({"Model", "Transform"})
 _log = logging.getLogger(__name__)
+
+type _Batch = tuple[list[Job], int, int | None]  # one stage: jobs, root seed, core budget
+type _Steps[T] = Generator[_Batch, RunResult, T]
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +182,26 @@ def run_pipeline(
     Raises ``ValueError`` when ``compiled`` (or the pipeline with its grid-search
     candidates) has error issues (it has no tasks then).
     """
+    steps = _steps(compiled, pipeline, registry, sources, executor, root_seed=root_seed)
+    result: RunResult | None = None
+    while True:
+        try:
+            jobs, seed, cores = steps.send(cast(RunResult, result))
+        except StopIteration as stop:
+            return cast(PipelineRun, stop.value)
+        result = run_jobs(jobs, executor, root_seed=seed, cores=cores)
+
+
+def _steps(
+    compiled: CompiledPipeline,
+    pipeline: Mapping[str, Any],
+    registry: Registry,
+    sources: Mapping[str, Mapping[str, object]],
+    executor: Executor,
+    *,
+    root_seed: int,
+) -> _Steps[PipelineRun]:
+    """:func:`run_pipeline` as a generator: yields each scheduler stage, gets its result."""
     if any(i.severity == "error" for i in compiled.issues):
         raise ValueError(f"pipeline has errors: {sorted({i.code for i in compiled.issues})}")
     searches: dict[str, Search] = {}
@@ -245,7 +275,7 @@ def run_pipeline(
             tuple(deps),
         )
 
-    def run(tasks: list[Task], seed: int) -> RunStatus:
+    def run(tasks: list[Task], seed: int) -> _Steps[RunStatus]:
         if not tasks:
             return "succeeded"
         stage = {t.task_id: t for t in tasks}
@@ -259,7 +289,7 @@ def run_pipeline(
             for search in searches.values()
             if any(_in_branch(t, [cv for _, cv in search.branches]) for t in stage)
         ]
-        result = run_jobs(jobs, executor, root_seed=seed, cores=min(budgets, default=None))
+        result = yield (jobs, seed, min(budgets, default=None))
         done.update({k: cast(TaskOutput, v) for k, v in result.results.items()})
         errors.update(result.errors)
         return result.status
@@ -270,7 +300,7 @@ def run_pipeline(
         if any(i.task_id in held for i in task.inputs):
             held.add(task.task_id)
     first = [t for t in compiled.tasks if t.task_id not in held | skip and t.task_id not in done]
-    if (status := run(first, seeds[0])) != "succeeded":
+    if (status := (yield from run(first, seeds[0]))) != "succeeded":
         return failed(status)
 
     # Stage 1b: the inner search of every nested node on each outer training set
@@ -278,7 +308,7 @@ def run_pipeline(
     inner_warnings: dict[str, list[Warning]] = {}
     for node_id, seed in zip(nested, task_seeds(seeds[4], len(nested)), strict=True):
         try:
-            choices[node_id], inner_warnings[node_id] = _inner_runs(
+            choices[node_id], inner_warnings[node_id] = yield from _inner_runs(
                 node_id,
                 compiled,
                 pipeline,
@@ -314,7 +344,7 @@ def run_pipeline(
             ft = compiled.fold_plans[branch].expand(fold.fold, fold.repeat)
             expanded[node_id].append((fold, ft))
             fold_tasks += ft.tasks
-    if (status := run(fold_tasks, seeds[1])) != "succeeded":
+    if (status := (yield from run(fold_tasks, seeds[1]))) != "succeeded":
         return failed(status)
 
     # Stage 3: validation nodes, here, with their fold runs; searches after their branches
@@ -348,7 +378,7 @@ def run_pipeline(
 
     # Stage 4: what depends on validation nodes
     rest = [t for t in compiled.tasks if t.task_id in held - skip and t.task_id not in done]
-    if (status := run(rest, seeds[3])) != "succeeded":
+    if (status := (yield from run(rest, seeds[3]))) != "succeeded":
         return failed(status)
     return PipelineRun(status, done, errors)
 
@@ -370,10 +400,11 @@ def _inner_runs(
     executor: Executor,
     seed: int,
     branches: list[tuple[Chain, str]],
-) -> tuple[list[InnerChoice], list[Warning]]:
+) -> _Steps[tuple[list[InnerChoice], list[Warning]]]:
     """Per outer fold: the inner search's choice, from a sub-run on the fold's training
     rows of the fold source stream (METHODS.md#nested-cv steps 1-2); and the inner
-    searches' warnings. Raises the first error of a failed sub-run."""
+    searches' warnings. The sub-runs share the scheduler (:func:`_together`). Raises the
+    first error (in outer fold order) of a failed sub-run."""
     plan = compiled.fold_plans[node_id]
     source = (plan.source.task_id.split(":", 1)[0], plan.source.output)
     data: SpectralDataset = done[plan.source.task_id].values[plan.source.output]  # pyright: ignore[reportAssignmentType]
@@ -385,10 +416,13 @@ def _inner_runs(
     reused = {n: done[f"{n}:run"].values for n in ids if f"{n}:run" in done and n not in plan.nodes}
     found: list[Warning] = []
     picked: list[InnerChoice] = []
+    subs: list[_Steps[PipelineRun]] = []
     for fold, fold_seed in zip(folds.folds, task_seeds(seed, len(folds.folds)), strict=True):
-        rows = fold_rows(data, fold, "train")
+        rows = fold_rows(data, fold, "train")  # a sub-run sees only its outer training rows
         sources = {**reused, source[0]: {**reused[source[0]], source[1]: rows}}
-        sub = run_pipeline(inner, doc, registry, sources, executor, root_seed=fold_seed)
+        subs.append(_steps(inner, doc, registry, sources, executor, root_seed=fold_seed))
+    runs = yield from _together(subs)
+    for fold, sub in zip(folds.folds, runs, strict=True):
         if sub.status != "succeeded":
             exc = next(iter(sub.errors.values()), RuntimeError(f"inner run {sub.status}"))
             exc.add_note(f"inner search of {node_id}, outer fold {fold.fold} repeat {fold.repeat}")
@@ -401,6 +435,62 @@ def _inner_runs(
         picked.append(choice)
         found += out.warnings
     return picked, found
+
+
+def _seeded(_seed: int, seed: int, fn: Any, *args: object) -> object:
+    """A merged job: run ``fn`` with the seed of its own sub-run, not the merged list's."""
+    return fn(seed, *args)
+
+
+def _together[T](runs: Sequence[_Steps[T]]) -> _Steps[list[T]]:
+    """Run ``runs`` in lockstep: their pending stages go out as one stage, run ``i``'s jobs
+    after those of the runs before it and its ids prefixed ``<i>|``; each run gets its own
+    part of the result. Returns the runs' values in order."""
+    values: dict[int, T] = {}
+
+    def step(i: int, result: RunResult | None) -> _Batch | None:
+        try:
+            return runs[i].send(cast(RunResult, result))
+        except StopIteration as stop:
+            values[i] = cast(T, stop.value)
+            return None
+
+    pending = {i: b for i in range(len(runs)) if (b := step(i, None)) is not None}
+    while pending:
+        jobs: list[Job] = []
+        for i, (batch, seed, _) in pending.items():
+            for job, own in zip(batch, task_seeds(seed, len(batch)), strict=True):
+                jobs.append(
+                    replace(
+                        job,
+                        task_id=f"{i}|{job.task_id}",
+                        node_id=f"{i}|{job.node_id}",
+                        fn=_seeded,
+                        args=(own, job.fn, *job.args),
+                        deps=tuple(f"{i}|{d}" for d in job.deps),
+                    )
+                )
+        cores = min((c for _, _, c in pending.values() if c is not None), default=None)
+        merged = yield (jobs, 0, cores)  # root seed unused: every job carries its own
+        pending = {i: b for i in pending if (b := step(i, _part(merged, f"{i}|"))) is not None}
+    return [values[i] for i in range(len(runs))]
+
+
+def _part(result: RunResult, prefix: str) -> RunResult:
+    """The part of a merged stage's result that belongs to one run (prefix removed)."""
+    cut = len(prefix)
+
+    def mine[V](items: Mapping[str, V]) -> dict[str, V]:
+        return {k[cut:]: v for k, v in items.items() if k.startswith(prefix)}
+
+    errors = mine(result.errors)
+    failed = tuple(n[cut:] for n in result.failed_nodes if n.startswith(prefix))
+    unfinished = tuple(n[cut:] for n in result.unfinished_nodes if n.startswith(prefix))
+    # another run's failure does not fail this one: its jobs depend only on its own
+    status: RunStatus = (
+        "failed" if errors else "succeeded" if result.status == "failed" else result.status
+    )
+    return RunResult(status, result.duration_s, mine(result.results), errors, failed, unfinished)
 
 
 def _in_branch(task_id: str, branches: list[str]) -> bool:

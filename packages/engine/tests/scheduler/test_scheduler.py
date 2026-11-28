@@ -115,6 +115,25 @@ def test_dependency_results_follow_args_and_seeds_follow_list_position(
     assert (run.status, run.failed_nodes, run.unfinished_nodes) == ("succeeded", (), ())
 
 
+def test_ready_jobs_start_in_list_order_whenever_they_became_ready() -> None:
+    started: list[str] = []
+
+    def mark(tag: str) -> Callable[..., None]:
+        def work(_seed: int, *_: object) -> None:
+            started.append(tag)
+
+        return work
+
+    one = ThreadExecutor(1)
+    jobs = [Job("a0", "a", mark("a0")), Job("a1", "a", mark("a1"), deps=("a0",))]
+    jobs += [Job("b0", "b", mark("b0")), Job("b1", "b", mark("b1"))]
+    try:
+        assert run_jobs(jobs, one, root_seed=0).status == "succeeded"
+    finally:
+        one.shutdown()
+    assert started == ["a0", "a1", "b0", "b1"]  # a1 became ready after b0, starts first
+
+
 def test_bad_job_lists_are_rejected(pool: ThreadExecutor) -> None:
     with pytest.raises(ValueError, match="unknown"):
         run_jobs([Job("a", "n", echo, deps=("zz",))], pool, root_seed=0)

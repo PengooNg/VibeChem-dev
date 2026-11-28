@@ -7,8 +7,12 @@ hand-written scikit-learn nested CV (``GridSearchCV`` inside the outer folds,
 
 from __future__ import annotations
 
+import threading
+import time
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 from typing import Any, cast
 
 import numpy as np
@@ -24,6 +28,7 @@ from vibechem_core.blocks.model.pls import PLS
 from vibechem_core.blocks.preprocess.snv import SNV
 from vibechem_core.blocks.validate.cv import CrossValidation
 from vibechem_core.blocks.validate.folds import ContiguousBlocks
+from vibechem_core.blocks.validate.folds import KFold as KFoldBlock
 from vibechem_core.blocks.validate.grid_search import GridSearch
 from vibechem_core.blocks.validate.nested_cv import NestedCV
 from vibechem_core.data import Axis, FoldSet, Results, SpectralDataset
@@ -31,8 +36,10 @@ from vibechem_core.errors import ParamError
 from vibechem_core.reference_datasets import load_reference_dataset
 from vibechem_core.registry import Registry
 from vibechem_core.testing import assert_reference
+from vibechem_engine import runners
 from vibechem_engine.compiler import compile_pipeline
 from vibechem_engine.runners import PipelineRun, run_pipeline
+from vibechem_engine.scheduler import Job, RunResult, run_jobs
 
 
 class Source(Block):
@@ -50,12 +57,13 @@ class Source(Block):
 
 
 class ThreadExecutor:
-    def __init__(self) -> None:
-        self._pool = ThreadPoolExecutor(2)
+    def __init__(self, workers: int = 2) -> None:
+        self._workers = workers
+        self._pool = ThreadPoolExecutor(workers)
 
     @property
     def max_workers(self) -> int:
-        return 2
+        return self._workers
 
     def submit[R](self, fn: Callable[..., R], /, *args: object) -> Future[R]:
         return self._pool.submit(fn, *args)
@@ -68,7 +76,16 @@ class ThreadExecutor:
 
 
 REGISTRY = Registry()
-for _block in (Source, SNV, PLS, ContiguousBlocks, CrossValidation, GridSearch, NestedCV):
+for _block in (
+    Source,
+    SNV,
+    PLS,
+    ContiguousBlocks,
+    KFoldBlock,
+    CrossValidation,
+    GridSearch,
+    NestedCV,
+):
     REGISTRY.register(_block)
 INNER: dict[str, Any] = {"block_id": "validate.contiguous_blocks", "params": {"k": 4}}
 SNV_: dict[str, Any] = {"block_id": "preprocess.snv", "params": {}}
@@ -90,7 +107,7 @@ def gasoline() -> SpectralDataset:
     )
 
 
-def run(params: dict[str, Any], data: SpectralDataset, registry: Registry = REGISTRY) -> PipelineRun:  # fmt: skip
+def run(params: dict[str, Any], data: SpectralDataset, registry: Registry = REGISTRY, workers: int = 2) -> PipelineRun:  # fmt: skip
     """src -> folds (5 contiguous blocks); src -> pls (10 LV) -> nested; folds -> nested."""
     nodes: list[dict[str, Any]] = [
         {"node_id": "src", "block_id": "test.source", "params": {}},
@@ -108,7 +125,7 @@ def run(params: dict[str, Any], data: SpectralDataset, registry: Registry = REGI
         ],
     }
     compiled = compile_pipeline(doc, registry)
-    return run_pipeline(compiled, doc, registry, {"src": {"spectra": data}}, ThreadExecutor(), root_seed=5)  # fmt: skip
+    return run_pipeline(compiled, doc, registry, {"src": {"spectra": data}}, ThreadExecutor(workers), root_seed=5)  # fmt: skip
 
 
 def snv(X: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -199,3 +216,67 @@ def test_nested_cv_needs_grid_search_in_the_registry(gasoline: SpectralDataset) 
         registry.register(block)
     with pytest.raises(ValueError, match=r"validate.grid_search"):
         run({"inner_folds": INNER}, gasoline, registry)
+
+
+SHUFFLED: dict[str, Any] = {"block_id": "validate.kfold", "params": {"k": 3, "shuffle": True}}
+
+
+def serial(subs: Any) -> Any:
+    """The sub-runs one after another, each stage alone (the order before Quan's decision)."""
+    out: list[Any] = []
+    for sub in subs:
+        out.append((yield from sub))
+    return out
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_shared_scheduler_gives_the_serial_results(
+    gasoline: SpectralDataset, workers: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inner sub-runs merged into one scheduler stage = run one outer fold after another
+    (shuffled inner folds: each sub-run's seeds must survive the merge), bit for bit."""
+    params: dict[str, Any] = {"inner_folds": SHUFFLED, "search_space": [[None, SNV_]]}
+    merged = cast(Results, run(params, gasoline, workers=workers).output("nest", "results"))
+    with monkeypatch.context() as m:
+        m.setattr(runners, "_together", serial)
+        alone = cast(Results, run(params, gasoline, workers=workers).output("nest", "results"))
+    assert merged.details["outer"] == alone.details["outer"]
+    assert merged.metrics == alone.metrics
+    got, want = cast(dict[str, Any], merged.predictions), cast(dict[str, Any], alone.predictions)
+    assert got.keys() == want.keys()
+    for column in got:
+        np.testing.assert_array_equal(got[column], want[column])
+
+
+def test_idle_workers_take_the_next_outer_folds_inner_tasks(
+    gasoline: SpectralDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """8 workers, one candidate on 2 inner folds: one outer fold cannot fill the workers,
+    so inner tasks of several outer folds run at once."""
+    lock, running, peak = threading.Lock(), Counter[str](), [0]
+    real = run_jobs
+
+    def tracked(job: Job) -> Job:
+        outer = job.task_id.split("|", 1)[0] if "|" in job.task_id else ""
+
+        def work(seed: int, *args: object) -> object:
+            with lock:
+                running[outer] += 1
+                peak[0] = max(peak[0], len([k for k, n in running.items() if k and n]))
+            time.sleep(0.01)
+            try:
+                return job.fn(seed, *args)
+            finally:
+                with lock:
+                    running[outer] -= 1
+
+        return replace(job, fn=work)
+
+    def spy(jobs: list[Job], executor: Any, **kw: Any) -> RunResult:
+        return real([tracked(j) for j in jobs], executor, **kw)
+
+    monkeypatch.setattr(runners, "run_jobs", spy)
+    inner = {"block_id": "validate.contiguous_blocks", "params": {"k": 2}}
+    out = run({"inner_folds": inner}, gasoline, workers=8)
+    assert out.status == "succeeded", out.errors
+    assert peak[0] >= 2
