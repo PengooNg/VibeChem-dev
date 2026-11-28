@@ -8,10 +8,21 @@ permissions:
 jobs:
   probe:
     runs-on: macos-26-intel
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      # Default macOS 14+ x86_64 wheels (NumPy and SciPy on Accelerate)
       - run: uv sync --locked
-      - run: uv run --no-sync python scripts/bug84_probe.py
       - run: VECLIB_MAXIMUM_THREADS=1 uv run --no-sync python scripts/bug84_probe.py
+      # Option A: target macOS 13, so the OpenBLAS wheels (macosx_10_15_x86_64) are installed
+      - run: uv sync --locked --python-platform x86_64-apple-darwin
+      - run: uv run --no-sync python scripts/bug84_probe.py
+      - name: the nightly failures, 3 repeats, on OpenBLAS wheels
+        run: |
+          for i in 1 2 3; do
+            uv run --no-sync pytest -q -p no:cacheprovider \
+              packages/engine/tests/executor packages/engine/tests/runners \
+              packages/engine/tests/cli scripts/tests/test_bench.py \
+              packages/engine/tests/golden || true
+          done
