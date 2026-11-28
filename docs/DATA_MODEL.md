@@ -201,6 +201,18 @@ The `/blocks/{id}` object is the `/blocks` entry (`title_key`, `tooltip_key`, `i
 }
 ```
 
+#### Data source block `data.dataset` *(proposed T2.11)*
+The one block with no input: every pipeline starts from one or more of these (§2.6 example, §4.6 "data source"). Its definition is the same shape as any `/blocks` entry:
+```json
+{ "block_id": "data.dataset", "version": "1.0.0", "block_class": "data", "fitted": false, "tier": "P0",
+  "inputs": [],
+  "outputs": [ { "port_id": "spectra", "port_type": "Spectra" } ],
+  "params": [ { "param_id": "dataset_id", "type": "string", "default": "dataset", "advanced": false } ] }
+```
+- `dataset_id` names the dataset the node reads; its rows keep `row_index` of that dataset and `source_id` = `dataset_id` (§4.2).
+- The block runs nothing: the engine hands the dataset to the node as its `spectra` output (`sources` of `run_pipeline`). Calling `apply` raises `RuntimeError`.
+- Python API: `Pipeline.run(data={dataset_id: SpectralDataset})`; the CLI reads each dataset from a table file: `vibechem run FILE --data DATASET_ID=path.csv` (repeatable; `vibechem_core.io.read_table`). A `data.dataset` node whose `dataset_id` has no data, or data for an id no node uses, is a usage error: `ValueError` in Python, exit code 2 in the CLI; nothing runs. No error code: these are caller mistakes, not pipeline or engine errors.
+
 ### 2.4 Projects
 
 **`POST /projects`** body → `201`
