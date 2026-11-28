@@ -9,11 +9,15 @@ inputs), then a ``validate.cv`` node with the search's CV params on the search's
 ``folds``. The compiler then builds each branch's fold plan and checks it for leakage
 like any other validation node, so a candidate's results are those of a separate
 ``validate.cv`` run of its chain. Generated node ids start with ``<S>.c<i>``.
+
+It also sets the search's workers w = min(``effective_jobs(n_jobs)``, executor workers)
+and checks the serial limit (METHODS.md N31, decision by Quan: option A).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from vibechem_core.block import parse_params
@@ -24,23 +28,42 @@ from vibechem_core.blocks.validate.grid_search import (
     GridSearchParams,
     candidate_chains,
     check_search_size,
+    check_serial,
+    effective_jobs,
     spectra_output,
 )
 from vibechem_core.registry import Registry
 
-__all__ = ["GRID_SEARCH", "expand_search"]
+__all__ = ["GRID_SEARCH", "Search", "expand_search"]
 
 GRID_SEARCH = GridSearch.block_id
 
 
-def expand_search(
-    pipeline: Mapping[str, Any], node_id: str, registry: Registry
-) -> tuple[dict[str, Any], list[tuple[Chain, str]]]:
-    """``pipeline`` with the candidate branches of search node ``node_id``, and per
-    candidate its chain and the id of its ``validate.cv`` node, in candidate order.
+@dataclass(frozen=True, slots=True)
+class Search:
+    """One expanded search: per candidate its chain and its ``validate.cv`` node id, in
+    candidate order; ``workers`` = the core budget of the stages with its branch tasks;
+    ``warning`` = ``VALIDATION_SEARCH_PARALLEL_ONLY`` for the search node, if raised."""
 
-    Raises ``ParamError`` (``BLOCK_PARAM_INVALID``) for bad search params or a search
-    above the N31 caps (checked before any branch is built); ``ValueError``
+    branches: list[tuple[Chain, str]]
+    workers: int
+    warning: Warning | None
+
+
+def expand_search(
+    pipeline: Mapping[str, Any],
+    node_id: str,
+    registry: Registry,
+    *,
+    max_workers: int,
+    cpu_count: int,
+) -> tuple[dict[str, Any], Search]:
+    """``pipeline`` with the candidate branches of search node ``node_id``, and the
+    :class:`Search` (``max_workers`` = the executor's workers).
+
+    Raises ``ParamError`` (``BLOCK_PARAM_INVALID``) for bad search params, a search
+    above the N31 caps or above the serial limit with one worker (checked before any
+    branch is built); ``ValueError``
     when ``validate.cv`` is not registered. ``pipeline`` must have passed the graph checks.
     """
     if CrossValidation.block_id not in registry:
@@ -50,7 +73,8 @@ def expand_search(
     by_id = {n["node_id"]: n for n in nodes}
     search = by_id[node_id]
     raw: Mapping[str, Any] = search.get("params", {})
-    chains = candidate_chains(parse_params(GridSearchParams, raw).search_space, registry)
+    params = parse_params(GridSearchParams, raw)
+    chains = candidate_chains(params.search_space, registry)
 
     def into(node: str, port: str) -> dict[str, Any]:
         return next(e for e in edges if e["to_node"] == node and e["to_port"] == port)
@@ -60,7 +84,10 @@ def expand_search(
     # M = the model's maximum LV count (N31); a bad value is the model node's own error later
     default_lv = getattr(registry.get(model["block_id"]).params_type(), "n_components", 1)
     n_lv = model.get("params", {}).get("n_components", default_lv)
-    check_search_size(len(chains), n_lv if type(n_lv) is int else 1)
+    m = n_lv if type(n_lv) is int else 1
+    check_search_size(len(chains), m)
+    workers = min(effective_jobs(params.n_jobs, cpu_count), max_workers)
+    warning = check_serial(len(chains) * m, workers)
     first = registry.meta(model["block_id"]).inputs[0].port_id
     feed = into(model["node_id"], first)
     others = [e for e in edges if e["to_node"] == model["node_id"] and e["to_port"] != first]
@@ -96,4 +123,4 @@ def expand_search(
             for k, (a, ap, b, bp) in enumerate(added)
         ]
         branches.append((chain, cand))
-    return {**pipeline, "nodes": nodes, "edges": edges}, branches
+    return {**pipeline, "nodes": nodes, "edges": edges}, Search(branches, workers, warning)

@@ -25,10 +25,11 @@ from vibechem_core.blocks.validate.grid_search import (
     candidate_chains,
     chain_label,
     check_search_size,
+    check_serial,
     effective_jobs,
 )
 from vibechem_core.data import Results
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import ParamError, VibeChemWarning
 from vibechem_core.registry import Registry
 
 REGISTRY = Registry()
@@ -161,3 +162,16 @@ def test_n_jobs_default_is_all_cores_minus_ten_and_at_least_one() -> None:
     with pytest.raises(ParamError) as err:
         parse_params(GridSearchParams, {"n_jobs": 0})
     assert dict(err.value.params)["reason"] == "constraint"
+
+
+def test_serial_limit_refuses_one_worker_and_warns_with_several() -> None:
+    assert check_serial(1000, 1) is None  # at the limit: serial is fine
+    assert check_serial(1000, 8) is None
+    with pytest.raises(ParamError) as err:
+        check_serial(1001, 1)
+    assert dict(err.value.params) == {"param_id": "n_jobs", "reason": "serial_too_large",
+                                      "n_iterations": 1001, "workers": 1, "limit": 1000}  # fmt: skip
+    warning = check_serial(1001, 4)
+    assert isinstance(warning, VibeChemWarning)
+    assert warning.code == "VALIDATION_SEARCH_PARALLEL_ONLY"
+    assert dict(warning.params) == {"n_iterations": 1001, "workers": 4}

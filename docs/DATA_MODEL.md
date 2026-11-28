@@ -1,7 +1,7 @@
 # VibeChem — Data Model & Engine API
 
 > Status: DRAFT v0.10 · Last updated: 2026-11-28 · Reviewer: Quan (API, formats, scientific fields)
-> v0.10: §5.2 parameter type `search_space`, §5.3 reasons `unknown_block`/`not_a_spectra_step`, §4.5 block `validate.grid_search`, §4.7 point 4 (no search `model` output) — all proposed (T2.10c).
+> v0.10: §5.2 parameter type `search_space`, §5.3 reasons `unknown_block`/`not_a_spectra_step`, §4.5 block `validate.grid_search`, §4.7 point 4 (no search `model` output), §5.3 reason `serial_too_large`, §7 warning `VALIDATION_SEARCH_PARALLEL_ONLY` — all proposed (T2.10c).
 > v0.9: §3 `native.fallback` `reason` value `worker_crashed`; §7 `RUN_OUT_OF_MEMORY` proposed (T2.09).
 > v0.8: §6.6 cache key and cache folder layout (T2.06).
 > v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
@@ -737,10 +737,11 @@ A reserved type is implemented (and this table updated to "implemented") in the 
 | `unknown_block` | *(`search_space`, proposed T2.10c)* An option's `block_id` is not registered |
 | `not_a_spectra_step` | *(`search_space`, proposed T2.10c)* An option's block is not a chain step: its first input is not `Spectra`, another input is required, or it has no `Spectra` output |
 | `too_many_candidates` / `too_many_lv` / `search_too_large` | *(`search_space`, proposed T2.10c, caps decided by Quan 2026-11-28)* More than 1000 candidates (N), more than 1000 LV counts (M, the model block's `n_components`), or N·M > 50000; params `n_candidates`, `n_lv`, `n_iterations`, `limit`; checked before any candidate runs (METHODS.md N31) |
+| `serial_too_large` | *(`n_jobs`, proposed T2.10c, Quan 2026-11-28 option A)* The search has N·M > 1000 iterations and only one worker (w = 1); params `n_iterations`, `workers`, `limit` (1000); checked before any candidate runs, after the caps (METHODS.md N31) |
 
 For `search_space` the error also has `slot` and `option` (0-based positions); `value` is the block id (`unknown_block`, `not_a_spectra_step`) or the option's `param_id` (an option parameter's own reason, e.g. `not_odd`). These are raised when the search runs, as node errors of the search node.
 
-`validate.grid_search` parameter `n_jobs` *(proposed T2.10c, Quan 2026-11-28)*: `int`, default `-10`, constraint `n_jobs != 0`; positive = that many workers, negative = all cores minus `|n_jobs|`, clamped to at least 1 (`-10` on 8 cores → 1, on 32 cores → 22). How it sets the workers of a run is open (#85).
+`validate.grid_search` parameter `n_jobs` *(proposed T2.10c, Quan 2026-11-28)*: `int`, default `-10`, constraint `n_jobs != 0`; positive = that many workers, negative = all cores minus `|n_jobs|`, clamped to at least 1 (`-10` on 8 cores → 1, on 32 cores → 22). The run's search workers are w = min(that value, the executor's workers); w is the core budget of every scheduler stage that holds the search's branch tasks (shared with the other tasks of those stages; several searches in one stage → the smallest w). Decision by Quan, option A (2026-11-28).
 In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised while a block runs, it sets the node to `error` (§3). Block definitions are checked when a block is registered: defaults must pass the same rules, and `constraint`/`visible_if` must name another parameter of a suitable type (definition mistakes raise `TypeError`/`ValueError`, not a code).
 
 ### 5.4 Open points for review
@@ -863,6 +864,7 @@ Each code is defined in exactly one module (listed), so searching for a code fin
 | `VALIDATION_GROUPS_IGNORED` | warning | `core/blocks/validate` | Groups exist but CV ignores them (`params.n_groups`); raised by `validate.cv` when its `Folds` have `groups_respected = false` *(moved from `engine/graph`, T2.10a; hold-out splits still open, R25)* |
 | `VALIDATION_CLASS_MISSING_IN_FOLD` | warning | `core/blocks/validate` | PLS-DA CV: a class of the model is absent from a fold's training rows, so that fold predicts 0 for it (`params.class`, `params.fold`, `params.repeat`; METHODS.md N29) *(proposed T2.10b, for Quan)* |
 | `VALIDATION_Y_SCALES_DIFFER` | warning | `core/blocks/validate` | Unscaled PLS2 CV (fitted Y scale 1 for every column: `scale` = false and no `y_transform`, or one that only centres): largest / smallest Y column variance `params.ratio` > `params.threshold` (parameter `y_variance_ratio`, default 10, a heuristic), so the largest column dominates the summed PRESS that picks the LV count (METHODS.md N28) *(proposed T2.10b, for Quan)* |
+| `VALIDATION_SEARCH_PARALLEL_ONLY` | warning | `core/blocks/validate` | Grid search above the serial limit: N·M = `params.n_iterations` > 1000, run only because `params.workers` (> 1) workers share it; on the search node; the engine runner checks it before any branch is built and adds it to the search node's warnings (METHODS.md N31) *(proposed T2.10c, Quan 2026-11-28 option A)* |
 | `VALIDATION_FOLDS_INVALID` | node error | `core/blocks/validate` | CV `Folds` are not a partition: a row is predicted twice (`params.reason` = `duplicate_prediction`) or never (`missing_prediction`) in repeat `params.repeat` (METHODS.md N23) *(proposed T2.10a)* |
 | `BLOCK_CONSTANT_SPECTRA` | node error | `core/blocks/preprocess` | A spectrum has zero variance (e.g. SNV cannot scale it): `params.rows` (row positions), or `params.reference` (`mean`/`input`) when the MSC reference is constant *(params proposed T1.07)* |
 | `BLOCK_MSC_SLOPE_INVALID` | node error | `core/blocks/preprocess` | MSC: a spectrum's fitted slope on the reference is ≤ 0 (anti-correlated or constant spectrum); `params.rows` *(proposed T1.07)* |

@@ -50,7 +50,7 @@ from vibechem_core.block import (
 )
 from vibechem_core.blocks.validate.cv import CVParams
 from vibechem_core.data import FoldSet, Results
-from vibechem_core.errors import ErrorParam, ParamError
+from vibechem_core.errors import ErrorParam, ParamError, VibeChemWarning
 from vibechem_core.registry import Registry
 
 type Chain = tuple[SearchOption, ...]
@@ -70,6 +70,11 @@ DEFAULT_SEARCH_SPACE = _default_space()
 MAX_CANDIDATES = 1000
 MAX_LV = 1000
 MAX_ITERATIONS = 50_000  # N * M
+MAX_SERIAL_ITERATIONS = 1000  # N * M one worker may run (N31, option A)
+
+# Warning: N * M is above the serial limit; the search runs only on several workers
+# (``n_iterations``, ``workers``).
+VALIDATION_SEARCH_PARALLEL_ONLY = "VALIDATION_SEARCH_PARALLEL_ONLY"
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,21 @@ def check_search_size(n_candidates: int, n_lv: int) -> None:
                     "limit": limit,
                 },
             )
+
+
+def check_serial(n_iterations: int, workers: int) -> VibeChemWarning | None:
+    """Serial limit of N31 (Quan, option A) for a search of ``n_iterations`` (N * M) on
+    ``workers`` workers: above 1000 with one worker ``ParamError`` ``BLOCK_PARAM_INVALID``
+    (``param_id`` ``n_jobs``, ``reason`` ``serial_too_large``, ``n_iterations``,
+    ``workers``, ``limit``); above 1000 with several the warning to raise on the search
+    node; else ``None``."""
+    if n_iterations <= MAX_SERIAL_ITERATIONS:
+        return None
+    params: dict[str, ErrorParam] = {"n_iterations": n_iterations, "workers": workers}
+    if workers <= 1:
+        reason: dict[str, ErrorParam] = {"param_id": "n_jobs", "reason": "serial_too_large"}
+        raise ParamError(BLOCK_PARAM_INVALID, {**reason, **params, "limit": MAX_SERIAL_ITERATIONS})
+    return VibeChemWarning(VALIDATION_SEARCH_PARALLEL_ONLY, params)
 
 
 def spectra_output(meta: BlockMeta) -> str | None:

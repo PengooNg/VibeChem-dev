@@ -25,17 +25,20 @@ from vibechem_core.block import Block, State, port
 from vibechem_core.blocks.model.pls import PLS
 from vibechem_core.blocks.preprocess.scaling import Autoscale
 from vibechem_core.blocks.preprocess.snv import SNV
+from vibechem_core.blocks.validate import grid_search
 from vibechem_core.blocks.validate.cv import CrossValidation
 from vibechem_core.blocks.validate.folds import ContiguousBlocks, LeaveOneOut
 from vibechem_core.blocks.validate.grid_search import GridSearch
 from vibechem_core.data import Axis, FoldSet, Results, SpectralDataset
-from vibechem_core.errors import ParamError
+from vibechem_core.errors import ParamError, VibeChemWarning
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
 from vibechem_core.registry import Registry
 from vibechem_core.testing import assert_reference
+from vibechem_engine import runners
 from vibechem_engine.compiler import compile_pipeline
 from vibechem_engine.executor import ProcessExecutor
 from vibechem_engine.runners import PipelineRun, run_pipeline
+from vibechem_engine.scheduler import run_jobs
 
 SOURCE = "Mevik & Wehrens 2007, testdata/expected/gasoline_nir_pls.json"
 
@@ -331,6 +334,60 @@ def test_n_jobs_is_not_passed_to_the_branches(gasoline: SpectralDataset) -> None
     params: dict[str, Any] = {"n_jobs": 2, "search_space": [[None]]}
     out = run_search(search_doc("validate.grid_search", params, []), gasoline)
     assert out.status == "succeeded", out.errors
+
+
+def test_one_worker_above_the_serial_limit_is_refused(gasoline: SpectralDataset) -> None:
+    doc_ = search_doc("validate.grid_search", {"n_jobs": 1, "search_space": [[None, SNV_]]}, [])
+    pls = next(n for n in doc_["nodes"] if n["node_id"] == "pls")
+    pls["params"] = {"n_components": 501}  # N * M = 2 * 501 > 1000
+    out = run_search(doc_, gasoline)
+    assert out.status == "failed"
+    assert out.outputs == {}  # nothing ran
+    err = out.errors["val:run"]
+    assert isinstance(err, ParamError)
+    assert dict(err.params) == {"param_id": "n_jobs", "reason": "serial_too_large",
+                                "n_iterations": 1002, "workers": 1, "limit": 1000}  # fmt: skip
+
+
+def record_cores(monkeypatch: pytest.MonkeyPatch) -> list[int | None]:
+    """The ``cores`` budget of every ``run_jobs`` call of the runner, in call order."""
+    seen: list[int | None] = []
+
+    def spy(*args: Any, cores: int | None = None, **kwargs: Any) -> Any:
+        seen.append(cores)
+        return run_jobs(*args, cores=cores, **kwargs)
+
+    monkeypatch.setattr(runners, "run_jobs", spy)
+    return seen
+
+
+def test_n_jobs_is_the_core_budget_of_the_branch_stages(
+    gasoline: SpectralDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = record_cores(monkeypatch)
+    out = run_search(search_doc("validate.grid_search", {"n_jobs": 1, "search_space": [[None]]}, []), gasoline)  # fmt: skip
+    assert out.status == "succeeded", out.errors
+    assert seen == [1, 1]  # stage 1 (fits) and stage 2 (fold tasks) hold branch tasks
+    assert out.outputs["val:run"].warnings == ()  # 1 * 8 iterations: serial is fine
+    seen.clear()
+    plain = run_search(search_doc("validate.cv", {}, []), gasoline)
+    assert plain.status == "succeeded", plain.errors
+    assert seen == [None, None]  # no search: the executor's workers
+
+
+def test_several_workers_above_the_serial_limit_warn(
+    gasoline: SpectralDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(grid_search, "MAX_SERIAL_ITERATIONS", 10)  # 2 * 8 = 16 > 10
+    seen = record_cores(monkeypatch)
+    params: dict[str, Any] = {"n_jobs": 64, "search_space": [[None, SNV_]]}
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "succeeded", out.errors
+    assert set(seen) == {2}  # min(64, executor's 2 workers)
+    found = [w for w in out.outputs["val:run"].warnings if isinstance(w, VibeChemWarning)]
+    assert [(w.code, dict(w.params)) for w in found if w.code == grid_search.VALIDATION_SEARCH_PARALLEL_ONLY] == [
+        ("VALIDATION_SEARCH_PARALLEL_ONLY", {"n_iterations": 16, "workers": 2})
+    ]  # fmt: skip
 
 
 def test_a_failing_branch_is_reported_on_the_search_node(gasoline: SpectralDataset) -> None:
