@@ -32,6 +32,7 @@ from vibechem_core.blocks.validate.grid_search import (
     effective_jobs,
     spectra_output,
 )
+from vibechem_core.errors import VibeChemWarning
 from vibechem_core.registry import Registry
 
 __all__ = ["GRID_SEARCH", "Search", "expand_search"]
@@ -47,7 +48,7 @@ class Search:
 
     branches: list[tuple[Chain, str]]
     workers: int
-    warning: Warning | None
+    warning: VibeChemWarning | None
 
 
 def expand_search(
