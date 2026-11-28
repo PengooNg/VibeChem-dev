@@ -39,7 +39,10 @@ own sub-run gives it, so the results equal the sub-runs run one after another.
 
 A task runs in a worker as :func:`execute_task`; it returns a :class:`TaskOutput` with its
 outputs by port id and the warnings the block raised (ADR-010 node log). Every stage gets
-its own root seed from ``root_seed``. A stage with a failure ends the run.
+its own root seed from ``root_seed``, and each stage-3 node its own seed from that root, in
+node order. A block's Generator comes from its task seed and, when the block has a ``seed``
+parameter (fold and split blocks), that seed too (``SeedSequence([task_seed, seed])``), so
+changing ``seed`` changes the draw (issue #93). A stage with a failure ends the run.
 """
 
 from __future__ import annotations
@@ -150,7 +153,10 @@ def execute_task(seed: int, spec: _Spec, *deps: TaskOutput) -> TaskOutput:
     params: object = parse_params(block.params_type, spec.params)  # pyright: ignore[reportUnknownVariableType]
     method = block.fit if spec.kind == "fit" else block.apply
     if "rng" in inspect.signature(method).parameters:
-        kwargs["rng"] = np.random.default_rng(seed)
+        # a block's own ``seed`` parameter (fold and split blocks) must still change the draw
+        own: object = getattr(params, "seed", None)
+        entropy = seed if own is None else [seed, cast(int, own)]
+        kwargs["rng"] = np.random.default_rng(np.random.SeedSequence(entropy))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result: Any = method(**kwargs, params=params)
@@ -349,7 +355,8 @@ def _steps(
 
     # Stage 3: validation nodes, here, with their fold runs; searches after their branches
     validation = [n for n in compiled.fold_plans if n not in searches and f"{n}:run" not in skip]
-    for node_id in validation + list(searches):
+    stage3 = validation + list(searches)
+    for node_id, node_seed in zip(stage3, task_seeds(seeds[2], len(stage3)), strict=True):
         task = next(t for t in compiled.tasks if t.task_id == f"{node_id}:run")
         try:
             s, _ = spec(task, {})
@@ -358,18 +365,18 @@ def _steps(
                     _fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]
                 ]
                 values = {**s.values, "fold_runs": runs, "choices": choices[node_id]}
-                out = execute_task(seeds[2], replace(s, values=values))
+                out = execute_task(node_seed, replace(s, values=values))
                 search = searches[node_id]
                 found = (*_first(search), *inner_warnings[node_id], *out.warnings)
                 unique = tuple({str(w): w for w in found}.values())
                 done[task.task_id] = TaskOutput(out.values, unique)
                 continue
             if node_id in searches:
-                done[task.task_id] = _search_output(seeds[2], s, searches[node_id], done)
+                done[task.task_id] = _search_output(node_seed, s, searches[node_id], done)
                 continue
             runs = [_fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]]
             done[task.task_id] = execute_task(
-                seeds[2], replace(s, values={**s.values, "fold_runs": runs})
+                node_seed, replace(s, values={**s.values, "fold_runs": runs})
             )
         except Exception as exc:  # noqa: BLE001  (a node error, as the scheduler records worker failures)
             _log.exception("validation node %s failed", node_id)
