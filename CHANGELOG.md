@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `scripts/bench.py`: speed-up (1 vs N workers) and determinism benchmark of a nested-CV pipeline with an optional `cProfile` run, a nightly `bench` job on 3 OS and the profiling report `docs/spikes/profiling.md` (speed-up 2.4x at 8 workers, below the 4x target, see R65).
 - Python API and command line: `from vibechem import Pipeline` (`load`, `validate`, `run(data={dataset_id: dataset})`) and `vibechem run FILE --data DATASET_ID=table.csv`, `vibechem validate FILE`, `vibechem blocks list`; new source block `data.dataset` and `vibechem_core.blocks.default_registry()`.
 - Repository skeleton: package folders, legal and citation files, contribution guide, PR template and issue forms.
 - `scripts/merge_step.py`, the guarded merge of step PRs into their phase branch.
