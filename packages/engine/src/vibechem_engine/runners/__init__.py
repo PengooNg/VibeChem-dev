@@ -420,12 +420,17 @@ def _inner_runs(
     for fold, fold_seed in zip(folds.folds, task_seeds(seed, len(folds.folds)), strict=True):
         rows = fold_rows(data, fold, "train")  # a sub-run sees only its outer training rows
         sources = {**reused, source[0]: {**reused[source[0]], source[1]: rows}}
-        subs.append(_steps(inner, doc, registry, sources, executor, root_seed=fold_seed))
+        subs.append(_guarded(_steps(inner, doc, registry, sources, executor, root_seed=fold_seed)))  # fmt: skip
     runs = yield from _together(subs)
-    for fold, sub in zip(folds.folds, runs, strict=True):
+    position = {t.task_id: k for k, t in enumerate(inner.tasks)}
+    for fold, sub in zip(folds.folds, runs, strict=True):  # the first failed fold in fold order
         if sub.status != "succeeded":
-            exc = next(iter(sub.errors.values()), RuntimeError(f"inner run {sub.status}"))
+            # task order, not completion order: the reported error never depends on timing
+            ids = sorted(sub.errors, key=lambda t: (position.get(t, len(position)), t))
+            exc = sub.errors[ids[0]] if ids else RuntimeError(f"inner run {sub.status}")
             exc.add_note(f"inner search of {node_id}, outer fold {fold.fold} repeat {fold.repeat}")
+            if len(ids) > 1:
+                exc.add_note(f"also failed in that inner run: {', '.join(ids[1:])}")
             raise exc
         out = sub.outputs[f"{inner_search_id(node_id)}:run"]
         choice = inner_choice(cast(Results, out.values["results"]))
@@ -442,10 +447,28 @@ def _seeded(_seed: int, seed: int, fn: Any, *args: object) -> object:
     return fn(seed, *args)
 
 
+def _guarded(run: _Steps[PipelineRun]) -> _Steps[PipelineRun]:
+    """``run``, with an exception raised inside it returned as a failed run, so one
+    sub-run's exception neither stops the others nor hides an earlier fold's failure."""
+    try:
+        return (yield from run)
+    except Exception as exc:  # noqa: BLE001  (reported by the caller, in fold order)
+        return PipelineRun("failed", {}, {"<sub-run>": exc})
+
+
 def _together[T](runs: Sequence[_Steps[T]]) -> _Steps[list[T]]:
     """Run ``runs`` in lockstep: their pending stages go out as one stage, run ``i``'s jobs
     after those of the runs before it and its ids prefixed ``<i>|``; each run gets its own
-    part of the result. Returns the runs' values in order."""
+    part of the result. Returns the runs' values in order; an exception of a run (or of
+    the scheduler) leaves this generator, after the others are closed."""
+    try:
+        return (yield from _lockstep(runs))
+    finally:
+        for run in runs:
+            run.close()
+
+
+def _lockstep[T](runs: Sequence[_Steps[T]]) -> _Steps[list[T]]:
     values: dict[int, T] = {}
 
     def step(i: int, result: RunResult | None) -> _Batch | None:
@@ -460,6 +483,8 @@ def _together[T](runs: Sequence[_Steps[T]]) -> _Steps[list[T]]:
         jobs: list[Job] = []
         for i, (batch, seed, _) in pending.items():
             for job, own in zip(batch, task_seeds(seed, len(batch)), strict=True):
+                if job.fallback is not None:  # its fn would get the wrapped args and seed
+                    raise NotImplementedError(f"merged job {job.task_id} has a fallback")
                 jobs.append(
                     replace(
                         job,
@@ -486,10 +511,8 @@ def _part(result: RunResult, prefix: str) -> RunResult:
     errors = mine(result.errors)
     failed = tuple(n[cut:] for n in result.failed_nodes if n.startswith(prefix))
     unfinished = tuple(n[cut:] for n in result.unfinished_nodes if n.startswith(prefix))
-    # another run's failure does not fail this one: its jobs depend only on its own
-    status: RunStatus = (
-        "failed" if errors else "succeeded" if result.status == "failed" else result.status
-    )
+    # from this run's own jobs: another run's failure does not fail this one
+    status: RunStatus = "failed" if errors else "cancelled" if unfinished else "succeeded"
     return RunResult(status, result.duration_s, mine(result.results), errors, failed, unfinished)
 
 

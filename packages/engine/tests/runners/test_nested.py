@@ -280,3 +280,38 @@ def test_idle_workers_take_the_next_outer_folds_inner_tasks(
     out = run({"inner_folds": inner}, gasoline, workers=8)
     assert out.status == "succeeded", out.errors
     assert peak[0] >= 2
+
+
+class Boom(Block):
+    """A Spectra step that fails on any data holding row 1049 (outer fold 0's validation)."""
+
+    block_id = "test.boom"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = False
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"),)
+
+    def apply(self, spectra: SpectralDataset, **kwargs: Any) -> SpectralDataset:  # noqa: ARG002
+        if 1049 in spectra.row_index.tolist():
+            raise ValueError("boom")
+        return spectra
+
+
+@pytest.mark.parametrize("workers", [1, 8])
+def test_failed_inner_runs_report_the_first_outer_fold_in_fold_order(
+    gasoline: SpectralDataset, workers: int
+) -> None:
+    """Every outer fold but the one without row 1049 fails; whatever finishes first, the
+    node error is the first failing fold's, named in a note."""
+    registry = Registry()
+    for block in (Source, PLS, ContiguousBlocks, CrossValidation, GridSearch, NestedCV, Boom):
+        registry.register(block)
+    boom: dict[str, Any] = {"block_id": "test.boom", "params": {}}
+    out = run({"inner_folds": INNER, "search_space": [[boom]]}, gasoline, registry, workers)
+    assert out.status == "failed"
+    folds = cast(FoldSet, out.output("folds", "folds"))
+    first = next(f for f in folds.folds if 1049 in f.train.tolist())
+    err = out.errors["nest:run"]
+    assert str(err) == "boom"
+    assert f"inner search of nest, outer fold {first.fold} repeat {first.repeat}" in err.__notes__
