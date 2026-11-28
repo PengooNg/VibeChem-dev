@@ -37,7 +37,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-from numpy.typing import NDArray
 
 from vibechem_core.data import Axis, Results, SpectralDataset
 from vibechem_engine.executor import ProcessExecutor
