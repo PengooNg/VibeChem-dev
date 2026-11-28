@@ -79,7 +79,7 @@ Every item marked **(T1.04)** in TECH_STACK.md §11.2, plus the new choices foun
 - **Residual.** e = ŷ − y (Q7). All metrics are in original Y units: any Y scaling is inverted before metrics.
 - **Standard deviation.** ddof = 1 unless an entry says otherwise.
 - **Missing values.** Rows with NaN are removed once where the data enters the pipeline, with a warning (N1); blocks never see NaN.
-- **Randomness.** Every random choice takes a `numpy.random.Generator`; scikit-learn functions that need an integer seed get one drawn from that Generator (`int(rng.integers(2**32))`).
+- **Randomness.** Every random choice takes a `numpy.random.Generator`; scikit-learn functions that need an integer seed get one drawn from that Generator (`int(rng.integers(2**32))`). In an engine run a block's Generator is `default_rng(SeedSequence([task_seed, seed]))` when the block has a `seed` parameter (fold and split blocks), else `default_rng(task_seed)`: a new `seed` gives a new draw, the same run seed and `seed` the same draw (issue #93; Quan 2026-11-28).
 - **Ties** (distances, class scores) go to the lowest row or class index, so results are deterministic.
 - **Tolerance classes** used in the entries (QA.md §3: tolerances always explicit):
   | Class | Use | `assert_close` |

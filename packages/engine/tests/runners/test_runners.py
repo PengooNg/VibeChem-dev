@@ -27,7 +27,7 @@ from vibechem_core.blocks.preprocess.scaling import Autoscale
 from vibechem_core.blocks.preprocess.snv import SNV
 from vibechem_core.blocks.validate import grid_search
 from vibechem_core.blocks.validate.cv import CrossValidation
-from vibechem_core.blocks.validate.folds import ContiguousBlocks, LeaveOneOut
+from vibechem_core.blocks.validate.folds import ContiguousBlocks, KFold, LeaveOneOut
 from vibechem_core.blocks.validate.grid_search import GridSearch
 from vibechem_core.data import Axis, FoldSet, Results, SpectralDataset
 from vibechem_core.errors import ParamError, VibeChemWarning
@@ -58,7 +58,7 @@ class Source(Block):
 
 
 REGISTRY = Registry()
-for _block in (Source, SNV, Autoscale, PLS, ContiguousBlocks, LeaveOneOut, CrossValidation):
+for _block in (Source, SNV, Autoscale, PLS, ContiguousBlocks, KFold, LeaveOneOut, CrossValidation):
     REGISTRY.register(_block)
 
 
@@ -408,3 +408,33 @@ def test_search_needs_validate_cv_in_the_registry(gasoline: SpectralDataset) -> 
             compile_pipeline(doc_, registry), doc_, registry,
             {"src": {"spectra": gasoline}}, ThreadExecutor(), root_seed=3,
         )  # fmt: skip
+
+
+def kfold_rows(data: SpectralDataset, seed: int) -> list[list[int]]:
+    params = {"k": 5, "shuffle": True, "seed": seed}
+    folds = cast(FoldSet, run(pipeline("validate.kfold", params, None), data, ThreadExecutor()).output("folds", "folds"))  # fmt: skip
+    return [f.validation.tolist() for f in folds.folds]
+
+
+def test_fold_seed_parameter_changes_the_folds_in_an_engine_run(gasoline: SpectralDataset) -> None:
+    # issue #93 (R68): the run's Generator used to replace the block's seed
+    assert kfold_rows(gasoline, 0) == kfold_rows(gasoline, 0)
+    assert kfold_rows(gasoline, 0) != kfold_rows(gasoline, 99)
+
+
+def test_each_validation_node_gets_its_own_seed(gasoline: SpectralDataset) -> None:
+    # R69 (a): two van der Voet CV nodes used to draw the same sign-flip stream
+    doc = pipeline("validate.contiguous_blocks", {"k": 5}, pre=None)
+    doc["nodes"][3]["params"] = {"lv_rule": "van_der_voet", "n_randomisations": 99}
+    doc["nodes"].append({**doc["nodes"][3], "node_id": "cv2"})
+    doc["edges"] += [
+        {**e, "edge_id": f"{e['edge_id']}b", "to_node": "cv2"}
+        for e in doc["edges"]
+        if e["to_node"] == "cv"
+    ]
+    out = run(doc, gasoline, ThreadExecutor())
+    assert out.status == "succeeded", out.errors
+    first, second = (
+        cast(Results, out.output(n, "results")).details["randomisation_seed"] for n in ("cv", "cv2")
+    )
+    assert first != second

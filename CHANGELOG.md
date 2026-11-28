@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The `seed` parameter of the fold and split blocks now changes the folds in pipeline runs (it was ignored); each validation node gets its own random seed. Golden pipeline values updated.
+
 ### Added
 - Golden pipeline test (`packages/engine/tests/golden/`): per-node output hashes and CV metrics of one gasoline pipeline are pinned in `testdata/expected/`; a change names the first divergent node; `scripts/check.py` prints a `golden pipeline` line.
 - `scripts/bench.py`: speed-up (1 vs N workers) and determinism benchmark of a nested-CV pipeline with an optional `cProfile` run, a nightly `bench` job on 3 OS and the profiling report `docs/spikes/profiling.md` (speed-up 2.4x at 8 workers, below the 4x target, see R65).
