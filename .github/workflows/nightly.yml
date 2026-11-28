@@ -118,9 +118,37 @@ jobs:
             app/test-results/
           retention-days: 14
 
+  bench:
+    name: bench (${{ matrix.ref }}, ${{ matrix.name }})
+    needs: refs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.refs.outputs.refs) }}
+        name: [linux, windows, macos]
+        include:
+          - { name: linux, os: ubuntu-latest }
+          - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv sync --locked
+      # T2.12: speed-up (judged only on >= 8 CPUs; the runners have 3-4, the count is printed)
+      # and determinism (the same result bits for 1, 2 and 4 workers; a difference fails the job).
+      - name: bench.py (speed-up and determinism)
+        shell: bash
+        run: |
+          if [ ! -f scripts/bench.py ]; then echo "no scripts/bench.py on this branch yet"; exit 0; fi
+          uv run --no-sync python scripts/bench.py --workers 1,2,4 --repeats 2 --rows 400 --cols 600             --outer 6 --inner 4 --profile --json bench.json | tee -a "$GITHUB_STEP_SUMMARY"
+
   report:
     name: open S2 issue on failure
-    needs: [refs, check, e2e]
+    needs: [refs, check, e2e, bench]
     # cancelled() alone is only a whole-run cancel; a job that hits timeout-minutes is a cancelled need.
     if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
