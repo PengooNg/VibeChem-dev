@@ -235,7 +235,11 @@ def test_shared_scheduler_gives_the_serial_results(
 ) -> None:
     """Inner sub-runs merged into one scheduler stage = run one outer fold after another
     (shuffled inner folds: each sub-run's seeds must survive the merge), bit for bit."""
-    params: dict[str, Any] = {"inner_folds": SHUFFLED, "search_space": [[None, SNV_]]}
+    params: dict[str, Any] = {
+        "inner_folds": SHUFFLED,
+        "search_space": [[None, SNV_]],
+        "n_jobs": workers,
+    }
     merged = cast(Results, run(params, gasoline, workers=workers).output("nest", "results"))
     with monkeypatch.context() as m:
         m.setattr(runners, "_together", serial)
@@ -277,7 +281,9 @@ def test_idle_workers_take_the_next_outer_folds_inner_tasks(
 
     monkeypatch.setattr(runners, "run_jobs", spy)
     inner = {"block_id": "validate.contiguous_blocks", "params": {"k": 2}}
-    out = run({"inner_folds": inner}, gasoline, workers=8)
+    out = run(
+        {"inner_folds": inner, "n_jobs": 8}, gasoline, workers=8
+    )  # default n_jobs = cores - 10
     assert out.status == "succeeded", out.errors
     assert peak[0] >= 2
 
@@ -308,7 +314,8 @@ def test_failed_inner_runs_report_the_first_outer_fold_in_fold_order(
     for block in (Source, PLS, ContiguousBlocks, CrossValidation, GridSearch, NestedCV, Boom):
         registry.register(block)
     boom: dict[str, Any] = {"block_id": "test.boom", "params": {}}
-    out = run({"inner_folds": INNER, "search_space": [[boom]]}, gasoline, registry, workers)
+    params: dict[str, Any] = {"inner_folds": INNER, "search_space": [[boom]], "n_jobs": workers}
+    out = run(params, gasoline, registry, workers)
     assert out.status == "failed"
     folds = cast(FoldSet, out.output("folds", "folds"))
     first = next(f for f in folds.folds if 1049 in f.train.tolist())
