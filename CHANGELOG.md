@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Python API and command line: `from vibechem import Pipeline` (`load`, `validate`, `run(data={dataset_id: dataset})`) and `vibechem run FILE --data DATASET_ID=table.csv`, `vibechem validate FILE`, `vibechem blocks list`; new source block `data.dataset` and `vibechem_core.blocks.default_registry()`.
 - Repository skeleton: package folders, legal and citation files, contribution guide, PR template and issue forms.
 - `scripts/merge_step.py`, the guarded merge of step PRs into their phase branch.
 - Python uv workspace (`vibechem-core`, `vibechem-engine`) on Python 3.14 with ruff, pyright (strict), pytest and pre-commit.

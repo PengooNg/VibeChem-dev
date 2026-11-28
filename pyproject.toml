@@ -61,6 +61,7 @@ allowed-confusables = ["–"]  # en dash in method names (Savitzky–Golay, Kenn
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["T20"]  # command-line scripts print to the terminal
+"packages/engine/src/vibechem_engine/cli/**" = ["T20"]  # the command line prints to the terminal
 "**/tests/**" = ["T20"]
 "scripts/tests/**" = ["T20", "PT009", "PT027"]  # unittest-style tests (stdlib only)
 

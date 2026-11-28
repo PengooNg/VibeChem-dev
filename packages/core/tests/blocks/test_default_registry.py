@@ -29,7 +29,7 @@ def test_dataset_block_is_a_source_with_a_dataset_id_param() -> None:
     assert meta.block_class == "data"
     assert meta.inputs == ()
     assert [(p.port_id, p.port_type) for p in meta.outputs] == [("spectra", "Spectra")]
-    assert [p["param_id"] for p in meta.to_detail_dict()["params"]] == ["dataset_id"]  # pyright: ignore[reportIndexIssue, reportCallIssue, reportArgumentType]
+    assert [name for name, _ in meta.params] == ["dataset_id"]
 
 
 def test_dataset_block_never_runs() -> None:

@@ -48,7 +48,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | | | [x] T2.10b CV of PLS2 + PLS-DA, `model` output 👤 |
 | | | [x] T2.10c Preprocessing grid search 👤 |
 | | | [x] T2.10d Nested CV 👤 |
-| [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
+| [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [x] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
 | [x] T0.14 Port-type design 👤 | [x] T1.11 CV fold generators | [ ] T2.14 Phase gate 👤 |
