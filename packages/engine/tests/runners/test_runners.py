@@ -293,6 +293,9 @@ def test_each_candidate_equals_a_separate_cv_run_of_its_chain(gasoline: Spectral
         assert json.dumps(branch.details) == json.dumps(cv.details)  # NaN-safe equality
         for name, value in cv.metrics.items():
             assert table[name][i] == value, (chain, name)
+        assert_reference(method="Grid search candidate RMSECV", dataset=f"gasoline_nir rows 1-50, 5-fold, chain {chain}",
+                         actual=float(table["rmsecv"][i]), expected=cv.metrics["rmsecv"], rtol=1e-10, atol=1e-12,
+                         source="separate validate.cv run of the same chain")  # fmt: skip
         criterion.append(cv.details["rmsecv"][int(cv.metrics["n_lv"])])
     best = int(np.argmin(criterion))
     assert search.details["best"] == best

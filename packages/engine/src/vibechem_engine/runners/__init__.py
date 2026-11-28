@@ -174,8 +174,9 @@ def run_pipeline(
     seeds = task_seeds(root_seed, 4)  # one root per stage
 
     def failed(status: RunStatus) -> PipelineRun:
-        for search_id in searches:  # a branch error is the search node's error too
-            branch = next((e for t, e in errors.items() if t.startswith(f"{search_id}.c")), None)
+        for search_id, branches in searches.items():  # a branch error is the search's too
+            ids = [cv for _, cv in branches]  # generated node ids: <cv> and <cv>.<part>
+            branch = next((e for t, e in errors.items() if _in_branch(t, ids)), None)
             if branch is not None:
                 errors.setdefault(f"{search_id}:run", branch)
         return PipelineRun(status, done, errors)
@@ -268,6 +269,11 @@ def run_pipeline(
     if (status := run(rest, seeds[3])) != "succeeded":
         return failed(status)
     return PipelineRun(status, done, errors)
+
+
+def _in_branch(task_id: str, branches: list[str]) -> bool:
+    node = task_id.split(":", 1)[0]
+    return any(node == cv or node.startswith(f"{cv}.") for cv in branches)
 
 
 def _search_output(

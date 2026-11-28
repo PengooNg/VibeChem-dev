@@ -1,6 +1,7 @@
 # VibeChem — Data Model & Engine API
 
-> Status: DRAFT v0.9 · Last updated: 2026-11-27 · Reviewer: Quan (API, formats, scientific fields)
+> Status: DRAFT v0.10 · Last updated: 2026-11-28 · Reviewer: Quan (API, formats, scientific fields)
+> v0.10: §5.2 parameter type `search_space`, §5.3 reasons `unknown_block`/`not_a_spectra_step`, §4.5 block `validate.grid_search`, §4.7 point 4 (no search `model` output) — all proposed (T2.10c).
 > v0.9: §3 `native.fallback` `reason` value `worker_crashed`; §7 `RUN_OUT_OF_MEMORY` proposed (T2.09).
 > v0.8: §6.6 cache key and cache folder layout (T2.06).
 > v0.7: §4.7.2 decided (Quan, 2026-11-27): validation via the `refit_per_fold` port, no container nodes; §4.6 gives the fold scope the compiler derives (T2.04).
@@ -664,6 +665,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 | Prediction map (`imaging.predict_map`) | `cube: ImageCube` · `model: Model` | `map: ImageCube` (one band per predicted Y column / class score) |
 | PLS regression (`model.pls`) *(accepted, Quan 2026-11-26)* | `spectra: Spectra` (`requires: ["y"]`) · `y_transform: Transform` (optional; a y scaling fitted with `target = y`, kept in the model state so every prediction is mapped back to original Y units, METHODS.md §1) | `predictions: Table` (`row_index`, `sample_id`, `y_pred_<col>` with all fitted LVs) · `model: Model` (`kind: regression`; state holds means, W, P, Q, R, T, B, explained variance and the `algorithm` (`nipals` / `simpls`; for SIMPLS, W = R with unit columns, METHODS.md#simpls); LV sweep and VIP from the state (VIP, algorithm: decided, Quan 2026-11-26)) |
 | Cross-validation (`validate.cv`) *(proposed T2.10a)* | `model: Model` (`refit_per_fold: true`; PLS1, PLS2, PLS-DA from T2.10b, METHODS.md N28, N29) · `folds: Folds` | `results: Results` (`kind: cv`, METHODS.md#cv; LV curve in `details`) · `model: Model` (the input model cut to the chosen LV count = a refit at n_lv, METHODS.md#cv step 7; T2.10b). Params: `aggregation`, `lv_rule` (`global_min`, `one_se`, `ttest`, `wold`, `haaland_thomas`, `van_der_voet`), `alpha`, `wold_threshold`, `f_alpha`, `randomisation_alpha`, `n_randomisations`, `micro_metrics`, `severe_imbalance_ratio`, `y_variance_ratio` (METHODS.md#cv). The engine runner hands the block the per-fold states and validation spectra |
+| Preprocessing grid search (`validate.grid_search`) *(proposed T2.10c)* | `model: Model` (`refit_per_fold: true`; the model block every candidate copies) · `folds: Folds` (shared by every candidate) | `results: Results` (`kind: search`, METHODS.md#grid-search: `candidates` table with `candidate`, `chain`, the CV metric names, `rmsecv_at_n_lv`; `metrics`/`predictions` of the best candidate; `details.best`, `best_chain`, `n_candidates`, `criterion`). No `model` output (§4.7 point 4). Params: `search_space` (§5.2) and the `validate.cv` params. The engine runner runs each candidate as a `validate.cv` branch (chain between the node feeding the model block's first input and a copy of the model block; generated node ids `<search>.c<i>`, `.s<j>`, `.model`) and hands the branches' `Results` to the block |
 | Refold (`imaging.refold`) | `spectra: Spectra` (`requires: ["spatial"]`) | `cube: ImageCube` |
 | ROI / mask (`imaging.roi`) | `cube: ImageCube` | `cube: ImageCube` (with `mask`) · `mean_spectra: Spectra` (one row per ROI) |
 
@@ -680,6 +682,7 @@ Reference port layouts (block ids indicative; the blocks themselves are P1/P2):
 1. `Transform` shape `diamond_outline` is new — UI_GUIDE §6 lists shapes only for the other six types.
 2. **Decided (Quan, 2026-11-27): option 1.** Validation via `refit_per_fold` on a `Model` input (above), no explicit container nodes with inner input/output ports. Format v1 stays without frames (§6.3); the per-fold scope is derived from the subgraph feeding `refit_per_fold` (§4.6).
 3. `transfer_samples` as a `Table` of ids (above) vs. a `Spectra` subset of the master set.
+4. *(T2.10c)* `validate.grid_search` has no `model` output, unlike the other validation blocks of §4.6: the chosen chain is not on the canvas, and a PLS state alone cannot predict raw spectra. Options: (a) none in v1, the user wires the best chain from `details.best_chain` (current); (b) a `Model` that bundles the chain's fitted states with the PLS state (a new state layout); (c) the UI turns the best chain into canvas nodes.
 
 ## 5. Block parameter schema *(DRAFT, T1.03 — Quan reviews)*
 The `params` list of `GET /blocks/{block_id}` (§2.3). The inspector form is generated from it (ADR-005), pipeline files store the values (`nodes[].params`, §2.6/§6), and the engine validates those values against it. Source of truth in code: `Param(...)` fields of a block's params dataclass (`vibechem_core.block`); `BlockMeta.to_detail_dict()` produces the `/blocks/{id}` object; `vibechem_engine.api.schemas.BlockDetail` (pydantic) is this section as a model and gives its JSON Schema.
@@ -718,6 +721,7 @@ Optional fields, present only when set:
 | `wavelength_ranges` | `[[a, b], ...]`: at least one pair of finite numbers in the unit of the input spectral axis, each pair in either order (stored as `[min, max]` when parsed); checked against the axis at run time by the block: no axis point selected → `BLOCK_PARAM_INVALID` reason `constraint` | — | implemented *(T1.07)* |
 | `column_ref` | string: a column name of the input data | `roles`: subset of `y`, `class`, `group`, `metadata` the column may have | *reserved* |
 | `list` | array of scalars | `item_type` (`int`\|`float`\|`string`), `min_items`, `max_items` | *reserved* |
+| `search_space` | `[[option, ...], ...]`: a non-empty list of slots, each a non-empty list; an option is `null` (skip the slot) or `{ "block_id": str, "params": object }` (`params` optional, default `{}`; no other keys). Block ids and option params are checked against the registry when the search runs (§5.3) | — | *proposed T2.10c* (`validate.grid_search`, METHODS.md#grid-search) |
 A reserved type is implemented (and this table updated to "implemented") in the step of the first block that needs it.
 
 ### 5.3 Validation of values
@@ -730,6 +734,10 @@ A reserved type is implemented (and this table updated to "implemented") in the 
 | `not_odd` | `odd_only` and the value is even |
 | `not_a_choice` | `enum` value not in `choices` |
 | `constraint` | A `constraint` is false (checked after every value is valid) |
+| `unknown_block` | *(`search_space`, proposed T2.10c)* An option's `block_id` is not registered |
+| `not_a_spectra_step` | *(`search_space`, proposed T2.10c)* An option's block is not a chain step: its first input is not `Spectra`, another input is required, or it has no `Spectra` output |
+
+For `search_space` the error also has `slot` and `option` (0-based positions); `value` is the block id (`unknown_block`, `not_a_spectra_step`) or the option's `param_id` (an option parameter's own reason, e.g. `not_odd`). These are raised when the search runs, as node errors of the search node.
 In `POST …/validate` (§2.6) it is an `error` issue with `node_id`; raised while a block runs, it sets the node to `error` (§3). Block definitions are checked when a block is registered: defaults must pass the same rules, and `constraint`/`visible_if` must name another parameter of a suitable type (definition mistakes raise `TypeError`/`ValueError`, not a code).
 
 ### 5.4 Open points for review
