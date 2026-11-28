@@ -29,6 +29,9 @@ by ``vibechem_core.testing.assert_reference`` during the pytest run and fails if
 outside its tolerance. ``coverage`` is line coverage per package (pytest-cov JSON in
 ``reports/coverage.json``) and fails below the QA.md §3 thresholds.
 
+``golden pipeline`` reruns ``packages/engine/tests/golden`` (QA.md §3) when the engine is
+checked, so a changed node is named on its own summary line.
+
 Checks that need tooling from later steps print ``SKIP`` with the step that adds
 them; ``SKIP`` does not fail the run. Exit codes: 0 all PASS/SKIP · 1 any FAIL.
 """
@@ -50,6 +53,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 LOG_PATH = ROOT / "reports" / "check.log"
 FAILURE_TAIL_LINES = 40
+GOLDEN_TESTS = "packages/engine/tests/golden"
 PYTEST_NO_TESTS_COLLECTED = 5  # pytest exit code: nothing collected or everything deselected
 
 # Python source and test folders per area.
@@ -76,10 +80,7 @@ LINT_IMPORTS = (
 )
 
 # Summary lines after "tests" whose tooling arrives in a later step.
-LATER_CHECKS: tuple[tuple[str, str], ...] = (
-    ("leakage suite", "T2.05"),
-    ("golden pipeline", "T2.13"),
-)
+LATER_CHECKS: tuple[tuple[str, str], ...] = (("leakage suite", "T2.05"),)
 SUMMARY_ORDER = (
     "format/lint",
     "types",
@@ -286,6 +287,10 @@ def run_python_checks(areas: Sequence[str], *, fast: bool, runner: Runner) -> li
     results.append(reference_section(read_reference_rows(reference_log), areas))
     if measured:
         results.append(coverage_section(coverage_json, measured))
+    if "engine" in areas:  # also part of the run above; named separately for the summary
+        golden = run_section("golden pipeline", [tool("pytest", "-q", GOLDEN_TESTS)], runner)
+        detail = "(no node changed)" if golden.status == "PASS" else ""
+        results.append(SectionResult(golden.name, golden.status, detail, golden.output))
     return results
 
 
