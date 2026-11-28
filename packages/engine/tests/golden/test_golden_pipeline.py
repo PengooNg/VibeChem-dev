@@ -119,7 +119,9 @@ def _array_hash(arr: NDArray[np.float64], *, summary: bool) -> str:
     assert np.isfinite(arr).all(), "golden pipeline output holds NaN or inf"
     flat = arr.ravel()
     magnitude = np.abs(flat)
-    ramp = float(np.sum(flat * np.arange(1, flat.size + 1)) / max(magnitude.sum() * flat.size, 1e-300))
+    ramp = float(
+        np.sum(flat * np.arange(1, flat.size + 1)) / max(magnitude.sum() * flat.size, 1e-300)
+    )
     stats = np.array([magnitude.sum(), np.sqrt((flat**2).sum()), magnitude.max()])
     signed = np.rint(ramp * 2**SUMMARY_BITS)  # fixed grid: the value itself can be near zero
     return f"{arr.shape}{node_hash(stats, significant_bits=SUMMARY_BITS)}{int(signed)}"
