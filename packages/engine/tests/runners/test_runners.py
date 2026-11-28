@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 from sklearn.cross_decomposition import PLSRegression  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
+from threadpoolctl import threadpool_limits  # pyright: ignore[reportMissingTypeStubs]
 
 from vibechem_core.block import Block, State, port
 from vibechem_core.blocks.model.pls import PLS
@@ -199,7 +200,8 @@ def test_process_pool_gives_the_same_curve(gasoline: SpectralDataset, tmp_path: 
     doc = pipeline("validate.contiguous_blocks", {"k": 5}, pre="preprocess.snv")
     with ProcessExecutor(2, tmp_path) as executor:
         pooled = results(run(doc, gasoline, executor))
-    threaded = results(run(doc, gasoline, ThreadExecutor()))
+    with threadpool_limits(limits=1, user_api="blas"):  # as in the workers
+        threaded = results(run(doc, gasoline, ThreadExecutor()))
     assert pooled.details["rmsecv"] == threaded.details["rmsecv"]
 
 
