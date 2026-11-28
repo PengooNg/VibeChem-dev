@@ -29,6 +29,7 @@ from vibechem_core.errors import ErrorParam, VibeChemWarning
 
 METRIC_UNDEFINED = "METRIC_UNDEFINED"
 METRIC_FEW_SAMPLES = "METRIC_FEW_SAMPLES"
+METRIC_CLASSES_SEVERELY_UNBALANCED = "METRIC_CLASSES_SEVERELY_UNBALANCED"
 
 type MetricSet = Literal["c", "cv", "p"]
 
@@ -206,6 +207,14 @@ def roc_auc(y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike) -> float:
     Binary: AUC of the second class's column. More classes: one-vs-rest AUC of each
     class's column, then the unweighted mean (NaN if any class's AUC is undefined).
     """
+    return float(np.mean(_auc_per_class(y_true, scores, classes, 4)))
+
+
+def _auc_per_class(
+    y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike, stacklevel: int
+) -> NDArray[np.float64]:
+    """One-vs-rest AUC per class; binary: the second class's AUC for both classes
+    (class 1 against class 2 on -score_2 is the same ROC)."""
     _check_labels(classes, y_true)
     labels = np.asarray(classes)
     truth = np.asarray(y_true)
@@ -217,8 +226,69 @@ def roc_auc(y_true: ArrayLike, scores: ArrayLike, classes: ArrayLike) -> float:
         positive = truth == labels[g]
         if positive.all() or not positive.any():
             reason = "only_class" if positive.all() else "class_absent"
-            _warn(METRIC_UNDEFINED, {"metric": "auc", "reason": reason, "class": str(labels[g])}, 3)
+            _warn(
+                METRIC_UNDEFINED,
+                {"metric": "auc", "reason": reason, "class": str(labels[g])},
+                stacklevel,
+            )
             aucs.append(math.nan)
         else:
             aucs.append(float(roc_auc_score(positive, s[:, g])))  # pyright: ignore[reportUnknownArgumentType]
-    return float(np.mean(aucs))
+    return np.array(aucs * 2 if labels.size == 2 else aucs)
+
+
+def classification_metrics(
+    y_true: ArrayLike,
+    y_pred: ArrayLike,
+    scores: ArrayLike,
+    classes: ArrayLike,
+    set_: MetricSet,
+    *,
+    micro: bool = False,
+    severe_imbalance_ratio: float | None = 20.0,
+) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    """``Results.metrics`` names of one classification set (METHODS.md N22, N27) and the
+    per-class sensitivity and specificity (``details.per_class``).
+
+    Macro (unweighted) and weighted (n_g / n) means always, ``accuracy`` and
+    ``class_ratio``; micro means only with ``micro``. ``class_ratio`` above
+    ``severe_imbalance_ratio`` warns ``METRIC_CLASSES_SEVERELY_UNBALANCED`` (None: no check).
+    """
+    labels = np.asarray(classes)
+    truth = np.asarray(y_true)
+    C = confusion_matrix(truth, y_pred, labels)
+    sens, spec = sensitivity(C, labels), specificity(C, labels)
+    auc = _auc_per_class(truth, scores, labels, 4)
+    n_g = C.sum(axis=1)
+    w = n_g / n_g.sum()
+    present = n_g > 0  # an absent class has weight 0, so its NaN must not reach the sum
+    ratio = float(n_g.max() / n_g.min()) if n_g.min() > 0 else math.inf
+    s = set_
+    m = {
+        f"accuracy_{s}": accuracy(C),
+        f"sensitivity_{s}": float(sens.mean()),
+        f"specificity_{s}": float(spec.mean()),
+        f"auc_{s}": float(auc.mean()),
+        f"sensitivity_w_{s}": float(w[present] @ sens[present]),
+        f"specificity_w_{s}": float(w[present] @ spec[present]),
+        f"auc_w_{s}": float(w[present] @ auc[present]),
+        f"class_ratio_{s}": ratio,
+    }
+    if micro:
+        others = C.sum() - n_g
+        true_negative = others - (C.sum(axis=0) - np.diag(C))
+        onehot = truth[:, None] == labels[None, :]
+        m[f"sensitivity_micro_{s}"] = float(np.trace(C) / C.sum())
+        m[f"specificity_micro_{s}"] = float(true_negative.sum() / others.sum())
+        m[f"auc_micro_{s}"] = float(roc_auc_score(onehot.ravel(), np.asarray(scores, dtype=np.float64).ravel()))  # pyright: ignore[reportUnknownArgumentType]  # fmt: skip
+    if severe_imbalance_ratio is not None and ratio > severe_imbalance_ratio:
+        _warn(
+            METRIC_CLASSES_SEVERELY_UNBALANCED,
+            {"ratio": ratio, "threshold": severe_imbalance_ratio, "set": set_},
+            3,
+        )
+    per_class = {
+        str(c): {"sensitivity": float(sens[g]), "specificity": float(spec[g])}
+        for g, c in enumerate(labels)
+    }
+    return m, per_class

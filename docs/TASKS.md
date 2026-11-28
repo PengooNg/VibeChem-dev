@@ -45,7 +45,9 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.08 Reference datasets 👤 | [x] T1.06 JCAMP/SPC readers | [x] T2.08 Scheduler |
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [x] T2.09 Crash recovery |
 | [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [x] T2.10a CV runner + LV rules 👤 |
-| | | [ ] T2.10b Nested CV + grid search |
+| | | [x] T2.10b CV of PLS2 + PLS-DA, `model` output 👤 |
+| | | [ ] T2.10c Preprocessing grid search 👤 |
+| | | [ ] T2.10d Nested CV 👤 |
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |
 | [x] T0.13 Spike: parallel | [x] T1.10 KS, SPXY, random split | [ ] T2.13 Golden pipeline |
@@ -371,12 +373,27 @@ Phases 3–7: outlines at the end of this file; their status rows are added when
 - **Do:** METHODS.md entries for CV and LV rules (new: Quan approves them, hence 👤); classification metric names proposed (R36); a runner that executes a compiled pipeline on the scheduler and expands fold plans; `validate.cv` (PLS1) with LV curve, per-fold SD/SE, repeated-CV aggregation, `VALIDATION_GROUPS_IGNORED` from `Folds.groups_respected`.
 - **Done when:** gasoline LOO RMSECV matches Mevik & Wehrens 2007 and a 5-fold curve matches a hand-written scikit-learn CV; the CV runner selects fold rows by `row_index` through the T2.04 helper (not positions), tested on an offset `row_index` dataset, and asserts one out-of-fold prediction per row per repeat (R40, R41). 👤 Quan: approve METHODS.md §9 and N17–N24, merge.
 
-### T2.10b · Nested CV and preprocessing grid search · Size M *(split from T2.10)*
-- **Read:** PRD.md F-43; METHODS.md §9; `runners/`
-- **Reuse:** scikit-learn `ParameterGrid`; pengoo grid search from `grid_search.py` — fixed-order product, dedup, shared folds, LV sweep per fold, Excel pipeline list (TECH_STACK.md §11.2). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
-- **Files:** `vibechem_engine/runners/`
-- **Do:** nested CV (inner tuning of LVs, preprocessing chains, selection params), grid search; `validate.cv` `model` output at the chosen LV count; CV of PLS-DA (classification names of METHODS §8) so R34's fixed 16 LV can go; METHODS.md entries for nested CV and search (stop `HUMAN_STEP` if new).
-- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset.
+### T2.10b · CV of PLS2 and PLS-DA, `model` output 👤 · Size M *(split from T2.10; T2.10b split into T2.10b/c/d in T2.10b's PR, Quan 2026-11-28)*
+- **Read:** PRD.md F-43; METHODS.md §8 (#classification-metrics, N22, N27), §9; `runners/`; RISKS.md R34
+- **Reuse:** core `metrics` (confusion matrix, sensitivity, specificity, ROC-AUC), `predict_sweep`, `lv_rules`
+- **Files:** core `blocks/validate/cv.py`; `vibechem_engine/runners/`
+- **Do:** `validate.cv` for PLS2 and PLS-DA models: classification metrics of N22/N27 (macro `sensitivity_*`, `specificity_*`, `auc_*`, weighted `*_w_*`, `accuracy_*`, `class_ratio_*` always; `*_micro_*` only with `micro_metrics` = true, default false; warning `METRIC_CLASSES_SEVERELY_UNBALANCED` only when `class_ratio` > `severe_imbalance_ratio`, default 20), `predictions` with `class_true`/`class_pred`/`score_<class>`; `model` output refit at the chosen LV count; R34's fixed 16 LV replaced by a CV-chosen LV.
+- **Done when:** PLS-DA CV metrics match a hand-written scikit-learn loop on a small set; the `model` output predicts like a separate fit at n_lv; the olive-oil PLS-DA check uses a CV-chosen LV count. 👤 Quan: approve METHODS.md N28, N29 and the proposed codes `VALIDATION_CLASS_MISSING_IN_FOLD`, `VALIDATION_Y_SCALES_DIFFER`, merge (new choices, Quan 2026-11-28).
+
+### T2.10c · Preprocessing grid search 👤 · Size M *(split from T2.10b)*
+- **Read:** PRD.md F-43; METHODS.md §9; DATA_MODEL.md §4.5–§4.6; `runners/`
+- **Reuse:** scikit-learn `ParameterGrid`; pengoo grid search from `grid_search.py` — fixed-order product, dedup (`_step_identity` → our content hash), deterministic order, shared folds, LV sweep per fold, Excel pipeline list with JSON params (TECH_STACK.md §11.2). No pickle checkpoints, no joblib (our executor), `Generator` for random subsampling; `MISSING_INPUT` if `pengoo/` is absent on the machine
+- **Files:** `vibechem_engine/runners/`; core search block in `blocks/validate/`
+- **Do:** a `search_space` param on the search block (decision by Quan, 2026-11-28, option A): ordered step slots, each a list of `{block_id, params}` options, "none" allowed; the engine builds each candidate chain between the fold source and the model block (pengoo style); options validated against the block registry; `Results.kind = search` with a `candidates` table listing each candidate chain and its metrics; default search space as a JSON file from registered blocks; METHODS.md entry for the search (new → 👤 Quan approves it).
+- **Done when:** on a small set, every candidate's CV metrics equal a separate `validate.cv` run of that chain; candidates are deduplicated and in a deterministic order; an unknown `block_id` in `search_space` is a node error. 👤 Quan: approve the METHODS entry, merge.
+
+### T2.10d · Nested CV 👤 · Size M *(split from T2.10b)*
+- **Read:** PRD.md F-43; METHODS.md §9; DATA_MODEL.md §4.6; `runners/`
+- **Reuse:** our CV runner and T2.10c search; scikit-learn nested CV only as the test reference
+- **Depends on:** T2.10c
+- **Files:** `vibechem_engine/runners/`; core nested-CV block in `blocks/validate/`
+- **Do:** nested CV (inner tuning of LVs, preprocessing chains, selection params); inner folds as a scheme parameter `inner_folds` = `{block_id, params}` of a fold block, run on each outer training set, never a `Folds` input made on all rows (decision by Quan, 2026-11-28); `Results.kind = nested_cv`; METHODS.md entry for nested CV (new → 👤 Quan approves it).
+- **Done when:** results match a hand-written scikit-learn nested CV on the reference dataset. 👤 Quan: approve the METHODS entry, merge.
 
 ### T2.11 · Python API and CLI · Size S
 - **Read:** TECH_STACK.md §7; `graph/`, `runners/`

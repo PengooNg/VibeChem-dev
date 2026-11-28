@@ -18,9 +18,11 @@ from vibechem_core.blocks.preprocess.scaling import Autoscale, ScalingParams
 from vibechem_core.data import Axis, SpectralDataset
 from vibechem_core.errors import VibeChemWarning
 from vibechem_core.metrics import (
+    METRIC_CLASSES_SEVERELY_UNBALANCED,
     METRIC_FEW_SAMPLES,
     METRIC_UNDEFINED,
     accuracy,
+    classification_metrics,
     confusion_matrix,
     cv_metrics,
     fold_rmse,
@@ -203,6 +205,58 @@ def test_classification_metrics_match_hand_calculation() -> None:
     exact(sensitivity(C, ["a", "b", "c"]), [2 / 3, 1 / 2, 2 / 3], "sensitivity")
     # Specificity of a: rows b, c (5 samples), predicted not a: 2 + 2
     exact(specificity(C, ["a", "b", "c"]), [4 / 5, 5 / 6, 4 / 5], "specificity")
+
+
+def test_classification_set_metrics_match_hand_calculation() -> None:
+    # TRUE/PRED above, scores = one-hot of PRED. Class counts 3, 2, 3 (weights 3/8, 2/8, 3/8).
+    # One-vs-rest AUC by pair counting (ties 1/2): a 11/15, b 8/12, c 11/15. Micro: 8 pooled
+    # positives (5 scored 1) vs 16 negatives (3 scored 1): (5*13 + 5*3/2 + 3*13/2) / 128.
+    classes = ["a", "b", "c"]
+    scores = (PRED[:, None] == np.array(classes)[None, :]).astype(float)
+    m, per_class = classification_metrics(TRUE, PRED, scores, classes, "cv", micro=True)
+    auc, w = np.array([11 / 15, 8 / 12, 11 / 15]), np.array([3, 2, 3]) / 8
+    sens, spec = np.array([2 / 3, 1 / 2, 2 / 3]), np.array([4 / 5, 5 / 6, 4 / 5])
+    expected = {
+        "accuracy_cv": 5 / 8,
+        "sensitivity_cv": sens.mean(),
+        "specificity_cv": spec.mean(),
+        "auc_cv": auc.mean(),
+        "sensitivity_w_cv": 5 / 8,  # = accuracy (N22 identity)
+        "specificity_w_cv": float(w @ spec),
+        "auc_w_cv": float(w @ auc),
+        "class_ratio_cv": 1.5,
+        "sensitivity_micro_cv": 5 / 8,
+        "specificity_micro_cv": 13 / 16,
+        "auc_micro_cv": 92 / 128,
+    }
+    assert list(m) == list(expected)
+    for name, value in expected.items():
+        hand(f"Metric {name}", "hand calculation, 3 classes", m[name], value)
+    assert per_class["b"] == {"sensitivity": 0.5, "specificity": pytest.approx(5 / 6)}
+    assert "auc_micro_cv" not in classification_metrics(TRUE, PRED, scores, classes, "cv")[0]
+
+    # Binary: the class-2 AUC for both classes; class ratio 21 > 20 warns, 20 does not.
+    true = np.array(["n"] * 21 + ["p"])
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        m, _ = classification_metrics(
+            true, true, np.eye(2)[(true == "p").astype(int)], ["n", "p"], "p"
+        )
+        classification_metrics(
+            true[1:], true[1:], np.eye(2)[(true[1:] == "p").astype(int)], ["n", "p"], "p"
+        )
+    assert m["auc_p"] == m["auc_w_p"] == 1.0
+
+    # A class absent from the set has weight 0: weighted means stay defined (macro is NaN)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        m, _ = classification_metrics(TRUE[:5], PRED[:5], scores[:5], classes, "p")
+    assert m["sensitivity_w_p"] == pytest.approx(m["accuracy_p"])
+    assert math.isnan(m["sensitivity_p"])
+    assert m["class_ratio_p"] == math.inf
+    assert codes(record) == [
+        (METRIC_CLASSES_SEVERELY_UNBALANCED, {"ratio": 21.0, "threshold": 20.0, "set": "p"})
+    ]
 
 
 def test_roc_auc_matches_pair_counting() -> None:
