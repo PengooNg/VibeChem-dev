@@ -15,6 +15,14 @@ in stages, because a validation node's fold tasks exist only once its ``Folds`` 
    validation rows (METHODS.md#cv);
 4. the tasks downstream of validation nodes.
 
+A ``validate.grid_search`` node (T2.10c) is first expanded into one ``validate.cv``
+branch per candidate chain (:func:`~vibechem_engine.runners.search.expand_search`) and
+the expanded pipeline is compiled again; in stage 3 the search node gets ``candidates``
+(each chain with its branch's ``Results``) instead of ``fold_runs``, and the warnings of
+its branches. An error in a branch is also reported on the search node. A stage that
+holds branch tasks runs on the search's workers as its core budget (the smallest, with
+several searches; METHODS.md N31, decision by Quan: option A).
+
 A task runs in a worker as :func:`execute_task`; it returns a :class:`TaskOutput` with its
 outputs by port id and the warnings the block raised (ADR-010 node log). Every stage gets
 its own root seed from ``root_seed``. A stage with a failure ends the run.
@@ -24,6 +32,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -33,7 +42,8 @@ import numpy as np
 
 from vibechem_core.block import Block, State, parse_params
 from vibechem_core.blocks.validate.cv import FoldRun
-from vibechem_core.data import Fold, FoldSet, SpectralDataset
+from vibechem_core.data import Fold, FoldSet, Results, SpectralDataset
+from vibechem_core.errors import ParamError
 from vibechem_core.registry import Registry
 from vibechem_engine.compiler import (
     STATE,
@@ -41,9 +51,11 @@ from vibechem_engine.compiler import (
     FoldTasks,
     Task,
     TaskInput,
+    compile_pipeline,
     fold_rows,
 )
 from vibechem_engine.executor import Executor, task_seeds
+from vibechem_engine.runners.search import GRID_SEARCH, Search, expand_search
 from vibechem_engine.scheduler import Job, RunStatus, run_jobs
 
 __all__ = ["PipelineRun", "TaskOutput", "execute_task", "run_pipeline"]
@@ -141,16 +153,41 @@ def run_pipeline(
 ) -> PipelineRun:
     """Run ``compiled`` (from ``pipeline``); ``sources`` gives the outputs of data nodes.
 
-    Raises ``ValueError`` when ``compiled`` has error issues (it has no tasks then).
+    Raises ``ValueError`` when ``compiled`` (or the pipeline with its grid-search
+    candidates) has error issues (it has no tasks then).
     """
     if any(i.severity == "error" for i in compiled.issues):
         raise ValueError(f"pipeline has errors: {sorted({i.code for i in compiled.issues})}")
+    searches: dict[str, Search] = {}
+    for search_id in [n["node_id"] for n in pipeline["nodes"] if n["block_id"] == GRID_SEARCH]:
+        try:
+            pipeline, searches[search_id] = expand_search(
+                pipeline,
+                search_id,
+                registry,
+                max_workers=executor.max_workers,
+                cpu_count=os.cpu_count() or 1,
+            )
+        except ParamError as exc:  # a node error of the search (bad params, too large)
+            return PipelineRun("failed", {}, {f"{search_id}:run": exc})
+    if searches:
+        compiled = compile_pipeline(pipeline, registry)
+        if any(i.severity == "error" for i in compiled.issues):
+            raise ValueError(f"candidates have errors: {sorted({i.code for i in compiled.issues})}")
     nodes = {n["node_id"]: n for n in pipeline["nodes"]}
     done: dict[str, TaskOutput] = {
         f"{node_id}:run": TaskOutput(dict(values)) for node_id, values in sources.items()
     }
     errors: dict[str, BaseException] = {}
     seeds = task_seeds(root_seed, 4)  # one root per stage
+
+    def failed(status: RunStatus) -> PipelineRun:
+        for search_id, search in searches.items():  # a branch error is the search's too
+            ids = [cv for _, cv in search.branches]  # generated node ids: <cv> and <cv>.<part>
+            branch = next((e for t, e in errors.items() if _in_branch(t, ids)), None)
+            if branch is not None:
+                errors.setdefault(f"{search_id}:run", branch)
+        return PipelineRun(status, done, errors)
 
     def spec(task: Task, stage: dict[str, Task]) -> tuple[_Spec, tuple[str, ...]]:
         deps: list[str] = []
@@ -189,7 +226,13 @@ def run_pipeline(
         for t in tasks:
             s, deps = spec(t, stage)
             jobs.append(Job(t.task_id, t.node_id, execute_task, (s,), deps))
-        result = run_jobs(jobs, executor, root_seed=seed)
+        # option A: the search's workers budget the whole stage, other nodes included
+        budgets = [
+            search.workers
+            for search in searches.values()
+            if any(_in_branch(t, [cv for _, cv in search.branches]) for t in stage)
+        ]
+        result = run_jobs(jobs, executor, root_seed=seed, cores=min(budgets, default=None))
         done.update({k: cast(TaskOutput, v) for k, v in result.results.items()})
         errors.update(result.errors)
         return result.status
@@ -201,12 +244,14 @@ def run_pipeline(
             held.add(task.task_id)
     first = [t for t in compiled.tasks if t.task_id not in held and t.task_id not in done]
     if (status := run(first, seeds[0])) != "succeeded":
-        return PipelineRun(status, done, errors)
+        return failed(status)
 
-    # Stage 2: fold tasks of every validation node
+    # Stage 2: fold tasks of every validation node (a search's work is in its branches)
     expanded: dict[str, list[tuple[Fold, FoldTasks]]] = {}
     fold_tasks: list[Task] = []
     for node_id, plan in compiled.fold_plans.items():
+        if node_id in searches:
+            continue
         folds: FoldSet = done[plan.folds.task_id].values[plan.folds.output]  # pyright: ignore[reportAssignmentType]
         expanded[node_id] = []
         for fold in folds.folds:
@@ -214,13 +259,16 @@ def run_pipeline(
             expanded[node_id].append((fold, ft))
             fold_tasks += ft.tasks
     if (status := run(fold_tasks, seeds[1])) != "succeeded":
-        return PipelineRun(status, done, errors)
+        return failed(status)
 
-    # Stage 3: validation nodes, here, with their fold runs
-    for node_id in compiled.fold_plans:
+    # Stage 3: validation nodes, here, with their fold runs; searches after their branches
+    for node_id in [n for n in compiled.fold_plans if n not in searches] + list(searches):
         task = next(t for t in compiled.tasks if t.task_id == f"{node_id}:run")
         try:
             s, _ = spec(task, {})
+            if node_id in searches:
+                done[task.task_id] = _search_output(seeds[2], s, searches[node_id], done)
+                continue
             runs = [_fold_run(fold, ft, done, registry, nodes) for fold, ft in expanded[node_id]]
             done[task.task_id] = execute_task(
                 seeds[2], replace(s, values={**s.values, "fold_runs": runs})
@@ -228,11 +276,32 @@ def run_pipeline(
         except Exception as exc:  # noqa: BLE001  (a node error, as the scheduler records worker failures)
             _log.exception("validation node %s failed", node_id)
             errors[task.task_id] = exc
-            return PipelineRun("failed", done, errors)
+            return failed("failed")
 
     # Stage 4: what depends on validation nodes
     rest = [t for t in compiled.tasks if t.task_id in held and t.task_id not in done]
-    return PipelineRun(run(rest, seeds[3]), done, errors)
+    if (status := run(rest, seeds[3])) != "succeeded":
+        return failed(status)
+    return PipelineRun(status, done, errors)
+
+
+def _in_branch(task_id: str, branches: list[str]) -> bool:
+    node = task_id.split(":", 1)[0]
+    return any(node == cv or node.startswith(f"{cv}.") for cv in branches)
+
+
+def _search_output(
+    seed: int, spec: _Spec, search: Search, done: Mapping[str, TaskOutput]
+) -> TaskOutput:
+    """Run a search node on its branches' results; its warnings (serial limit first)
+    plus theirs, once each."""
+    outs = [done[f"{cv}:run"] for _, cv in search.branches]
+    results = [cast(Results, o.values["results"]) for o in outs]
+    candidates = [(chain, r) for (chain, _), r in zip(search.branches, results, strict=True)]
+    out = execute_task(seed, replace(spec, values={**spec.values, "candidates": candidates}))
+    first = () if search.warning is None else (search.warning,)
+    unique = {str(w): w for w in (*first, *(w for o in (out, *outs) for w in o.warnings))}
+    return TaskOutput(out.values, tuple(unique.values()))
 
 
 def _fold_run(

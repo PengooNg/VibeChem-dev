@@ -24,6 +24,7 @@ from vibechem_core.blocks.preprocess.snv import SNV
 from vibechem_core.blocks.split.kennard_stone import KennardStone
 from vibechem_core.blocks.split.random_split import RandomSplit
 from vibechem_core.blocks.split.spxy import SPXY
+from vibechem_core.blocks.validate.cv import CrossValidation
 from vibechem_core.blocks.validate.folds import (
     ContiguousBlocks,
     GroupKFold,
@@ -32,6 +33,7 @@ from vibechem_core.blocks.validate.folds import (
     RepeatedKFold,
     VenetianBlinds,
 )
+from vibechem_core.blocks.validate.grid_search import GridSearch
 from vibechem_core.testing import DummyCenter, DummyOffset, DummySchema
 from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, WavelengthRangesParam
 
@@ -44,6 +46,8 @@ from vibechem_engine.api.schemas import BlockDetail, EnumParam, IntParam, Wavele
         *(KFold, VenetianBlinds, ContiguousBlocks, LeaveOneOut, RepeatedKFold, GroupKFold),
         PLS,
         PLSDA,
+        CrossValidation,
+        GridSearch,  # search_space parameter (T2.10c)
     ],
 )
 def test_block_detail_is_valid_and_round_trips(block: type[Block]) -> None:
@@ -164,6 +168,7 @@ def test_json_schema_has_one_entry_per_param_type() -> None:
         "enum",
         "string",
         "wavelength_ranges",
+        "search_space",
     }
     json.dumps(schema)
 

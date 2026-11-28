@@ -63,8 +63,33 @@ _PARAM_SPEC = "vibechem_param"  # key of the ParamSpec in a dataclass field's me
 type ParamValue = str | int | float | bool | None
 type WavelengthRanges = tuple[tuple[float, float], ...]
 """Value of a ``wavelength_ranges`` parameter: ``(low, high)`` pairs with ``low <= high``."""
-type ParamDefault = ParamValue | WavelengthRanges
 type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None
+
+
+@dataclass(frozen=True)
+class SearchOption:
+    """One option of a ``search_space`` slot: a block and its parameter values."""
+
+    block_id: str
+    params: Mapping[str, JSONValue] = field(default_factory=dict[str, JSONValue])
+
+
+@dataclass(frozen=True)
+class SearchSpace:
+    """Value of a ``search_space`` parameter (DATA_MODEL.md §5.2): ordered slots, each a
+    tuple of options; ``None`` skips the slot."""
+
+    slots: tuple[tuple[SearchOption | None, ...], ...]
+
+    def to_json(self) -> list[list[dict[str, JSONValue] | None]]:
+        """The JSON form ``[[null, {"block_id": ..., "params": {...}}, ...], ...]``."""
+        return [
+            [None if o is None else {"block_id": o.block_id, "params": dict(o.params)} for o in s]
+            for s in self.slots
+        ]
+
+
+type ParamDefault = ParamValue | WavelengthRanges | SearchSpace
 
 
 # ---- Parameters ---------------------------------------------------------------------
@@ -107,6 +132,8 @@ class ParamSpec:
             return "enum"
         if isinstance(self.default, tuple):
             return "wavelength_ranges"
+        if isinstance(self.default, SearchSpace):
+            return "search_space"
         return _TYPE_NAMES[type(self.default)]
 
     def to_dict(self, param_id: str, block_id: str) -> dict[str, JSONValue]:
@@ -114,7 +141,12 @@ class ParamSpec:
         key = f"blocks.{block_id}.params.{param_id}"
         out: dict[str, JSONValue] = {"param_id": param_id, "type": self.type}
         default = self.default
-        out["default"] = [list(pair) for pair in default] if isinstance(default, tuple) else default
+        if isinstance(default, SearchSpace):
+            out["default"] = cast(JSONValue, default.to_json())
+        elif isinstance(default, tuple):
+            out["default"] = [list(pair) for pair in default]
+        else:
+            out["default"] = default
         if self.min is not None:
             out["min"] = self.min
         if self.max is not None:
@@ -158,6 +190,7 @@ def Param[T: ParamDefault](
     makes a ``wavelength_ranges`` parameter (``ranges: WavelengthRanges =
     Param(((1100.0, 2500.0),))``): pairs in either order, stored as ``(min, max)``, in
     the unit of the input axis, checked against the axis by the block at run time.
+    A :class:`SearchSpace` default makes a ``search_space`` parameter (T2.10c).
     ``constraint`` (``"polyorder < window"``)
     and ``visible_if`` (``("method", ("a", "b"))``) name other parameters; they are
     checked by :func:`param_specs`.
@@ -169,6 +202,9 @@ def Param[T: ParamDefault](
         if choices is not None:
             raise ValueError("choices is not allowed for wavelength_ranges parameters")
         default = cast(T, ranges)
+    elif isinstance(default, SearchSpace):
+        if choices is not None or search_space_value(default.to_json()) != default:
+            raise ValueError(f"default {default!r} must be a valid search space without choices")
     elif type(default) not in _TYPE_NAMES:
         raise TypeError(
             f"default must be an int, float, bool or str (or a tuple of pairs), got {default!r}"
@@ -303,6 +339,36 @@ def _ranges_value(value: object) -> WavelengthRanges | None:
     return tuple(pairs)
 
 
+def search_space_value(value: object) -> SearchSpace | None:
+    """``value`` as a :class:`SearchSpace`, or ``None`` if it is not a non-empty list of
+    non-empty slots whose items are ``null`` or ``{"block_id": str, "params"?: object}``.
+    Block ids and option params are checked against the registry where the search runs."""
+    if not isinstance(value, list) or not value:
+        return None
+    slots: list[tuple[SearchOption | None, ...]] = []
+    for slot in cast(list[object], value):
+        if not isinstance(slot, list) or not slot:
+            return None
+        options: list[SearchOption | None] = []
+        for item in cast(list[object], slot):
+            if item is None:
+                options.append(None)
+                continue
+            if not isinstance(item, dict):
+                return None
+            entry = cast(dict[object, object], item)
+            block_id, params = entry.get("block_id"), entry.get("params", {})
+            if set(entry) - {"block_id", "params"} or not isinstance(block_id, str):
+                return None
+            if not isinstance(params, dict):
+                return None
+            if not all(isinstance(k, str) for k in cast(dict[object, object], params)):
+                return None
+            options.append(SearchOption(block_id, cast(dict[str, JSONValue], params)))
+        slots.append(tuple(options))
+    return SearchSpace(tuple(slots))
+
+
 def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamDefault]:
     """``(reason, value)``: the §5.3 reason the value is invalid (or ``None``) and the
     value converted to the parameter type (``int`` -> ``float`` for floats)."""
@@ -310,6 +376,11 @@ def _value_problem(spec: ParamSpec, value: object) -> tuple[str | None, ParamDef
     if kind == "wavelength_ranges":
         ranges = _ranges_value(value)
         return ("type", None) if ranges is None else (None, ranges)
+    if kind == "search_space":
+        if isinstance(value, SearchSpace):  # the default
+            return None, value
+        space = search_space_value(value)
+        return ("type", None) if space is None else (None, space)
     if kind == "enum":
         choices = cast(tuple[ParamValue, ...], spec.choices)
         if type(choices[0]) is float and type(value) is int:

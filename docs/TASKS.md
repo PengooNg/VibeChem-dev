@@ -46,7 +46,7 @@ Legend: 👤 = Claude Code prepares, Quan acts and merges (stop `HUMAN_STEP`). Q
 | [x] T0.09 Skeleton engine | [x] T1.06b Vendor readers | [x] T2.09 Crash recovery |
 | [x] T0.10 Skeleton UI | [x] T1.07 SNV, MSC, detrend, cut | [x] T2.10a CV runner + LV rules 👤 |
 | | | [x] T2.10b CV of PLS2 + PLS-DA, `model` output 👤 |
-| | | [ ] T2.10c Preprocessing grid search 👤 |
+| | | [x] T2.10c Preprocessing grid search 👤 |
 | | | [ ] T2.10d Nested CV 👤 |
 | [x] T0.11 Skeleton shell + installers | [x] T1.08 Savitzky–Golay | [ ] T2.11 Python API + CLI |
 | [x] T0.12 Spike: transport | [x] T1.09 Scaling blocks | [ ] T2.12 Benchmarks + profiling |

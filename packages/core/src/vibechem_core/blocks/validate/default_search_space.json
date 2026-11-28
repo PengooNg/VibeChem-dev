@@ -1,0 +1,27 @@
+[
+  [
+    null,
+    {"block_id": "preprocess.snv", "params": {}},
+    {"block_id": "preprocess.msc", "params": {}}
+  ],
+  [
+    null,
+    {"block_id": "preprocess.detrend", "params": {"degree": 1}},
+    {"block_id": "preprocess.detrend", "params": {"degree": 2}},
+    {"block_id": "preprocess.detrend", "params": {"degree": 3}}
+  ],
+  [
+    null,
+    {"block_id": "preprocess.savgol", "params": {"window": 5, "polyorder": 2, "deriv": 1}},
+    {"block_id": "preprocess.savgol", "params": {"window": 5, "polyorder": 2, "deriv": 2}},
+    {"block_id": "preprocess.savgol", "params": {"window": 15, "polyorder": 2, "deriv": 1}},
+    {"block_id": "preprocess.savgol", "params": {"window": 15, "polyorder": 2, "deriv": 2}},
+    {"block_id": "preprocess.savgol", "params": {"window": 25, "polyorder": 2, "deriv": 1}},
+    {"block_id": "preprocess.savgol", "params": {"window": 25, "polyorder": 2, "deriv": 2}}
+  ],
+  [
+    null,
+    {"block_id": "preprocess.autoscale", "params": {}},
+    {"block_id": "preprocess.pareto", "params": {}}
+  ]
+]

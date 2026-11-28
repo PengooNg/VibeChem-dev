@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # packages/engine/tests/runners/test_runners.py
-"""``vibechem_engine.runners``: the CV runner (T2.10a "Done when", METHODS.md#cv).
+"""``vibechem_engine.runners``: the CV runner (T2.10a "Done when", METHODS.md#cv) and the
+grid search (T2.10c "Done when", METHODS.md#grid-search).
 
 Gasoline rows 1-50 with ``row_index`` offset from the positions and reversed (R40): fold
 rows are taken by ``row_index`` only, so a position-based selection would pick other rows.
@@ -8,6 +9,7 @@ rows are taken by ``row_index`` only, so a position-based selection would pick o
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -23,15 +25,20 @@ from vibechem_core.block import Block, State, port
 from vibechem_core.blocks.model.pls import PLS
 from vibechem_core.blocks.preprocess.scaling import Autoscale
 from vibechem_core.blocks.preprocess.snv import SNV
+from vibechem_core.blocks.validate import grid_search
 from vibechem_core.blocks.validate.cv import CrossValidation
 from vibechem_core.blocks.validate.folds import ContiguousBlocks, LeaveOneOut
+from vibechem_core.blocks.validate.grid_search import GridSearch
 from vibechem_core.data import Axis, FoldSet, Results, SpectralDataset
+from vibechem_core.errors import ParamError, VibeChemWarning
 from vibechem_core.reference_datasets import load_expected, load_reference_dataset
 from vibechem_core.registry import Registry
 from vibechem_core.testing import assert_reference
+from vibechem_engine import runners
 from vibechem_engine.compiler import compile_pipeline
 from vibechem_engine.executor import ProcessExecutor
 from vibechem_engine.runners import PipelineRun, run_pipeline
+from vibechem_engine.scheduler import run_jobs
 
 SOURCE = "Mevik & Wehrens 2007, testdata/expected/gasoline_nir_pls.json"
 
@@ -204,3 +211,200 @@ def test_compile_errors_are_refused(gasoline: SpectralDataset) -> None:
         run_pipeline(
             compiled, doc, REGISTRY, {"src": {"spectra": gasoline}}, ThreadExecutor(), root_seed=1
         )
+
+
+# ---- Grid search (T2.10c) ---------------------------------------------------------
+
+
+class Boom(Block):
+    """A chain step that fails, to check that a branch error reaches the search node."""
+
+    block_id = "test.boom"
+    version = "1.0.0"
+    icon = "glyph-dummy"
+    fitted = False
+    inputs = (port("spectra", "Spectra"),)
+    outputs = (port("spectra", "Spectra"),)
+
+    def apply(self, **kwargs: Any) -> Any:  # noqa: ARG002
+        raise RuntimeError("boom")
+
+
+SEARCH_REGISTRY = Registry()
+for _block in (Source, SNV, Autoscale, PLS, ContiguousBlocks, CrossValidation, GridSearch, Boom):
+    SEARCH_REGISTRY.register(_block)
+
+SNV_: dict[str, Any] = {"block_id": "preprocess.snv", "params": {}}
+AUTO: dict[str, Any] = {"block_id": "preprocess.autoscale", "params": {}}
+
+
+def search_doc(validation: str, params: dict[str, Any], chain: list[str]) -> dict[str, Any]:
+    """src -> folds; src -> chain -> pls -> <validation>; folds -> <validation>."""
+    nodes: list[dict[str, Any]] = [
+        {"node_id": "src", "block_id": "test.source", "params": {}},
+        {"node_id": "folds", "block_id": "validate.contiguous_blocks", "params": {"k": 5}},
+        {"node_id": "pls", "block_id": "model.pls", "params": {"n_components": 8}},
+        {"node_id": "val", "block_id": validation, "params": params},
+    ]
+    edges = [("src", "spectra", "folds", "spectra"), ("pls", "model", "val", "model"),
+             ("folds", "folds", "val", "folds")]  # fmt: skip
+    prev = "src"
+    for i, block_id in enumerate(chain):
+        nodes.append({"node_id": f"p{i}", "block_id": block_id, "params": {}})
+        edges.append((prev, "spectra", f"p{i}", "spectra"))
+        prev = f"p{i}"
+    edges.append((prev, "spectra", "pls", "spectra"))
+    return {
+        "nodes": nodes,
+        "edges": [
+            {"edge_id": f"e{i}", "from_node": a, "from_port": ap, "to_node": b, "to_port": bp}
+            for i, (a, ap, b, bp) in enumerate(edges)
+        ],
+    }
+
+
+def run_search(pipeline: dict[str, Any], data: SpectralDataset) -> PipelineRun:
+    compiled = compile_pipeline(pipeline, SEARCH_REGISTRY)
+    return run_pipeline(
+        compiled,
+        pipeline,
+        SEARCH_REGISTRY,
+        {"src": {"spectra": data}},
+        ThreadExecutor(),
+        root_seed=3,
+    )
+
+
+def test_each_candidate_equals_a_separate_cv_run_of_its_chain(gasoline: SpectralDataset) -> None:
+    params: dict[str, Any] = {
+        "lv_rule": "one_se",
+        "search_space": [[None, SNV_, SNV_], [None, AUTO]],
+    }
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "succeeded", out.errors
+    search = cast(Results, out.output("val", "results"))
+    assert search.kind == "search"
+    table = cast(dict[str, Any], search.candidates)
+    chains = [[], ["preprocess.autoscale"], ["preprocess.snv"], ["preprocess.snv", "preprocess.autoscale"]]  # fmt: skip
+    assert [[s["block_id"] for s in json.loads(c)] for c in table["chain"]] == chains
+    criterion: list[float] = []
+    for i, chain in enumerate(chains):
+        alone = run_search(search_doc("validate.cv", {"lv_rule": "one_se"}, chain), gasoline)
+        assert alone.status == "succeeded", alone.errors
+        cv = cast(Results, alone.output("val", "results"))
+        branch = cast(Results, out.output(f"val.c{i}", "results"))
+        assert json.dumps(branch.details) == json.dumps(cv.details)  # NaN-safe equality
+        for name, value in cv.metrics.items():
+            assert table[name][i] == value, (chain, name)
+        assert_reference(method="Grid search candidate RMSECV", dataset=f"gasoline_nir rows 1-50, 5-fold, chain {chain}",
+                         actual=float(table["rmsecv"][i]), expected=cv.metrics["rmsecv"], rtol=1e-10, atol=1e-12,
+                         source="separate validate.cv run of the same chain")  # fmt: skip
+        criterion.append(cv.details["rmsecv"][int(cv.metrics["n_lv"])])
+    best = int(np.argmin(criterion))
+    assert search.details["best"] == best
+    assert table["rmsecv_at_n_lv"].tolist() == criterion
+
+
+def test_unknown_block_id_is_a_node_error(gasoline: SpectralDataset) -> None:
+    params: dict[str, Any] = {
+        "search_space": [[None, {"block_id": "preprocess.nope", "params": {}}]]
+    }
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "failed"
+    err = out.errors["val:run"]
+    assert isinstance(err, ParamError)
+    assert err.params["reason"] == "unknown_block"
+    assert err.params["value"] == "preprocess.nope"
+
+
+def test_search_caps_are_checked_before_any_branch_is_built(gasoline: SpectralDataset) -> None:
+    doc_ = search_doc("validate.grid_search", {"search_space": [[None, SNV_]]}, [])
+    pls = next(n for n in doc_["nodes"] if n["node_id"] == "pls")
+    pls["params"] = {"n_components": 1001}  # M > 1000
+    out = run_search(doc_, gasoline)
+    assert out.status == "failed"
+    assert out.outputs == {}  # nothing ran
+    err = out.errors["val:run"]
+    assert isinstance(err, ParamError)
+    assert dict(err.params) == {"param_id": "search_space", "reason": "too_many_lv",
+                                "n_candidates": 2, "n_lv": 1001, "n_iterations": 2002, "limit": 1000}  # fmt: skip
+
+
+def test_n_jobs_is_not_passed_to_the_branches(gasoline: SpectralDataset) -> None:
+    params: dict[str, Any] = {"n_jobs": 2, "search_space": [[None]]}
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "succeeded", out.errors
+
+
+def test_one_worker_above_the_serial_limit_is_refused(gasoline: SpectralDataset) -> None:
+    doc_ = search_doc("validate.grid_search", {"n_jobs": 1, "search_space": [[None, SNV_]]}, [])
+    pls = next(n for n in doc_["nodes"] if n["node_id"] == "pls")
+    pls["params"] = {"n_components": 501}  # N * M = 2 * 501 > 1000
+    out = run_search(doc_, gasoline)
+    assert out.status == "failed"
+    assert out.outputs == {}  # nothing ran
+    err = out.errors["val:run"]
+    assert isinstance(err, ParamError)
+    assert dict(err.params) == {"param_id": "n_jobs", "reason": "serial_too_large",
+                                "n_iterations": 1002, "workers": 1, "limit": 1000}  # fmt: skip
+
+
+def record_cores(monkeypatch: pytest.MonkeyPatch) -> list[int | None]:
+    """The ``cores`` budget of every ``run_jobs`` call of the runner, in call order."""
+    seen: list[int | None] = []
+
+    def spy(*args: Any, cores: int | None = None, **kwargs: Any) -> Any:
+        seen.append(cores)
+        return run_jobs(*args, cores=cores, **kwargs)
+
+    monkeypatch.setattr(runners, "run_jobs", spy)
+    return seen
+
+
+def test_n_jobs_is_the_core_budget_of_the_branch_stages(
+    gasoline: SpectralDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = record_cores(monkeypatch)
+    out = run_search(search_doc("validate.grid_search", {"n_jobs": 1, "search_space": [[None]]}, []), gasoline)  # fmt: skip
+    assert out.status == "succeeded", out.errors
+    assert seen == [1, 1]  # stage 1 (fits) and stage 2 (fold tasks) hold branch tasks
+    assert out.outputs["val:run"].warnings == ()  # 1 * 8 iterations: serial is fine
+    seen.clear()
+    plain = run_search(search_doc("validate.cv", {}, []), gasoline)
+    assert plain.status == "succeeded", plain.errors
+    assert seen == [None, None]  # no search: the executor's workers
+
+
+def test_several_workers_above_the_serial_limit_warn(
+    gasoline: SpectralDataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(grid_search, "MAX_SERIAL_ITERATIONS", 10)  # 2 * 8 = 16 > 10
+    seen = record_cores(monkeypatch)
+    params: dict[str, Any] = {"n_jobs": 64, "search_space": [[None, SNV_]]}
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "succeeded", out.errors
+    assert set(seen) == {2}  # min(64, executor's 2 workers)
+    found = [w for w in out.outputs["val:run"].warnings if isinstance(w, VibeChemWarning)]
+    assert [(w.code, dict(w.params)) for w in found if w.code == grid_search.VALIDATION_SEARCH_PARALLEL_ONLY] == [
+        ("VALIDATION_SEARCH_PARALLEL_ONLY", {"n_iterations": 16, "workers": 2})
+    ]  # fmt: skip
+
+
+def test_a_failing_branch_is_reported_on_the_search_node(gasoline: SpectralDataset) -> None:
+    params: dict[str, Any] = {"search_space": [[None, {"block_id": "test.boom", "params": {}}]]}
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "failed"
+    assert isinstance(out.errors["val:run"], RuntimeError)
+    assert any(t.startswith("val.c1.s0:") for t in out.errors)
+
+
+def test_search_needs_validate_cv_in_the_registry(gasoline: SpectralDataset) -> None:
+    registry = Registry()
+    for block in (Source, PLS, ContiguousBlocks, GridSearch):
+        registry.register(block)
+    doc_ = search_doc("validate.grid_search", {"search_space": [[None]]}, [])
+    with pytest.raises(ValueError, match=r"validate.cv"):
+        run_pipeline(
+            compile_pipeline(doc_, registry), doc_, registry,
+            {"src": {"spectra": gasoline}}, ThreadExecutor(), root_seed=3,
+        )  # fmt: skip
