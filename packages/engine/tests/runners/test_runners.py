@@ -314,6 +314,25 @@ def test_unknown_block_id_is_a_node_error(gasoline: SpectralDataset) -> None:
     assert err.params["value"] == "preprocess.nope"
 
 
+def test_search_caps_are_checked_before_any_branch_is_built(gasoline: SpectralDataset) -> None:
+    doc_ = search_doc("validate.grid_search", {"search_space": [[None, SNV_]]}, [])
+    pls = next(n for n in doc_["nodes"] if n["node_id"] == "pls")
+    pls["params"] = {"n_components": 1001}  # M > 1000
+    out = run_search(doc_, gasoline)
+    assert out.status == "failed"
+    assert out.outputs == {}  # nothing ran
+    err = out.errors["val:run"]
+    assert isinstance(err, ParamError)
+    assert dict(err.params) == {"param_id": "search_space", "reason": "too_many_lv",
+                                "n_candidates": 2, "n_lv": 1001, "n_iterations": 2002, "limit": 1000}  # fmt: skip
+
+
+def test_n_jobs_is_not_passed_to_the_branches(gasoline: SpectralDataset) -> None:
+    params: dict[str, Any] = {"n_jobs": 2, "search_space": [[None]]}
+    out = run_search(search_doc("validate.grid_search", params, []), gasoline)
+    assert out.status == "succeeded", out.errors
+
+
 def test_a_failing_branch_is_reported_on_the_search_node(gasoline: SpectralDataset) -> None:
     params: dict[str, Any] = {"search_space": [[None, {"block_id": "test.boom", "params": {}}]]}
     out = run_search(search_doc("validate.grid_search", params, []), gasoline)

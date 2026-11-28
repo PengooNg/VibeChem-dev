@@ -23,6 +23,7 @@ from vibechem_core.blocks.validate.grid_search import (
     GridSearch,
     GridSearchParams,
     candidate_chains,
+    check_search_size,
     spectra_output,
 )
 from vibechem_core.registry import Registry
@@ -38,7 +39,8 @@ def expand_search(
     """``pipeline`` with the candidate branches of search node ``node_id``, and per
     candidate its chain and the id of its ``validate.cv`` node, in candidate order.
 
-    Raises ``ParamError`` (``BLOCK_PARAM_INVALID``) for bad search params; ``ValueError``
+    Raises ``ParamError`` (``BLOCK_PARAM_INVALID``) for bad search params or a search
+    above the N31 caps (checked before any branch is built); ``ValueError``
     when ``validate.cv`` is not registered. ``pipeline`` must have passed the graph checks.
     """
     if CrossValidation.block_id not in registry:
@@ -55,10 +57,14 @@ def expand_search(
 
     model_edge, folds_edge = into(node_id, "model"), into(node_id, "folds")
     model = by_id[model_edge["from_node"]]
+    # M = the model's maximum LV count (N31); a bad value is the model node's own error later
+    default_lv = getattr(registry.get(model["block_id"]).params_type(), "n_components", 1)
+    n_lv = model.get("params", {}).get("n_components", default_lv)
+    check_search_size(len(chains), n_lv if type(n_lv) is int else 1)
     first = registry.meta(model["block_id"]).inputs[0].port_id
     feed = into(model["node_id"], first)
     others = [e for e in edges if e["to_node"] == model["node_id"] and e["to_port"] != first]
-    cv_params = {k: v for k, v in raw.items() if k != "search_space"}
+    cv_params = {k: v for k, v in raw.items() if k not in ("search_space", "n_jobs")}
 
     branches: list[tuple[Chain, str]] = []
     for i, chain in enumerate(chains):

@@ -66,10 +66,47 @@ def _default_space() -> SearchSpace:
 
 DEFAULT_SEARCH_SPACE = _default_space()
 
+# Search size caps (METHODS.md N31, Quan 2026-11-28): N candidates, M LV counts swept
+MAX_CANDIDATES = 1000
+MAX_LV = 1000
+MAX_ITERATIONS = 50_000  # N * M
+
 
 @dataclass(frozen=True)
 class GridSearchParams(CVParams):
     search_space: SearchSpace = Param(DEFAULT_SEARCH_SPACE)  # noqa: RUF009 (frozen value)
+    n_jobs: int = Param(-10, constraint="n_jobs != 0")
+
+
+def effective_jobs(n_jobs: int, cpu_count: int) -> int:
+    """Workers for ``n_jobs``: positive = that many, negative = all cores minus ``|n_jobs|``;
+    at least 1 (METHODS.md N31)."""
+    return max(1, n_jobs if n_jobs > 0 else cpu_count + n_jobs)
+
+
+def check_search_size(n_candidates: int, n_lv: int) -> None:
+    """Hard caps of N31, checked before any candidate is built or run: ``ParamError``
+    ``BLOCK_PARAM_INVALID`` (``param_id`` ``search_space``) with ``reason``
+    ``too_many_candidates`` (N > 1000), ``too_many_lv`` (M > 1000) or
+    ``search_too_large`` (N * M > 50000), and ``n_candidates``, ``n_lv``,
+    ``n_iterations``, ``limit``."""
+    for reason, value, limit in (
+        ("too_many_candidates", n_candidates, MAX_CANDIDATES),
+        ("too_many_lv", n_lv, MAX_LV),
+        ("search_too_large", n_candidates * n_lv, MAX_ITERATIONS),
+    ):
+        if value > limit:
+            raise ParamError(
+                BLOCK_PARAM_INVALID,
+                {
+                    "param_id": "search_space",
+                    "reason": reason,
+                    "n_candidates": n_candidates,
+                    "n_lv": n_lv,
+                    "n_iterations": n_candidates * n_lv,
+                    "limit": limit,
+                },
+            )
 
 
 def spectra_output(meta: BlockMeta) -> str | None:

@@ -24,6 +24,8 @@ from vibechem_core.blocks.validate.grid_search import (
     GridSearchParams,
     candidate_chains,
     chain_label,
+    check_search_size,
+    effective_jobs,
 )
 from vibechem_core.data import Results
 from vibechem_core.errors import ParamError
@@ -131,3 +133,31 @@ def test_results_table_and_best_candidate() -> None:
     assert out.candidates["rmsecv_at_n_lv"].tolist() == [0.5, 0.3, 0.3]
     assert out.candidates["n_lv"].tolist() == [1.0, 2.0, 1.0]
     assert out.candidates["chain"].tolist() == [chain_label(c) for c in chains]
+
+
+@pytest.mark.parametrize(
+    ("n", "m", "reason", "limit"),
+    [(1001, 1, "too_many_candidates", 1000), (1, 1001, "too_many_lv", 1000),
+     (1000, 51, "search_too_large", 50000), (51, 1000, "search_too_large", 50000)],
+)  # fmt: skip
+def test_search_size_caps(n: int, m: int, reason: str, limit: int) -> None:
+    with pytest.raises(ParamError) as err:
+        check_search_size(n, m)
+    assert dict(err.value.params) == {
+        "param_id": "search_space", "reason": reason, "n_candidates": n, "n_lv": m,
+        "n_iterations": n * m, "limit": limit,
+    }  # fmt: skip
+
+
+def test_search_size_at_the_caps_is_allowed() -> None:
+    for n, m in ((1000, 50), (50, 1000), (1, 1000), (1000, 1)):
+        check_search_size(n, m)
+
+
+def test_n_jobs_default_is_all_cores_minus_ten_and_at_least_one() -> None:
+    assert parse_params(GridSearchParams, {}).n_jobs == -10
+    assert [effective_jobs(-10, c) for c in (32, 11, 10, 4, 1)] == [22, 1, 1, 1, 1]
+    assert [effective_jobs(j, 8) for j in (1, 3, 64, -1, -7, -8)] == [1, 3, 64, 7, 1, 1]
+    with pytest.raises(ParamError) as err:
+        parse_params(GridSearchParams, {"n_jobs": 0})
+    assert dict(err.value.params)["reason"] == "constraint"
